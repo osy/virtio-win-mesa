@@ -66,7 +66,7 @@
 #define VN_PERF(category)  (unlikely(vn_env.perf & VN_PERF_##category))
 
 #define vn_error(instance, error)                                            \
-   (VN_DEBUG(RESULT) ? vn_log_result((instance), (error), __func__) : (error))
+   (VN_DEBUG(RESULT) ? vn_log_result((instance), (error), __FILE__, __LINE__, __func__) : (error))
 #define vn_result(instance, result)                                          \
    ((result) >= VK_SUCCESS ? (result) : vn_error((instance), (result)))
 
@@ -326,6 +326,8 @@ vn_log(struct vn_instance *instance, const char *format, ...)
 VkResult
 vn_log_result(struct vn_instance *instance,
               VkResult result,
+              const char *file,
+              int line,
               const char *where);
 
 #define VN_REFCOUNT_INIT(val)                                                \

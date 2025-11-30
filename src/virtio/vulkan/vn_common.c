@@ -103,9 +103,11 @@ vn_log(struct vn_instance *instance, const char *format, ...)
 VkResult
 vn_log_result(struct vn_instance *instance,
               VkResult result,
+              const char *file,
+              int line,
               const char *where)
 {
-   vn_log(instance, "%s: %s", where, vk_Result_to_str(result));
+   vn_log(instance, "%s:%d: %s: %s", file, line, where, vk_Result_to_str(result));
    return result;
 }
 
