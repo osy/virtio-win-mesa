@@ -196,6 +196,12 @@ find_extension_names(const char *const *exts,
                      uint32_t ext_count,
                      const char *name)
 {
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   /* Filter win32 extensions as they're fully implemented in the driver */
+   if (strstr(name, "win32"))
+      return true;
+#endif
+
    for (uint32_t i = 0; i < ext_count; i++) {
       if (!strcmp(exts[i], name))
          return true;
