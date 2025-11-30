@@ -194,16 +194,27 @@ struct vn_renderer_sync_ops {
                       uint32_t flags,
                       struct vn_renderer_sync **out_sync);
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   VkResult (*create_from_handle)(struct vn_renderer *renderer,
+                                  void *handle,
+                                  struct vn_renderer_sync **out_sync);
+#else
    VkResult (*create_from_syncobj)(struct vn_renderer *renderer,
                                    int fd,
                                    bool sync_file,
                                    struct vn_renderer_sync **out_sync);
+#endif
    void (*destroy)(struct vn_renderer *renderer,
                    struct vn_renderer_sync *sync);
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   void *(*export_handle)(struct vn_renderer *renderer,
+                          struct vn_renderer_sync *sync);
+#else
    int (*export_syncobj)(struct vn_renderer *renderer,
                          struct vn_renderer_sync *sync,
                          bool sync_file);
+#endif
 
    /* reset the counter */
    VkResult (*reset)(struct vn_renderer *renderer,
@@ -421,6 +432,15 @@ vn_renderer_sync_create(struct vn_renderer *renderer,
    return renderer->sync_ops.create(renderer, initial_val, flags, out_sync);
 }
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+static inline VkResult
+vn_renderer_sync_create_from_handle(struct vn_renderer *renderer,
+                                     void *handle,
+                                     struct vn_renderer_sync **out_sync)
+{
+   return renderer->sync_ops.create_from_handle(renderer, handle, out_sync);
+}
+#else
 static inline VkResult
 vn_renderer_sync_create_from_syncobj(struct vn_renderer *renderer,
                                      int fd,
@@ -430,6 +450,7 @@ vn_renderer_sync_create_from_syncobj(struct vn_renderer *renderer,
    return renderer->sync_ops.create_from_syncobj(renderer, fd, sync_file,
                                                  out_sync);
 }
+#endif
 
 static inline void
 vn_renderer_sync_destroy(struct vn_renderer *renderer,
@@ -438,6 +459,14 @@ vn_renderer_sync_destroy(struct vn_renderer *renderer,
    renderer->sync_ops.destroy(renderer, sync);
 }
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+static inline void *
+vn_renderer_sync_export_handle(struct vn_renderer *renderer,
+                                struct vn_renderer_sync *sync)
+{
+   return renderer->sync_ops.export_handle(renderer, sync);
+}
+#else
 static inline int
 vn_renderer_sync_export_syncobj(struct vn_renderer *renderer,
                                 struct vn_renderer_sync *sync,
@@ -445,6 +474,7 @@ vn_renderer_sync_export_syncobj(struct vn_renderer *renderer,
 {
    return renderer->sync_ops.export_syncobj(renderer, sync, sync_file);
 }
+#endif
 
 static inline VkResult
 vn_renderer_sync_reset(struct vn_renderer *renderer,

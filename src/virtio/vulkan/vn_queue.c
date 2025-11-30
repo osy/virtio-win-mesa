@@ -1900,6 +1900,128 @@ vn_WaitForFences(VkDevice device,
    return vn_result(dev->instance, result);
 }
 
+
+
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+static VkResult
+vn_create_sync_handle(struct vn_device *dev,
+                    struct vn_sync_payload_external *external_payload,
+                    HANDLE *out_handle)
+{
+   struct vn_renderer_sync *sync;
+   VkResult result = vn_renderer_sync_create(dev->renderer, 0,
+                                             VN_RENDERER_SYNC_BINARY, &sync);
+   if (result != VK_SUCCESS)
+      return vn_error(dev->instance, result);
+
+   struct vn_renderer_submit_batch batch = {
+      .syncs = &sync,
+      .sync_values = &(const uint64_t){ 1 },
+      .sync_count = 1,
+      .ring_idx = external_payload->ring_idx,
+   };
+
+   uint32_t local_data[8];
+   struct vn_cs_encoder local_enc =
+      VN_CS_ENCODER_INITIALIZER_LOCAL(local_data, sizeof(local_data));
+   if (external_payload->ring_seqno_valid) {
+      const uint64_t ring_id = vn_ring_get_id(dev->primary_ring);
+      vn_encode_vkWaitRingSeqnoMESA(&local_enc, 0, ring_id,
+                                    external_payload->ring_seqno);
+      batch.cs_data = local_data;
+      batch.cs_size = vn_cs_encoder_get_len(&local_enc);
+   }
+
+   const struct vn_renderer_submit submit = {
+      .batches = &batch,
+      .batch_count = 1,
+   };
+   result = vn_renderer_submit(dev->renderer, &submit);
+   if (result != VK_SUCCESS) {
+      vn_renderer_sync_destroy(dev->renderer, sync);
+      return vn_error(dev->instance, result);
+   }
+
+   *out_handle = vn_renderer_sync_export_handle(dev->renderer, sync);
+   vn_renderer_sync_destroy(dev->renderer, sync);
+
+   return *out_handle != NULL ? VK_SUCCESS : VK_ERROR_TOO_MANY_OBJECTS;
+}
+
+VkResult
+vn_ImportFenceWin32HandleKHR(VkDevice device,
+                             const VkImportFenceWin32HandleInfoKHR *pImportFenceWin32HandleInfo)
+{
+   VN_TRACE_FUNC();
+   struct vn_device *dev = vn_device_from_handle(device);
+   struct vn_fence *fence = vn_fence_from_handle(pImportFenceWin32HandleInfo->fence);
+   ASSERTED const bool is_handle = pImportFenceWin32HandleInfo->handleType ==
+                                   VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+   void *handle = pImportFenceWin32HandleInfo->handle;
+   const LPCWSTR name = pImportFenceWin32HandleInfo->name;
+
+   assert(is_handle);
+
+   if ((handle == NULL && name == NULL) && (handle != NULL && name != NULL))
+      return vn_error(dev->instance, VK_ERROR_INVALID_EXTERNAL_HANDLE);
+
+   struct vn_sync_payload *temp = &fence->temporary;
+   vn_sync_payload_release(dev, temp);
+   temp->type = VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE;
+   temp->handle = name != NULL ? CreateEventW(NULL, FALSE, FALSE, name) : handle;
+   fence->payload = temp;
+   //vn_log(dev->instance, "created handle %p", temp->handle);
+
+   return VK_SUCCESS;
+}
+
+VkResult
+vn_GetFenceWin32HandleKHR(VkDevice device,
+                          const VkFenceGetWin32HandleInfoKHR *pGetWin32HandleInfo,
+                          HANDLE *pHandle)
+{
+   VN_TRACE_FUNC();
+   struct vn_device *dev = vn_device_from_handle(device);
+   struct vn_fence *fence = vn_fence_from_handle(pGetWin32HandleInfo->fence);
+   const bool is_handle =
+      pGetWin32HandleInfo->handleType == VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+   struct vn_sync_payload *payload = fence->payload;
+   VkResult result;
+
+   assert(is_handle);
+   assert(dev->physical_device->renderer_sync_fd.fence_exportable);
+
+   HANDLE handle = NULL;
+   if (payload->type == VN_SYNC_TYPE_DEVICE_ONLY) {
+      result = vn_create_sync_handle(dev, &fence->external_payload, &handle);
+      if (result != VK_SUCCESS)
+         return vn_error(dev->instance, result);
+
+      vn_async_vkResetFenceResourceMESA(dev->primary_ring, device,
+                                        pGetWin32HandleInfo->fence);
+
+      vn_sync_payload_release(dev, &fence->temporary);
+      fence->payload = &fence->permanent;
+   } else {
+      assert(payload->type == VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE);
+
+      /* transfer ownership of imported sync fd to save a dup */
+      handle = payload->handle;
+      payload->handle = NULL;
+
+      /* reset host fence in case in signaled state before import */
+      result = vn_ResetFences(device, 1, &pGetWin32HandleInfo->fence);
+      if (result != VK_SUCCESS) {
+         /* transfer sync fd ownership back on error */
+         payload->handle = handle;
+         return result;
+      }
+   }
+
+   *pHandle = handle;
+   return VK_SUCCESS;
+}
+#else
 static VkResult
 vn_create_sync_file(struct vn_device *dev,
                     struct vn_sync_payload_external *external_payload,
@@ -2025,6 +2147,7 @@ vn_GetFenceFdKHR(VkDevice device,
    *pFd = fd;
    return VK_SUCCESS;
 }
+#endif
 
 /* semaphore commands */
 
@@ -2451,6 +2574,96 @@ vn_WaitSemaphores(VkDevice device,
    return vn_result(dev->instance, result);
 }
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+VKAPI_ATTR VkResult VKAPI_CALL
+vn_ImportSemaphoreWin32HandleKHR(VkDevice device,
+                                 const VkImportSemaphoreWin32HandleInfoKHR *pImportSemaphoreWin32HandleInfo)
+{
+   VN_TRACE_FUNC();
+   struct vn_device *dev = vn_device_from_handle(device);
+   struct vn_semaphore *sem =
+      vn_semaphore_from_handle(pImportSemaphoreWin32HandleInfo->semaphore);
+   ASSERTED const bool is_handle =
+      pImportSemaphoreWin32HandleInfo->handleType ==
+      VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+   void *handle = pImportSemaphoreWin32HandleInfo->handle;
+   const LPCWSTR name = pImportSemaphoreWin32HandleInfo->name;
+
+   assert(is_handle);
+
+   if ((handle == NULL && name == NULL) && (handle != NULL && name != NULL))
+      return vn_error(dev->instance, VK_ERROR_INVALID_EXTERNAL_HANDLE);
+
+   struct vn_sync_payload *temp = &sem->temporary;
+   vn_sync_payload_release(dev, temp);
+   temp->type = VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE;
+   temp->handle = name != NULL ? CreateEventW(NULL, FALSE, FALSE, name) : handle;
+   sem->payload = temp;
+   //vn_log(dev->instance, "created handle %p", temp->handle);
+
+   return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+vn_GetSemaphoreWin32HandleKHR(VkDevice device,
+                              const VkSemaphoreGetWin32HandleInfoKHR *pGetWin32HandleInfo,
+                              HANDLE *pHandle)
+{
+   VN_TRACE_FUNC();
+   struct vn_device *dev = vn_device_from_handle(device);
+   struct vn_semaphore *sem = vn_semaphore_from_handle(pGetWin32HandleInfo->semaphore);
+   const bool is_handle =
+      pGetWin32HandleInfo->handleType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+   struct vn_sync_payload *payload = sem->payload;
+
+   assert(is_handle);
+   assert(dev->physical_device->renderer_sync_fd.semaphore_exportable);
+   assert(dev->physical_device->renderer_sync_fd.semaphore_importable);
+
+   HANDLE handle = NULL;
+   if (payload->type == VN_SYNC_TYPE_DEVICE_ONLY) {
+      VkResult result = vn_create_sync_handle(dev, &sem->external_payload, &handle);
+      if (result != VK_SUCCESS)
+         return vn_error(dev->instance, result);
+
+      vn_wsi_sync_wait_handle(dev, handle);
+   } else {
+      assert(payload->type == VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE);
+
+      /* transfer ownership of imported sync handle to save a dup */
+      handle = payload->handle;
+      payload->handle = NULL;
+   }
+
+   /* When payload->type is VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE, the current
+    * payload is from a prior temporary sync_fd import. The permanent
+    * payload of the sempahore might be in signaled state. So we do an
+    * import here to ensure later wait operation is legit. With resourceId
+    * 0, renderer does a signaled sync_fd -1 payload import on the host
+    * semaphore.
+    */
+   if (payload->type == VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE) {
+      const VkImportSemaphoreResourceInfoMESA res_info = {
+         .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_RESOURCE_INFO_MESA,
+         .semaphore = pGetWin32HandleInfo->semaphore,
+         .resourceId = 0,
+      };
+      vn_async_vkImportSemaphoreResourceMESA(dev->primary_ring, device,
+                                             &res_info);
+   }
+
+   /* perform wait operation on the host semaphore */
+   vn_async_vkWaitSemaphoreResourceMESA(dev->primary_ring, device,
+                                        pGetWin32HandleInfo->semaphore);
+
+   vn_sync_payload_release(dev, &sem->temporary);
+   sem->payload = &sem->permanent;
+
+   *pHandle = handle;
+   return VK_SUCCESS;
+}
+
+#else
 VKAPI_ATTR VkResult VKAPI_CALL
 vn_ImportSemaphoreFdKHR(
    VkDevice device, const VkImportSemaphoreFdInfoKHR *pImportSemaphoreFdInfo)
@@ -2536,6 +2749,7 @@ vn_GetSemaphoreFdKHR(VkDevice device,
    *pFd = fd;
    return VK_SUCCESS;
 }
+#endif
 
 /* event commands */
 

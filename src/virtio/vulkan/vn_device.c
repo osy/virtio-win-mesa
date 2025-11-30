@@ -376,6 +376,17 @@ vn_device_fix_create_info(const struct vn_device *dev,
       block_exts[block_count++] = VK_EXT_PCI_BUS_INFO_EXTENSION_NAME;
    }
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   if (app_exts->KHR_external_fence_win32) {
+      /* see vn_physical_device_get_native_extensions */
+      block_exts[block_count++] = VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME;
+   }
+   if (app_exts->KHR_external_semaphore_win32) {
+      /* see vn_physical_device_get_native_extensions */
+      block_exts[block_count++] = VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME;
+   }
+#endif
+
    assert(extra_count <= ARRAY_SIZE(extra_exts));
    assert(block_count <= ARRAY_SIZE(block_exts));
 
