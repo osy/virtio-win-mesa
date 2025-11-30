@@ -244,6 +244,7 @@ vn_renderer_create_vtest(struct vn_instance *instance,
 static inline VkResult
 vn_renderer_create(struct vn_instance *instance,
                    const VkAllocationCallbacks *alloc,
+                   const VkInstanceCreateInfo *pCreateInfo,
                    struct vn_renderer **renderer)
 {
 #ifdef HAVE_LIBDRM

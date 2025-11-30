@@ -167,11 +167,11 @@ vn_instance_init_ring(struct vn_instance *instance)
 }
 
 static VkResult
-vn_instance_init_renderer(struct vn_instance *instance)
+vn_instance_init_renderer(struct vn_instance *instance, const VkInstanceCreateInfo *pCreateInfo)
 {
    const VkAllocationCallbacks *alloc = &instance->base.vk.alloc;
 
-   VkResult result = vn_renderer_create(instance, alloc, &instance->renderer);
+   VkResult result = vn_renderer_create(instance, alloc, pCreateInfo, &instance->renderer);
    if (result != VK_SUCCESS)
       return result;
 
@@ -314,7 +314,7 @@ vn_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
       goto out_mtx_destroy;
    }
 
-   result = vn_instance_init_renderer(instance);
+   result = vn_instance_init_renderer(instance, pCreateInfo);
    if (result == VK_ERROR_INITIALIZATION_FAILED) {
       assert(!instance->renderer);
       *pInstance = instance_handle;
