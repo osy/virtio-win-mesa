@@ -1216,10 +1216,13 @@ vn_physical_device_get_native_extensions(
    }
 #else  /* VK_USE_PLATFORM_ANDROID_KHR */
    if (physical_dev->external_memory.renderer_handle_type) {
-#if !DETECT_OS_WINDOWS
+#if DETECT_OS_WINDOWS
+      exts->KHR_external_memory_win32 = true;
+      exts->KHR_win32_keyed_mutex = true;
+#else
       exts->KHR_external_memory_fd = true;
       exts->EXT_external_memory_dma_buf = true;
-#endif /* !DETECT_OS_WINDOWS */
+#endif /* DETECT_OS_WINDOWS */
    }
 #endif /* VK_USE_PLATFORM_ANDROID_KHR */
 

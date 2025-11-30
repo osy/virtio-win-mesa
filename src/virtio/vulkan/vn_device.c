@@ -385,6 +385,10 @@ vn_device_fix_create_info(const struct vn_device *dev,
       /* see vn_physical_device_get_native_extensions */
       block_exts[block_count++] = VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME;
    }
+   if (app_exts->KHR_external_memory_win32) {
+      /* see vn_physical_device_get_native_extensions */
+      block_exts[block_count++] = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME;
+   }
 #endif
 
    assert(extra_count <= ARRAY_SIZE(extra_exts));

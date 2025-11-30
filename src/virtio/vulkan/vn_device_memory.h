@@ -57,6 +57,7 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(vn_device_memory,
                                VkDeviceMemory,
                                VK_OBJECT_TYPE_DEVICE_MEMORY)
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
 VkResult
 vn_device_memory_import_dma_buf(struct vn_device *dev,
                                 struct vn_device_memory *mem,
@@ -67,5 +68,6 @@ VkResult
 vn_get_memory_dma_buf_properties(struct vn_device *dev,
                                  int fd,
                                  uint32_t *out_mem_type_bits);
+#endif
 
 #endif /* VN_DEVICE_MEMORY_H */
