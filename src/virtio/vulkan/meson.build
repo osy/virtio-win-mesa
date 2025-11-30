@@ -105,6 +105,8 @@ vn_link_args = [
   vulkan_icd_link_args,
 ]
 
+vn_kwargs = {}
+
 vn_libs = []
 
 if not with_platform_windows
@@ -136,6 +138,16 @@ if with_platform_android
   vn_deps += [dep_android, idep_u_gralloc]
 endif
 
+if with_platform_windows
+  libvn_files += files('vn_renderer_virtgpu_win32.c')
+  vn_incs += inc_winddk
+  vn_link_args += '-static'
+  vn_kwargs = {
+    'vs_module_defs': vulkan_api_def,
+    'name_prefix': '',
+  }
+endif
+
 libvulkan_virtio = shared_library(
   'vulkan_virtio',
   [libvn_files, vn_entrypoints, sha1_h],
@@ -146,5 +158,6 @@ libvulkan_virtio = shared_library(
   link_args : vn_link_args,
   link_depends : vulkan_icd_link_depends,
   gnu_symbol_visibility : 'hidden',
+  kwargs: vn_kwargs,
   install : true,
 )

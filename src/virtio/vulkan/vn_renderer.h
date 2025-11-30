@@ -266,6 +266,14 @@ vn_renderer_create_virtgpu(struct vn_instance *instance,
                            struct vn_renderer **renderer);
 #endif
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+VkResult
+vn_renderer_create_virtgpu_win32(struct vn_instance *instance,
+                           const VkAllocationCallbacks *alloc,
+                           const VkInstanceCreateInfo *pInfo,
+                           struct vn_renderer **renderer);
+#endif
+
 VkResult
 vn_renderer_create_vtest(struct vn_instance *instance,
                          const VkAllocationCallbacks *alloc,
@@ -285,6 +293,9 @@ vn_renderer_create(struct vn_instance *instance,
    }
 
    return vn_renderer_create_virtgpu(instance, alloc, renderer);
+
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
+   return vn_renderer_create_virtgpu_win32(instance, alloc, pCreateInfo, renderer);
 #else
    return vn_renderer_create_vtest(instance, alloc, renderer);
 #endif
