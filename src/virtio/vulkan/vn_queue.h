@@ -72,15 +72,25 @@ enum vn_sync_type {
    /* device object */
    VN_SYNC_TYPE_DEVICE_ONLY,
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
    /* payload is an imported sync file */
    VN_SYNC_TYPE_IMPORTED_SYNC_FD,
+#else
+   /* payload is an imported Win32 event handle */
+   VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE,
+#endif
 };
 
 struct vn_sync_payload {
    enum vn_sync_type type;
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
    /* If type is VN_SYNC_TYPE_IMPORTED_SYNC_FD, fd is a sync file. */
    int fd;
+#else
+   /* If type is VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE, fd is a Win32 event handle. */
+   void *handle;
+#endif
 };
 
 /* For external fences and external semaphores submitted to be signaled. The

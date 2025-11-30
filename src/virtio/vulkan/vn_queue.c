@@ -25,6 +25,21 @@
 #include "vn_renderer.h"
 #include "vn_wsi.h"
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+#include <windows.h>
+static inline VkResult sync_wait_handle(void *handle, int timeout)
+{
+   switch (WaitForSingleObject(handle, timeout)) {
+   case WAIT_OBJECT_0:
+      return VK_SUCCESS;
+   case WAIT_TIMEOUT:
+      return VK_NOT_READY;
+   default:
+      return VK_ERROR_DEVICE_LOST;
+   }
+}
+#endif
+
 /* queue commands */
 
 struct vn_submit_info_pnext_fix {
@@ -398,7 +413,11 @@ vn_queue_submission_fix_batch_semaphores(struct vn_queue_submission *submit,
       struct vn_semaphore *sem = vn_semaphore_from_handle(sem_handle);
       const struct vn_sync_payload *payload = sem->payload;
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+      if (payload->type != VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE)
+#else
       if (payload->type != VN_SYNC_TYPE_IMPORTED_SYNC_FD)
+#endif
          continue;
 
       if (!vn_semaphore_wait_external(dev, sem))
@@ -1539,8 +1558,13 @@ static void
 vn_sync_payload_release(UNUSED struct vn_device *dev,
                         struct vn_sync_payload *payload)
 {
-   if (payload->type == VN_SYNC_TYPE_IMPORTED_SYNC_FD && payload->fd >= 0)
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   if (payload->type == VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE && payload->handle != NULL)
+      CloseHandle(payload->handle);
+#else
+   if (payload->type == VN_SYNC_TYPE_IMPORTED_SYNC_FD && is_fd_valid(payload->fd))
       close(payload->fd);
+#endif
 
    payload->type = VN_SYNC_TYPE_INVALID;
 }
@@ -1763,12 +1787,19 @@ vn_GetFenceStatus(VkDevice device, VkFence _fence)
          result = vn_call_vkGetFenceStatus(dev->primary_ring, device, _fence);
       }
       break;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   case VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE:
+      //vn_log(dev->instance, "waiting for handle %p", payload->handle);
+      result = payload->handle != NULL ? sync_wait_handle(payload->handle, 0) : VK_SUCCESS;
+      break;
+#else
    case VN_SYNC_TYPE_IMPORTED_SYNC_FD:
-      if (payload->fd < 0 || sync_wait(payload->fd, 0) == 0)
+      if (!is_fd_valid(payload->fd) || sync_wait(payload->fd, 0) == 0)
          result = VK_SUCCESS;
       else
          result = errno == ETIME ? VK_NOT_READY : VK_ERROR_DEVICE_LOST;
       break;
+#endif
    default:
       UNREACHABLE("unexpected fence payload type");
       break;
@@ -1911,7 +1942,7 @@ vn_create_sync_file(struct vn_device *dev,
    *out_fd = vn_renderer_sync_export_syncobj(dev->renderer, sync, true);
    vn_renderer_sync_destroy(dev->renderer, sync);
 
-   return *out_fd >= 0 ? VK_SUCCESS : VK_ERROR_TOO_MANY_OBJECTS;
+   return is_fd_valid(*out_fd) ? VK_SUCCESS : VK_ERROR_TOO_MANY_OBJECTS;
 }
 
 static inline bool
@@ -1920,7 +1951,7 @@ vn_sync_valid_fd(int fd)
    /* the special value -1 for fd is treated like a valid sync file descriptor
     * referring to an object that has already signaled
     */
-   return (fd >= 0 && sync_valid_fd(fd)) || fd == -1;
+   return (is_fd_valid(fd) && sync_valid_fd(fd)) || fd == -1;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -2015,12 +2046,23 @@ vn_semaphore_wait_external(struct vn_device *dev, struct vn_semaphore *sem)
 {
    struct vn_sync_payload *temp = &sem->temporary;
 
+
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   assert(temp->type == VN_SYNC_TYPE_IMPORTED_WIN32_HANDLE);
+
+   if (temp->handle != NULL) {
+       //vn_log(dev->instance, "waiting for handle %p", temp->handle);
+       if (sync_wait_handle(temp->handle, INFINITE) != VK_SUCCESS)
+          return false;
+   }
+#else
    assert(temp->type == VN_SYNC_TYPE_IMPORTED_SYNC_FD);
 
    if (temp->fd >= 0) {
       if (sync_wait(temp->fd, -1))
          return false;
    }
+#endif
 
    vn_sync_payload_release(dev, &sem->temporary);
    sem->payload = &sem->permanent;
