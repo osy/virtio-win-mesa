@@ -42,8 +42,13 @@ vn_wsi_validate_image_format_info(
 VkResult
 vn_wsi_fence_wait(struct vn_device *dev, struct vn_queue *queue);
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
 void
 vn_wsi_sync_wait(struct vn_device *dev, int fd);
+#else
+void
+vn_wsi_sync_wait_handle(struct vn_device *dev, void *handle);
+#endif
 
 void
 vn_wsi_flush(struct vn_queue *queue);
@@ -91,7 +96,11 @@ vn_wsi_fence_wait(struct vn_device *dev, struct vn_queue *queue)
 }
 
 static inline void
+#ifndef VK_USE_PLATFORM_WIN32_KHR
 vn_wsi_sync_wait(struct vn_device *dev, int fd)
+#else
+vn_wsi_sync_wait_handle(struct vn_device *dev, void *handle)
+#endif
 {
    return;
 }

@@ -56,7 +56,9 @@ static const struct vk_instance_extension_table
 #ifdef VK_USE_PLATFORM_XLIB_XRANDR_EXT
       .EXT_acquire_xlib_display = true,
 #endif
-#ifndef VK_USE_PLATFORM_WIN32_KHR
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+      .KHR_win32_surface = true,
+#else
       .EXT_headless_surface = true,
 #endif
 #ifdef VK_USE_PLATFORM_DISPLAY_KHR

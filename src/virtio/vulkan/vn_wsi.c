@@ -19,6 +19,10 @@
 #include "vn_physical_device.h"
 #include "vn_queue.h"
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+#include <windows.h>
+#endif
+
 #ifndef DRM_FORMAT_MOD_LINEAR
 #define DRM_FORMAT_MOD_LINEAR 0
 #endif
@@ -251,6 +255,7 @@ vn_wsi_memory_info_init(struct vn_device_memory *mem,
    }
 }
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
 static uint32_t
 vn_modifier_plane_count(struct vn_physical_device *physical_dev,
                         VkFormat format,
@@ -292,11 +297,13 @@ vn_modifier_plane_count(struct vn_physical_device *physical_dev,
    STACK_ARRAY_FINISH(modifier_props);
    return plane_count;
 }
+#endif
 
 bool
 vn_wsi_validate_image_format_info(struct vn_physical_device *physical_dev,
                                   const VkPhysicalDeviceImageFormatInfo2 *info)
 {
+#ifndef VK_USE_PLATFORM_WIN32_KHR
    const VkPhysicalDeviceImageDrmFormatModifierInfoEXT *modifier_info =
       vk_find_struct_const(
          info->pNext, PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT);
@@ -347,7 +354,7 @@ vn_wsi_validate_image_format_info(struct vn_physical_device *physical_dev,
          return false;
       }
    }
-
+#endif
    return true;
 }
 
@@ -407,6 +414,7 @@ vn_wsi_fence_wait(struct vn_device *dev, struct vn_queue *queue)
    return vn_ResetFences(dev_handle, 1, &queue->async_present.fence);
 }
 
+#ifndef VK_USE_PLATFORM_WIN32_KHR
 void
 vn_wsi_sync_wait(struct vn_device *dev, int fd)
 {
@@ -435,6 +443,36 @@ vn_wsi_sync_wait(struct vn_device *dev, int fd)
       simple_mtx_lock(&queue->async_present.queue_mutex);
    }
 }
+#else
+void
+vn_wsi_sync_wait_handle(struct vn_device *dev, void *handle)
+{
+   if (dev->renderer->info.has_implicit_fencing)
+      return;
+
+   const pid_t tid = vn_gettid();
+   struct vn_queue *queue = NULL;
+   for (uint32_t i = 0; i < dev->queue_count; i++) {
+      if (dev->queues[i].async_present.initialized &&
+          dev->queues[i].async_present.tid == tid) {
+         queue = &dev->queues[i];
+         break;
+      }
+   }
+
+   if (queue) {
+      simple_mtx_unlock(&queue->async_present.queue_mutex);
+      vn_wsi_chains_unlock(dev, queue->async_present.info, /*all=*/false);
+   }
+
+   WaitForSingleObject(handle, INFINITE);
+
+   if (queue) {
+      vn_wsi_chains_lock(dev, queue->async_present.info, /*all=*/false);
+      simple_mtx_lock(&queue->async_present.queue_mutex);
+   }
+}
+#endif
 
 void
 vn_wsi_flush(struct vn_queue *queue)
@@ -853,6 +891,33 @@ vn_AcquireNextImage2KHR(VkDevice device,
    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
       return vn_error(dev->instance, result);
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   /* XXX this relies on renderer side doing implicit fencing */
+   if (pAcquireInfo->semaphore != VK_NULL_HANDLE) {
+      const VkImportSemaphoreWin32HandleInfoKHR info = {
+         .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR,
+         .semaphore = pAcquireInfo->semaphore,
+         .flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT,
+         .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+         .handle = CreateEventA(NULL, TRUE, TRUE, NULL),
+      };
+      //vn_log(dev->instance, "created handle %p", info.handle);
+      result = vn_ImportSemaphoreWin32HandleKHR(device, &info);
+   }
+
+   if (result == VK_SUCCESS && pAcquireInfo->fence != VK_NULL_HANDLE) {
+      const VkImportFenceWin32HandleInfoKHR info = {
+         .sType = VK_STRUCTURE_TYPE_IMPORT_FENCE_WIN32_HANDLE_INFO_KHR,
+         .fence = pAcquireInfo->fence,
+         .flags = VK_FENCE_IMPORT_TEMPORARY_BIT,
+         .handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+         .handle = CreateEventA(NULL, TRUE, TRUE, NULL),
+      };
+      //vn_log(dev->instance, "created handle %p", info.handle);
+      result = vn_ImportFenceWin32HandleKHR(device, &info);
+   }
+
+#else
    int sync_fd = -1;
    if (!dev->renderer->info.has_implicit_fencing) {
       VkDeviceMemory mem_handle =
@@ -932,6 +997,8 @@ out:
       close(sem_fd);
    if (fence_fd >= 0)
       close(fence_fd);
+#endif
+
 
    return vn_result(dev->instance, result);
 }
