@@ -248,6 +248,7 @@ vk_device_init(struct vk_device *device,
        device->enabled_extensions.EXT_calibrated_timestamps) {
       /* sorted by preference */
       const VkTimeDomainKHR calibrate_domains[] = {
+         VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR,
          VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_KHR,
          VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR,
       };
@@ -840,6 +841,14 @@ vk_device_get_timestamp(struct vk_device *device, VkTimeDomainKHR domain,
    return VK_SUCCESS;
 
 fail:
+#else
+   if (domain == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR) {
+      LARGE_INTEGER ts;
+      if (QueryPerformanceCounter(&ts)) {
+         *timestamp = ts.QuadPart;
+         return VK_SUCCESS;
+      }
+   }
 #endif /* _WIN32 */
    return VK_ERROR_FEATURE_NOT_PRESENT;
 }

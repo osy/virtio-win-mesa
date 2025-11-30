@@ -297,6 +297,7 @@ vk_common_GetPhysicalDeviceCalibrateableTimeDomainsKHR(
    const VkTimeDomainKHR host_time_domains[] = {
       VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR,
       VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_KHR,
+      VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR,
    };
    for (uint32_t i = 0; i < ARRAY_SIZE(host_time_domains); i++) {
       const VkTimeDomainKHR domain = host_time_domains[i];
