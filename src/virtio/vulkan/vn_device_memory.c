@@ -304,6 +304,7 @@ vn_device_memory_alloc(struct vn_device *dev,
       alloc_info = vn_device_memory_fix_alloc_info(
          alloc_info, renderer_handle_type, has_guest_vram, &local_info);
 
+      // FIXME: this is slightly wrong for Windows
       /* ensure correct blob flags */
       mem_vk->export_handle_types = renderer_handle_type;
    }
