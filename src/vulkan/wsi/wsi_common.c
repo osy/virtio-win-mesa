@@ -3257,7 +3257,8 @@ wsi_WaitForPresentKHR(VkDevice device, VkSwapchainKHR _swapchain,
                       uint64_t presentId, uint64_t timeout)
 {
    VK_FROM_HANDLE(wsi_swapchain, swapchain, _swapchain);
-   assert(swapchain->wait_for_present);
+   //assert(swapchain->wait_for_present);
+   if (!swapchain->wait_for_present) return VK_SUCCESS;
    return swapchain->wait_for_present(swapchain, presentId, timeout);
 }
 
@@ -3266,7 +3267,8 @@ wsi_WaitForPresent2KHR(VkDevice device, VkSwapchainKHR _swapchain,
                        const VkPresentWait2InfoKHR *info)
 {
    VK_FROM_HANDLE(wsi_swapchain, swapchain, _swapchain);
-   assert(swapchain->wait_for_present2);
+   //assert(swapchain->wait_for_present2);
+   if (!swapchain->wait_for_present2) return VK_SUCCESS;
    return swapchain->wait_for_present2(swapchain, info->presentId, info->timeout);
 }
 
