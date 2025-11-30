@@ -2804,7 +2804,7 @@ vn_GetPhysicalDeviceImageFormatProperties2(
       pImageFormatInfo->pNext, WSI_IMAGE_CREATE_INFO_MESA);
    if (wsi_info &&
        !vn_wsi_validate_image_format_info(physical_dev, pImageFormatInfo)) {
-      return vn_error(physical_dev->instance, VK_ERROR_FORMAT_NOT_SUPPORTED);
+      return VK_ERROR_FORMAT_NOT_SUPPORTED;
    }
 
    const VkPhysicalDeviceExternalImageFormatInfo *external_info =
@@ -2814,8 +2814,7 @@ vn_GetPhysicalDeviceImageFormatProperties2(
       if (!external_info->handleType) {
          external_info = NULL;
       } else if (!(external_info->handleType & supported_handle_types)) {
-         return vn_error(physical_dev->instance,
-                         VK_ERROR_FORMAT_NOT_SUPPORTED);
+         return VK_ERROR_FORMAT_NOT_SUPPORTED;
       }
 
       /* Fully resolve AHB image format query on the driver side. */
@@ -2838,16 +2837,14 @@ vn_GetPhysicalDeviceImageFormatProperties2(
              VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT &&
           pImageFormatInfo->tiling !=
              VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT) {
-         return vn_error(physical_dev->instance,
-                         VK_ERROR_FORMAT_NOT_SUPPORTED);
+         return VK_ERROR_FORMAT_NOT_SUPPORTED;
       }
 
       if (external_info->handleType != renderer_handle_type) {
          pImageFormatInfo = vn_physical_device_fix_image_format_info(
             pImageFormatInfo, renderer_handle_type, &local_info);
          if (!pImageFormatInfo) {
-            return vn_error(physical_dev->instance,
-                            VK_ERROR_FORMAT_NOT_SUPPORTED);
+            return VK_ERROR_FORMAT_NOT_SUPPORTED;
          }
       }
    }
@@ -2891,6 +2888,10 @@ vn_GetPhysicalDeviceImageFormatProperties2(
                                         pImageFormatProperties, result);
       }
    }
+
+   /* Silence the log spam */
+   if (result == VK_ERROR_FORMAT_NOT_SUPPORTED)
+       return result;
 
    return vn_result(physical_dev->instance, result);
 }
