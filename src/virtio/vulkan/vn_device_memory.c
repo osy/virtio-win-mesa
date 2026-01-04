@@ -22,6 +22,14 @@
 #include "vn_renderer.h"
 #include "vn_renderer_util.h"
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+#define _D3D10_CONSTANTS
+#define _D3D10_1_CONSTANTS
+#include <winddk_compat.h>
+#include <d3d10umddi.h>
+#include <vulkan/vulkan_d3dddi.h>
+#endif
+
 /* device memory commands */
 
 static inline VkResult
@@ -286,6 +294,10 @@ struct vn_device_memory_alloc_info {
    VkMemoryAllocateFlagsInfo flags;
    VkMemoryDedicatedAllocateInfo dedicated;
    VkMemoryOpaqueCaptureAddressAllocateInfo capture;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   VkD3DDDICreateResource d3d_create;
+   VkD3DDDIOpenResource d3d_open;
+#endif
 };
 
 static const VkMemoryAllocateInfo *
@@ -321,9 +333,21 @@ vn_device_memory_fix_alloc_info(
          memcpy(&local_info->capture, src, sizeof(local_info->capture));
          next = &local_info->capture;
          break;
+
       default:
          break;
       }
+
+      /* FIXME: -Werror=switch */
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+      if (src->sType == VK_STRUCTURE_TYPE_D3DDDI_CREATE_RESOURCE) {
+         memcpy(&local_info->d3d_create, src, sizeof(local_info->d3d_create));
+         next = &local_info->d3d_create;
+      } else if (src->sType == VK_STRUCTURE_TYPE_D3DDDI_OPEN_RESOURCE) {
+         memcpy(&local_info->d3d_open, src, sizeof(local_info->d3d_open));
+         next = &local_info->d3d_open;
+      }
+#endif
 
       if (next) {
          cur->pNext = next;
@@ -362,6 +386,16 @@ vn_device_memory_alloc(struct vn_device *dev,
       /* ensure correct blob flags */
       mem_vk->export_handle_types = renderer_handle_type;
    }
+
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   const bool need_bo_now =
+      vk_find_struct_const(alloc_info, D3DDDI_CREATE_RESOURCE) != NULL ||
+      vk_find_struct_const(alloc_info, D3DDDI_OPEN_RESOURCE) != NULL;
+
+   if (need_bo_now) {
+       return vn_device_memory_alloc_export(dev, mem, alloc_info);
+   }
+#endif
 
    if (has_guest_vram && (host_visible || export_alloc)) {
       return vn_device_memory_alloc_guest_vram(dev, mem, alloc_info);
