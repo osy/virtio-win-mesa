@@ -83,7 +83,8 @@ vn_device_memory_wait_alloc(struct vn_device *dev,
 }
 
 static inline VkResult
-vn_device_memory_bo_init(struct vn_device *dev, struct vn_device_memory *mem)
+vn_device_memory_bo_init(struct vn_device *dev, struct vn_device_memory *mem,
+                         const VkMemoryAllocateInfo *alloc_info)
 {
    VkResult result = vn_device_memory_wait_alloc(dev, mem);
    if (result != VK_SUCCESS)
@@ -94,7 +95,7 @@ vn_device_memory_bo_init(struct vn_device *dev, struct vn_device_memory *mem)
                                       .memoryTypes[mem_vk->memory_type_index];
    return vn_renderer_bo_create_from_device_memory(
       dev->renderer, mem_vk->size, mem->base.id, mem_type->propertyFlags,
-      mem_vk->export_handle_types, &mem->base_bo);
+      mem_vk->export_handle_types, alloc_info, &mem->base_bo);
 }
 
 static inline void
@@ -222,7 +223,7 @@ vn_device_memory_alloc_guest_vram(struct vn_device *dev,
 
    VkResult result = vn_renderer_bo_create_from_device_memory(
       dev->renderer, mem_vk->size, mem->base.id, flags,
-      mem_vk->export_handle_types, &mem->base_bo);
+      mem_vk->export_handle_types, alloc_info, &mem->base_bo);
    if (result != VK_SUCCESS) {
       return result;
    }
@@ -260,7 +261,7 @@ vn_device_memory_alloc_export(struct vn_device *dev,
    if (result != VK_SUCCESS)
       return result;
 
-   result = vn_device_memory_bo_init(dev, mem);
+   result = vn_device_memory_bo_init(dev, mem, alloc_info);
    if (result != VK_SUCCESS) {
       vn_device_memory_free_simple(dev, mem);
       return result;
@@ -520,7 +521,7 @@ vn_MapMemory2(VkDevice device,
     * the extension.
     */
    if (need_bo) {
-      result = vn_device_memory_bo_init(dev, mem);
+      result = vn_device_memory_bo_init(dev, mem, NULL);
       if (result != VK_SUCCESS)
          return vn_error(dev->instance, result);
    }

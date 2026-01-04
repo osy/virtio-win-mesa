@@ -152,6 +152,7 @@ struct vn_renderer_bo_ops {
       vn_object_id mem_id,
       VkMemoryPropertyFlags flags,
       VkExternalMemoryHandleTypeFlags external_handles,
+      const VkMemoryAllocateInfo *alloc_info,
       struct vn_renderer_bo **out_bo);
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -349,11 +350,12 @@ vn_renderer_bo_create_from_device_memory(
    vn_object_id mem_id,
    VkMemoryPropertyFlags flags,
    VkExternalMemoryHandleTypeFlags external_handles,
+   const VkMemoryAllocateInfo *alloc_info,
    struct vn_renderer_bo **out_bo)
 {
    struct vn_renderer_bo *bo;
    VkResult result = renderer->bo_ops.create_from_device_memory(
-      renderer, size, mem_id, flags, external_handles, &bo);
+      renderer, size, mem_id, flags, external_handles, alloc_info, &bo);
    if (result != VK_SUCCESS)
       return result;
 
