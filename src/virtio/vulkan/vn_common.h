@@ -612,6 +612,10 @@ vn_object_get_id(const void *obj, VkObjectType type)
    }
 }
 
+#if DETECT_OS_WINDOWS
+typedef DWORD pid_t;
+#endif
+
 static inline pid_t
 vn_gettid(void)
 {

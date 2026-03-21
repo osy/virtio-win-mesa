@@ -23,7 +23,7 @@
       .storage_type = VN_CS_ENCODER_STORAGE_POINTER,                         \
       .buffers = &VN_CS_ENCODER_BUFFER_INITIALIZER(storage),                 \
       .buffer_count = 1, .buffer_max = 1, .current_buffer_size = size,       \
-      .cur = storage, .end = (const void *)(storage) + (size),               \
+      .cur = (char *)(storage), .end = (const char *)(storage) + (size),    \
    }
 
 #define VN_CS_ENCODER_INITIALIZER(buf, size)                                 \
@@ -31,13 +31,13 @@
    {                                                                         \
       .storage_type = VN_CS_ENCODER_STORAGE_POINTER, .buffers = (buf),       \
       .buffer_count = 1, .buffer_max = 1, .current_buffer_size = size,       \
-      .cur = (buf)->base, .end = (buf)->base + (size),                       \
+      .cur = (char *)(buf)->base, .end = (const char *)(buf)->base + (size), \
    }
 
 #define VN_CS_DECODER_INITIALIZER(storage, size)                             \
    (struct vn_cs_decoder)                                                    \
    {                                                                         \
-      .cur = storage, .end = (const void *)(storage) + (size),               \
+      .cur = (char *)(storage), .end = (const char *)(storage) + (size),    \
    }
 
 enum vn_cs_encoder_storage_type {
@@ -52,7 +52,7 @@ enum vn_cs_encoder_storage_type {
 struct vn_cs_encoder_buffer {
    struct vn_renderer_shmem *shmem;
    size_t offset;
-   void *base;
+   char *base;
    size_t committed_size;
 };
 
@@ -74,13 +74,13 @@ struct vn_cs_encoder {
    /* cur is the write pointer.  When cur passes end, the slow path is
     * triggered.
     */
-   void *cur;
-   const void *end;
+   char *cur;
+   const char *end;
 };
 
 struct vn_cs_decoder {
-   const void *cur;
-   const void *end;
+   const char *cur;
+   const char *end;
 };
 
 struct vn_cs_renderer_protocol_info {

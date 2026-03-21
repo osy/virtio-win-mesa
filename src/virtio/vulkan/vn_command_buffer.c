@@ -118,20 +118,20 @@ vn_cmd_get_cached_storage(struct vn_command_buffer *cmd,
    size_t total_size =
       dep_infos_size + barriers_size +
       barrier_count * sizeof(VkExternalMemoryAcquireUnmodifiedEXT);
-   void *data = vn_cached_storage_get(&cmd_pool->storage, total_size);
+   char *data = vn_cached_storage_get(&cmd_pool->storage, total_size);
    if (!data)
       return false;
 
    memset(out_storage, 0, sizeof(*out_storage));
    if (dep_info_count) {
-      out_storage->dep_infos = data;
+      out_storage->dep_infos = (VkExternalMemoryAcquireUnmodifiedEXT *)data;
       data += dep_infos_size;
    }
-   out_storage->barriers = data;
+   out_storage->barriers = (VkMemoryBarrier *)data;
    data += barriers_size;
 
    out_storage->acquire_unmodified_count = barrier_count;
-   out_storage->acquire_unmodified_infos = data;
+   out_storage->acquire_unmodified_infos = (VkExternalMemoryAcquireUnmodifiedEXT *)data;
    return true;
 }
 

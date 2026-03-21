@@ -20,8 +20,10 @@
 
 #define VN_RING_IDLE_TIMEOUT_NS (1ull * 1000 * 1000)
 
+#ifndef _MSC_VER
 static_assert(ATOMIC_INT_LOCK_FREE == 2 && sizeof(atomic_uint) == 4,
               "vn_ring_shared requires lock-free 32-bit atomic_uint");
+#endif
 
 #ifdef _WIN32
 static bool
@@ -47,8 +49,8 @@ struct vn_ring_shared {
    const volatile atomic_uint *head;
    volatile atomic_uint *tail;
    volatile atomic_uint *status;
-   void *buffer;
-   void *extra;
+   uint8_t *buffer;
+   uint8_t *extra;
 };
 
 struct vn_ring {
@@ -157,7 +159,7 @@ vn_ring_write_buffer(struct vn_ring *ring, const void *data, uint32_t size)
    } else {
       const uint32_t s = ring->buffer_size - offset;
       memcpy(ring->shared.buffer + offset, data, s);
-      memcpy(ring->shared.buffer, data + s, size - s);
+      memcpy(ring->shared.buffer, (const char *)data + s, size - s);
    }
 
    ring->cur += size;
@@ -330,11 +332,12 @@ vn_ring_create(struct vn_instance *instance,
    ring->buffer_size = layout->buffer_size;
    ring->buffer_mask = ring->buffer_size - 1;
 
-   ring->shared.head = shared + layout->head_offset;
-   ring->shared.tail = shared + layout->tail_offset;
-   ring->shared.status = shared + layout->status_offset;
-   ring->shared.buffer = shared + layout->buffer_offset;
-   ring->shared.extra = shared + layout->extra_offset;
+   char *shared_base = (char *)shared;
+   ring->shared.head = (volatile atomic_uint *)(shared_base + layout->head_offset);
+   ring->shared.tail = (volatile atomic_uint *)(shared_base + layout->tail_offset);
+   ring->shared.status = (volatile atomic_uint *)(shared_base + layout->status_offset);
+   ring->shared.buffer = (uint8_t *)(shared_base + layout->buffer_offset);
+   ring->shared.extra = (uint8_t *)(shared_base + layout->extra_offset);
 
    mtx_init(&ring->mutex, mtx_plain);
 
@@ -390,7 +393,7 @@ vn_ring_create(struct vn_instance *instance,
 
    uint32_t create_ring_data[64];
    struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
-      create_ring_data, sizeof(create_ring_data));
+       (char *)create_ring_data, sizeof(create_ring_data));
    vn_encode_vkCreateRingMESA(&local_enc, 0, ring->id, &info);
    vn_renderer_submit_simple(instance->renderer, create_ring_data,
                              vn_cs_encoder_get_len(&local_enc));
@@ -407,7 +410,7 @@ vn_ring_destroy(struct vn_ring *ring)
 
    uint32_t destroy_ring_data[4];
    struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
-      destroy_ring_data, sizeof(destroy_ring_data));
+       (char *)destroy_ring_data, sizeof(destroy_ring_data));
    vn_encode_vkDestroyRingMESA(&local_enc, 0, ring->id);
 
    /* With the shmem cache, vkDestroyRingMESA must be a synchronous call to
@@ -585,7 +588,7 @@ static inline void
 vn_ring_submission_cleanup(struct vn_ring_submission *submit)
 {
    if (submit->cs == &submit->indirect.cs &&
-       submit->indirect.buffer.base != submit->indirect.data)
+       submit->indirect.buffer.base != (char *)submit->indirect.data)
       free(submit->indirect.buffer.base);
 }
 
@@ -667,8 +670,8 @@ vn_ring_submit_locked(struct vn_ring *ring,
       vn_ring_submit_internal(ring, submit.submit, submit.cs, &seqno);
    if (notify) {
       uint32_t notify_ring_data[8];
-      struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
-         notify_ring_data, sizeof(notify_ring_data));
+       struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
+           (char *)notify_ring_data, sizeof(notify_ring_data));
       vn_encode_vkNotifyRingMESA(&local_enc, 0, ring->id, seqno, 0);
       vn_renderer_submit_simple(ring->instance->renderer, notify_ring_data,
                                 vn_cs_encoder_get_len(&local_enc));
@@ -702,7 +705,7 @@ vn_ring_set_reply_shmem_locked(struct vn_ring *ring,
 
    uint32_t set_reply_command_stream_data[16];
    struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
-      set_reply_command_stream_data, sizeof(set_reply_command_stream_data));
+       (char *)set_reply_command_stream_data, sizeof(set_reply_command_stream_data));
    const struct VkCommandStreamDescriptionMESA stream = {
       .resourceId = shmem->res_id,
       .offset = offset,
@@ -746,7 +749,7 @@ vn_ring_submit_command(struct vn_ring *ring,
 
    if (submit->reply_size) {
       if (likely(submit->ring_seqno_valid)) {
-         void *reply_ptr = submit->reply_shmem->mmap_ptr + reply_offset;
+         void *reply_ptr = (char *)submit->reply_shmem->mmap_ptr + reply_offset;
          submit->reply =
             VN_CS_DECODER_INITIALIZER(reply_ptr, submit->reply_size);
          vn_ring_wait_seqno(ring, submit->ring_seqno);
@@ -771,7 +774,7 @@ vn_ring_submit_roundtrip(struct vn_ring *ring, uint64_t *roundtrip_seqno)
 {
    uint32_t local_data[8];
    struct vn_cs_encoder local_enc =
-      VN_CS_ENCODER_INITIALIZER_LOCAL(local_data, sizeof(local_data));
+       VN_CS_ENCODER_INITIALIZER_LOCAL((char *)local_data, sizeof(local_data));
 
    mtx_lock(&ring->roundtrip_mutex);
    const uint64_t seqno = ring->roundtrip_next++;

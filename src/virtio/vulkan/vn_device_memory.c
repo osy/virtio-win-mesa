@@ -76,7 +76,7 @@ vn_device_memory_wait_alloc(struct vn_device *dev,
    const uint64_t ring_id = vn_ring_get_id(dev->primary_ring);
    uint32_t local_data[8];
    struct vn_cs_encoder local_enc =
-      VN_CS_ENCODER_INITIALIZER_LOCAL(local_data, sizeof(local_data));
+      VN_CS_ENCODER_INITIALIZER_LOCAL((char *)local_data, sizeof(local_data));
    vn_encode_vkWaitRingSeqnoMESA(&local_enc, 0, ring_id, mem->bo_ring_seqno);
    return vn_renderer_submit_simple(dev->renderer, local_data,
                                     vn_cs_encoder_get_len(&local_enc));
@@ -474,7 +474,7 @@ vn_MapMemory2(VkDevice device,
 
    mem->map_end = size == VK_WHOLE_SIZE ? mem_vk->size : offset + size;
 
-   *ppData = ptr + offset;
+   *ppData = (char *)ptr + offset;
 
    return VK_SUCCESS;
 }

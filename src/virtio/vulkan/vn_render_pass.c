@@ -54,9 +54,9 @@
 #define INIT_SUBPASSES(_pass, _pCreateInfo)                                  \
    do {                                                                      \
       for (uint32_t i = 0; i < _pCreateInfo->subpassCount; i++) {            \
-         __auto_type subpass_desc = &_pCreateInfo->pSubpasses[i];            \
+         const VkSubpassDescription *subpass_desc = &_pCreateInfo->pSubpasses[i]; \
          struct vn_subpass *subpass = &_pass->subpasses[i];                  \
-                                                                             \
+                                                                              \
          for (uint32_t j = 0; j < subpass_desc->colorAttachmentCount; j++) { \
             if (subpass_desc->pColorAttachments[j].attachment !=             \
                 VK_ATTACHMENT_UNUSED) {                                      \
@@ -64,7 +64,32 @@
                break;                                                        \
             }                                                                \
          }                                                                   \
-                                                                             \
+                                                                              \
+         if (subpass_desc->pDepthStencilAttachment &&                        \
+             subpass_desc->pDepthStencilAttachment->attachment !=            \
+                VK_ATTACHMENT_UNUSED) {                                      \
+            uint32_t att =                                                   \
+               subpass_desc->pDepthStencilAttachment->attachment;            \
+            subpass->attachment_aspects |=                                   \
+               vk_format_aspects(_pCreateInfo->pAttachments[att].format);    \
+         }                                                                   \
+      }                                                                      \
+   } while (false)
+
+#define INIT_SUBPASSES2(_pass, _pCreateInfo)                                 \
+   do {                                                                      \
+      for (uint32_t i = 0; i < _pCreateInfo->subpassCount; i++) {            \
+         const VkSubpassDescription2 *subpass_desc = &_pCreateInfo->pSubpasses[i]; \
+         struct vn_subpass *subpass = &_pass->subpasses[i];                  \
+                                                                              \
+         for (uint32_t j = 0; j < subpass_desc->colorAttachmentCount; j++) { \
+            if (subpass_desc->pColorAttachments[j].attachment !=             \
+                VK_ATTACHMENT_UNUSED) {                                      \
+               subpass->attachment_aspects |= VK_IMAGE_ASPECT_COLOR_BIT;     \
+               break;                                                        \
+            }                                                                \
+         }                                                                   \
+                                                                              \
          if (subpass_desc->pDepthStencilAttachment &&                        \
              subpass_desc->pDepthStencilAttachment->attachment !=            \
                 VK_ATTACHMENT_UNUSED) {                                      \
@@ -269,7 +294,7 @@ vn_CreateRenderPass2(VkDevice device,
    if (!pass)
       return vn_error(dev->instance, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   INIT_SUBPASSES(pass, pCreateInfo);
+   INIT_SUBPASSES2(pass, pCreateInfo);
 
    STACK_ARRAY(VkAttachmentDescription2, attachments,
                pCreateInfo->attachmentCount);

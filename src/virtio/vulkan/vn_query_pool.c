@@ -187,7 +187,7 @@ vn_ResetQueryPool(VkDevice device,
        */
       const uint32_t slot_size = (pool->result_array_size * 8) + 8;
       const uint32_t offset = slot_size * firstQuery;
-      memset(pool->fb_buf->data + offset, 0, slot_size * queryCount);
+      memset((char *)pool->fb_buf->data + offset, 0, slot_size * queryCount);
    }
 }
 
@@ -352,8 +352,8 @@ vn_GetQueryPoolResults(VkDevice device,
    const size_t copy_size =
       result_size +
       (flags & VK_QUERY_RESULT_WITH_AVAILABILITY_BIT ? result_width : 0);
-   const void *src = packed_data;
-   void *dst = pData;
+   const char *src = (const char *)packed_data;
+   char *dst = (char *)pData;
    if (result == VK_SUCCESS) {
       for (uint32_t i = 0; i < queryCount; i++) {
          memcpy(dst, src, copy_size);

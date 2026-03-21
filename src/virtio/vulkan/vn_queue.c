@@ -68,16 +68,16 @@ struct vn_queue_submission {
     *    - if last batch, a single cmd for ffb
     */
    struct {
-      void *storage;
+      char *storage;
 
       union {
-         void *batches;
+         char *batches;
          VkSubmitInfo *submit_batches;
          VkSubmitInfo2 *submit2_batches;
       };
 
       union {
-         void *cmds;
+         char *cmds;
          VkCommandBuffer *cmd_handles;
          VkCommandBufferSubmitInfo *cmd_infos;
       };
@@ -545,9 +545,9 @@ vn_queue_submission_alloc_storage(struct vn_queue_submission *submit)
    submit->temp.batches = submit->temp.storage;
    submit->temp.cmds = submit->temp.storage + total_batch_size;
    submit->temp.pnexts =
-      submit->temp.storage + total_batch_size + total_cmd_size;
-   submit->temp.dev_masks = submit->temp.storage + total_batch_size +
-                            total_cmd_size + total_pnext_size;
+      (struct vn_submit_info_pnext_fix *)(submit->temp.storage + total_batch_size + total_cmd_size);
+   submit->temp.dev_masks = (uint32_t *)(submit->temp.storage + total_batch_size +
+                             total_cmd_size + total_pnext_size);
 
    return VK_SUCCESS;
 }
@@ -1835,7 +1835,7 @@ vn_create_sync_file(struct vn_device *dev,
 
    uint32_t local_data[8];
    struct vn_cs_encoder local_enc =
-      VN_CS_ENCODER_INITIALIZER_LOCAL(local_data, sizeof(local_data));
+      VN_CS_ENCODER_INITIALIZER_LOCAL((char *)local_data, sizeof(local_data));
    if (external_payload->ring_seqno_valid) {
       const uint64_t ring_id = vn_ring_get_id(dev->primary_ring);
       vn_encode_vkWaitRingSeqnoMESA(&local_enc, 0, ring_id,
@@ -1902,7 +1902,7 @@ vn_GetFenceFdKHR(VkDevice device,
    VN_TRACE_FUNC();
    struct vn_device *dev = vn_device_from_handle(device);
    struct vn_fence *fence = vn_fence_from_handle(pGetFdInfo->fence);
-   const bool sync_file =
+   ASSERTED const bool sync_file =
       pGetFdInfo->handleType == VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT;
    struct vn_sync_payload *payload = fence->payload;
    VkResult result;
@@ -2368,7 +2368,7 @@ vn_GetSemaphoreFdKHR(VkDevice device,
    VN_TRACE_FUNC();
    struct vn_device *dev = vn_device_from_handle(device);
    struct vn_semaphore *sem = vn_semaphore_from_handle(pGetFdInfo->semaphore);
-   const bool sync_file =
+   ASSERTED const bool sync_file =
       pGetFdInfo->handleType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
    struct vn_sync_payload *payload = sem->payload;
 

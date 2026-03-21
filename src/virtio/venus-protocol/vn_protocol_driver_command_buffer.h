@@ -4762,7 +4762,7 @@ static inline void vn_encode_vkCmdDrawMultiEXT(struct vn_cs_encoder *enc, VkComm
     if (pVertexInfo) {
         vn_encode_array_size(enc, drawCount);
         for (uint32_t i = 0; i < drawCount; i++)
-            vn_encode_VkMultiDrawInfoEXT(enc, (void *)pVertexInfo + stride * i);
+            vn_encode_VkMultiDrawInfoEXT(enc, (const VkMultiDrawInfoEXT *)((char *)pVertexInfo + stride * i));
     } else {
         vn_encode_array_size(enc, 0);
     }
@@ -4838,7 +4838,7 @@ static inline void vn_encode_vkCmdDrawMultiIndexedEXT(struct vn_cs_encoder *enc,
     if (pIndexInfo) {
         vn_encode_array_size(enc, drawCount);
         for (uint32_t i = 0; i < drawCount; i++)
-            vn_encode_VkMultiDrawIndexedInfoEXT(enc, (void *)pIndexInfo + stride * i);
+            vn_encode_VkMultiDrawIndexedInfoEXT(enc, (const VkMultiDrawIndexedInfoEXT *)((char *)pIndexInfo + stride * i));
     } else {
         vn_encode_array_size(enc, 0);
     }

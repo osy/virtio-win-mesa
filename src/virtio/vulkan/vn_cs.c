@@ -89,7 +89,7 @@ vn_cs_encoder_add_buffer(struct vn_cs_encoder *enc,
 
    /* update the write pointer */
    enc->cur = base;
-   enc->end = base + size;
+   enc->end = (void *)((char *)base + size);
 }
 
 static void
@@ -272,7 +272,7 @@ vn_cs_encoder_reserve_internal(struct vn_cs_encoder *enc, size_t size)
       return false;
 
    vn_cs_encoder_add_buffer(enc, shmem, buf_offset,
-                            shmem->mmap_ptr + buf_offset, buf_size);
+                            (char *)shmem->mmap_ptr + buf_offset, buf_size);
    enc->current_buffer_size = buf_size;
 
    vn_cs_encoder_sanity_check(enc);

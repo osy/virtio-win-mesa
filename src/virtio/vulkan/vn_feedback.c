@@ -263,7 +263,7 @@ vn_feedback_pool_alloc(struct vn_feedback_pool *pool,
    slot->type = type;
    slot->offset = offset;
    slot->buf_handle = fb_buf->buf_handle;
-   slot->data = fb_buf->data + offset;
+   slot->data = (char *)fb_buf->data + offset;
 
    return slot;
 }
