@@ -229,6 +229,18 @@ option(
 )
 
 option(
+  'neptune',
+  type : 'boolean',
+  value : false,
+  description : 'Build Neptune D3D11/D3D12 guest driver (vtest/virtgpu)',
+)
+option(
+  'npt_wine',
+  type : 'boolean',
+  value : true,
+  description : 'Target the Wine PE backend (uses the unixlib bridge); when false, target native Windows.',
+)
+option(
   'amdgpu-virtio',
   type : 'boolean',
   value : false,
