@@ -71,6 +71,9 @@ endif
 if with_virtio_vk
   subdir('virtio/vulkan')
 endif
+if with_neptune
+  subdir('virtio/neptune')
+endif
 if with_vdrm
   subdir('virtio/vdrm')
 endif
