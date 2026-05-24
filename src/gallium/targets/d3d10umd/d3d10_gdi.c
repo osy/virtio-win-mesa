@@ -30,7 +30,9 @@
 #include "util/u_debug.h"
 #include "target-helpers/inline_debug_helper.h"
 #include "llvmpipe/lp_public.h"
+#ifdef GALLIUM_SOFTPIPE
 #include "softpipe/sp_public.h"
+#endif
 #include "sw/gdi/gdi_sw_winsys.h"
 
 #include "winddk_compat.h"
@@ -83,9 +85,11 @@ d3d10_create_screen(void)
    (void)driver;
 #endif
 
+#ifdef GALLIUM_SOFTPIPE
    if (screen == NULL) {
       screen = softpipe_create_screen( winsys );
    }
+#endif
 
    if (screen == NULL)
       goto no_screen;
