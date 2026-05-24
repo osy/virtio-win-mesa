@@ -861,7 +861,7 @@ vn_DestroySwapchainKHR(VkDevice device,
    simple_mtx_destroy(&chain->mutex);
    vk_free2(&dev->base.vk.alloc, pAllocator, chain);
 
-   return wsi_DestroySwapchainKHR(device, swapchain, pAllocator);
+   wsi_DestroySwapchainKHR(device, swapchain, pAllocator);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL

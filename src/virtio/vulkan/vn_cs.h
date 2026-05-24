@@ -13,7 +13,7 @@
 #define VN_CS_ENCODER_BUFFER_INITIALIZER(storage)                            \
    (struct vn_cs_encoder_buffer)                                             \
    {                                                                         \
-      .base = storage,                                                       \
+      .base = (uint8_t *)(storage),                                          \
    }
 
 /* note that buffers points to an unamed local variable */
@@ -23,7 +23,8 @@
       .storage_type = VN_CS_ENCODER_STORAGE_POINTER,                         \
       .buffers = &VN_CS_ENCODER_BUFFER_INITIALIZER(storage),                 \
       .buffer_count = 1, .buffer_max = 1, .current_buffer_size = size,       \
-      .cur = storage, .end = (const void *)(storage) + (size),               \
+      .cur = (uint8_t *)(storage),                                           \
+      .end = (const uint8_t *)(storage) + (size),                            \
    }
 
 #define VN_CS_ENCODER_INITIALIZER(buf, size)                                 \
@@ -37,7 +38,8 @@
 #define VN_CS_DECODER_INITIALIZER(storage, size)                             \
    (struct vn_cs_decoder)                                                    \
    {                                                                         \
-      .cur = storage, .end = (const void *)(storage) + (size),               \
+      .cur = (const uint8_t *)(storage),                                     \
+      .end = (const uint8_t *)(storage) + (size),                            \
    }
 
 enum vn_cs_encoder_storage_type {
@@ -52,7 +54,7 @@ enum vn_cs_encoder_storage_type {
 struct vn_cs_encoder_buffer {
    struct vn_renderer_shmem *shmem;
    size_t offset;
-   void *base;
+   uint8_t *base;
    size_t committed_size;
 };
 
@@ -74,13 +76,13 @@ struct vn_cs_encoder {
    /* cur is the write pointer.  When cur passes end, the slow path is
     * triggered.
     */
-   void *cur;
-   const void *end;
+   uint8_t *cur;
+   const uint8_t *end;
 };
 
 struct vn_cs_decoder {
-   const void *cur;
-   const void *end;
+   const uint8_t *cur;
+   const uint8_t *end;
 };
 
 struct vn_cs_renderer_protocol_info {

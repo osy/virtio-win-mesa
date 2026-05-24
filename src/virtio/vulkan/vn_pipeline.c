@@ -421,7 +421,8 @@ vn_CreatePipelineCache(VkDevice device,
 
       local_create_info = *pCreateInfo;
       local_create_info.initialDataSize -= header->header_size;
-      local_create_info.pInitialData += header->header_size;
+      local_create_info.pInitialData =
+         (const uint8_t *)local_create_info.pInitialData + header->header_size;
       pCreateInfo = &local_create_info;
    }
 
@@ -517,7 +518,8 @@ vn_GetPipelineCacheData(VkDevice device,
    *pDataSize -= header->header_size;
    result =
       vn_call_vkGetPipelineCacheData(target_ring, device, pipelineCache,
-                                     pDataSize, pData + header->header_size);
+                                     pDataSize,
+                                     (uint8_t *)pData + header->header_size);
    if (result < VK_SUCCESS)
       return vn_error(dev->instance, result);
 
@@ -1592,7 +1594,7 @@ vn_fix_graphics_pipeline_create_infos(
    struct vn_device *dev,
    uint32_t info_count,
    const VkGraphicsPipelineCreateInfo *infos,
-   const struct vn_graphics_pipeline_fix_desc fix_descs[info_count],
+   const struct vn_graphics_pipeline_fix_desc *fix_descs,
    struct vn_graphics_pipeline_fix_tmp **out_fix_tmp,
    const VkAllocationCallbacks *alloc)
 {

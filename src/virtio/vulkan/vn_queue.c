@@ -576,11 +576,13 @@ vn_queue_submission_alloc_storage(struct vn_queue_submission *submit)
       return VK_ERROR_OUT_OF_HOST_MEMORY;
 
    submit->temp.batches = submit->temp.storage;
-   submit->temp.cmds = submit->temp.storage + total_batch_size;
+   submit->temp.cmds = (uint8_t *)submit->temp.storage + total_batch_size;
    submit->temp.pnexts =
-      submit->temp.storage + total_batch_size + total_cmd_size;
-   submit->temp.dev_masks = submit->temp.storage + total_batch_size +
-                            total_cmd_size + total_pnext_size;
+      (struct vn_submit_info_pnext_fix *)((uint8_t *)submit->temp.storage +
+                                          total_batch_size + total_cmd_size);
+   submit->temp.dev_masks =
+      (uint32_t *)((uint8_t *)submit->temp.storage + total_batch_size +
+                   total_cmd_size + total_pnext_size);
 
    return VK_SUCCESS;
 }
@@ -896,7 +898,8 @@ vn_queue_submission_setup_batch(struct vn_queue_submission *submit,
          return result;
 
       /* advance the temp cmds for working on next batch cmds */
-      submit->temp.cmds += total_cmd_size + (extra_cmd_count * cmd_size);
+      submit->temp.cmds = (uint8_t *)submit->temp.cmds + total_cmd_size +
+                          (extra_cmd_count * cmd_size);
    }
 
    return VK_SUCCESS;
@@ -1988,6 +1991,7 @@ vn_GetFenceWin32HandleKHR(VkDevice device,
    struct vn_sync_payload *payload = fence->payload;
    VkResult result;
 
+   (void)is_handle;
    assert(is_handle);
    assert(dev->physical_device->renderer_sync_fd.fence_exportable);
 
@@ -2616,6 +2620,7 @@ vn_GetSemaphoreWin32HandleKHR(VkDevice device,
       pGetWin32HandleInfo->handleType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
    struct vn_sync_payload *payload = sem->payload;
 
+   (void)is_handle;
    assert(is_handle);
    assert(dev->physical_device->renderer_sync_fd.semaphore_exportable);
    assert(dev->physical_device->renderer_sync_fd.semaphore_importable);

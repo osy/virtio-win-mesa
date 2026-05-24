@@ -716,7 +716,8 @@ sim_submit(struct virtgpu *gpu, const struct vn_renderer_submit *submit)
       hdr->flags = VIOGPU_EXECBUF_RING_IDX, hdr->ring_idx = batch->ring_idx;
 
       assert(batch->cs_size + sizeof(*hdr) <= gpu->ctx.cmd_size);
-      memcpy(gpu->ctx.cmd_buf + sizeof(*hdr), batch->cs_data, batch->cs_size);
+      memcpy((uint8_t *)gpu->ctx.cmd_buf + sizeof(*hdr), batch->cs_data,
+             batch->cs_size);
       NTSTATUS status = virtgpu_ioctl_render(
          gpu, 0, sizeof(*hdr) + batch->cs_size, submit->bo_count, NULL, 0);
       mtx_unlock(&gpu->ctx.lock);
@@ -1489,6 +1490,7 @@ virtgpu_ioctl_open_resource(struct virtgpu *gpu,
 
       const VIOGPU_CREATE_ALLOCATION_EXCHANGE *alloc_priv =
          alloc_list[0].pPrivateDriverData;
+      (void)alloc_priv;
       //assert(alloc_priv->Type == VIOGPU_RESOURCE_TYPE_BLOB);
 
       *alloc = alloc_list[0].hAllocation;
