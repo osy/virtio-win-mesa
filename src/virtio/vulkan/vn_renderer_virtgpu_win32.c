@@ -1285,8 +1285,8 @@ virtgpu_find_adapter(struct virtgpu *gpu)
    };
 
    for (int i = 0; EnumDisplayDevicesA(NULL, i, &adapter, 0); i++) {
-      if (strncasecmp(adapter.DeviceID, VIRTGPU_WIN_DEVICE_ID,
-                      strlen(VIRTGPU_WIN_DEVICE_ID)) == 0) {
+      if (_strnicmp(adapter.DeviceID, VIRTGPU_WIN_DEVICE_ID,
+                    strlen(VIRTGPU_WIN_DEVICE_ID)) == 0) {
          HDC hdc = CreateDC(NULL, adapter.DeviceName, NULL, NULL);
          D3DKMT_OPENADAPTERFROMHDC open_adapter = {
             .hDc = hdc,

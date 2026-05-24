@@ -50,6 +50,7 @@
 
 #if DETECT_OS_WINDOWS
 #include <processthreadsapi.h>
+typedef int pid_t;
 #else
 #include <sys/syscall.h>
 
