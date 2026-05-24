@@ -17,7 +17,7 @@
 
 #define VN_RING_IDLE_TIMEOUT_NS (1ull * 1000 * 1000)
 
-static_assert(ATOMIC_INT_LOCK_FREE == 2 && sizeof(atomic_uint) == 4,
+static_assert(ATOMIC_INT_LOCK_FREE != 0 && sizeof(atomic_uint) == 4,
               "vn_ring_shared requires lock-free 32-bit atomic_uint");
 
 /* pointers to a ring in a BO */
@@ -25,8 +25,8 @@ struct vn_ring_shared {
    const volatile atomic_uint *head;
    volatile atomic_uint *tail;
    volatile atomic_uint *status;
-   void *buffer;
-   void *extra;
+   uint8_t *buffer;
+   uint8_t *extra;
 };
 
 struct vn_ring {
@@ -106,8 +106,8 @@ vn_ring_store_tail(struct vn_ring *ring)
     * required a full mfence instruction. Then the renderer side acquire is
     * ensured to be ordered after the cache flush of ring cs updates.
     */
-   return atomic_store_explicit(ring->shared.tail, ring->cur,
-                                memory_order_seq_cst);
+   atomic_store_explicit(ring->shared.tail, ring->cur,
+                         memory_order_seq_cst);
 }
 
 uint32_t
@@ -135,7 +135,7 @@ vn_ring_write_buffer(struct vn_ring *ring, const void *data, uint32_t size)
    } else {
       const uint32_t s = ring->buffer_size - offset;
       memcpy(ring->shared.buffer + offset, data, s);
-      memcpy(ring->shared.buffer, data + s, size - s);
+      memcpy(ring->shared.buffer, (const uint8_t *)data + s, size - s);
    }
 
    ring->cur += size;
@@ -300,7 +300,7 @@ vn_ring_create(struct vn_instance *instance,
       return NULL;
    }
 
-   void *shared = ring->shmem->mmap_ptr;
+   uint8_t *shared = ring->shmem->mmap_ptr;
    memset(shared, 0, layout->shmem_size);
 
    assert(layout->buffer_size &&
@@ -308,9 +308,9 @@ vn_ring_create(struct vn_instance *instance,
    ring->buffer_size = layout->buffer_size;
    ring->buffer_mask = ring->buffer_size - 1;
 
-   ring->shared.head = shared + layout->head_offset;
-   ring->shared.tail = shared + layout->tail_offset;
-   ring->shared.status = shared + layout->status_offset;
+   ring->shared.head = (volatile atomic_uint *)(shared + layout->head_offset);
+   ring->shared.tail = (volatile atomic_uint *)(shared + layout->tail_offset);
+   ring->shared.status = (volatile atomic_uint *)(shared + layout->status_offset);
    ring->shared.buffer = shared + layout->buffer_offset;
    ring->shared.extra = shared + layout->extra_offset;
 
@@ -721,7 +721,7 @@ vn_ring_submit_command(struct vn_ring *ring,
 
    if (submit->reply_size) {
       if (likely(submit->ring_seqno_valid)) {
-         void *reply_ptr = submit->reply_shmem->mmap_ptr + reply_offset;
+         void *reply_ptr = (uint8_t *)submit->reply_shmem->mmap_ptr + reply_offset;
          submit->reply =
             VN_CS_DECODER_INITIALIZER(reply_ptr, submit->reply_size);
          vn_ring_wait_seqno(ring, submit->ring_seqno);

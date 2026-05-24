@@ -51,11 +51,11 @@
       }                                                                      \
    } while (false)
 
-#define INIT_SUBPASSES(_pass, _pCreateInfo)                                  \
+#define INIT_SUBPASSES_IMPL(_pass, _pCreateInfo, _subpass_type)              \
    do {                                                                      \
-      for (uint32_t i = 0; i < _pCreateInfo->subpassCount; i++) {            \
-         __auto_type subpass_desc = &_pCreateInfo->pSubpasses[i];            \
-         struct vn_subpass *subpass = &_pass->subpasses[i];                  \
+      for (uint32_t i = 0; i < (_pCreateInfo)->subpassCount; i++) {          \
+         const _subpass_type *subpass_desc = &(_pCreateInfo)->pSubpasses[i]; \
+         struct vn_subpass *subpass = &(_pass)->subpasses[i];                \
                                                                              \
          for (uint32_t j = 0; j < subpass_desc->colorAttachmentCount; j++) { \
             if (subpass_desc->pColorAttachments[j].attachment !=             \
@@ -71,7 +71,7 @@
             uint32_t att =                                                   \
                subpass_desc->pDepthStencilAttachment->attachment;            \
             subpass->attachment_aspects |=                                   \
-               vk_format_aspects(_pCreateInfo->pAttachments[att].format);    \
+               vk_format_aspects((_pCreateInfo)->pAttachments[att].format);  \
          }                                                                   \
       }                                                                      \
    } while (false)
@@ -214,7 +214,7 @@ vn_CreateRenderPass(VkDevice device,
    if (!pass)
       return vn_error(dev->instance, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   INIT_SUBPASSES(pass, pCreateInfo);
+   INIT_SUBPASSES_IMPL(pass, pCreateInfo, VkSubpassDescription);
 
    STACK_ARRAY(VkAttachmentDescription, attachments,
                pCreateInfo->attachmentCount);
@@ -269,7 +269,7 @@ vn_CreateRenderPass2(VkDevice device,
    if (!pass)
       return vn_error(dev->instance, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   INIT_SUBPASSES(pass, pCreateInfo);
+   INIT_SUBPASSES_IMPL(pass, pCreateInfo, VkSubpassDescription2);
 
    STACK_ARRAY(VkAttachmentDescription2, attachments,
                pCreateInfo->attachmentCount);

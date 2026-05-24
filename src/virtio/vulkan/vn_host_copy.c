@@ -94,8 +94,8 @@ vn_get_copy_size(VkImage img_handle,
    else if (!copy_depth && copy_stencil)
       format = vk_format_stencil_only(format);
 
-   const uint32_t width = mem_row_length ?: img_extent.width;
-   const uint32_t height = mem_img_height ?: img_extent.height;
+   const uint32_t width = mem_row_length ? mem_row_length : img_extent.width;
+   const uint32_t height = mem_img_height ? mem_img_height : img_extent.height;
    const uint32_t bw = vk_format_get_blockwidth(format);
    const uint32_t bh = vk_format_get_blockheight(format);
    const uint32_t bs = vk_format_get_blocksize(format);

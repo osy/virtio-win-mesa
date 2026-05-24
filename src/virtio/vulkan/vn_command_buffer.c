@@ -126,10 +126,10 @@ vn_cmd_get_cached_storage(struct vn_command_buffer *cmd,
    memset(out_storage, 0, sizeof(*out_storage));
    if (dep_info_count) {
       out_storage->dep_infos = data;
-      data += dep_infos_size;
+      data = (uint8_t *)data + dep_infos_size;
    }
    out_storage->barriers = data;
-   data += barriers_size;
+   data = (uint8_t *)data + barriers_size;
 
    out_storage->acquire_unmodified_count = barrier_count;
    out_storage->acquire_unmodified_infos = data;
