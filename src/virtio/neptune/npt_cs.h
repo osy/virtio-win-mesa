@@ -154,13 +154,24 @@ npt_cs_decoder_alloc_temp(struct npt_cs_decoder *dec, size_t size)
    return ptr;
 }
 
+static inline bool
+npt_size_mul_overflow(size_t a, size_t b, size_t *out)
+{
+#if defined(__GNUC__) || defined(__clang__)
+   return __builtin_mul_overflow(a, b, out);
+#else
+   *out = a * b;
+   return a != 0 && *out / a != b;
+#endif
+}
+
 static inline void *
 npt_cs_decoder_alloc_temp_array(struct npt_cs_decoder *dec,
                                 size_t element_size,
                                 size_t count)
 {
    size_t total;
-   if (unlikely(__builtin_mul_overflow(element_size, count, &total))) {
+   if (unlikely(npt_size_mul_overflow(element_size, count, &total))) {
       npt_log("overflow in array allocation of %zu * %zu bytes",
               element_size, count);
       npt_cs_decoder_set_fatal(dec);

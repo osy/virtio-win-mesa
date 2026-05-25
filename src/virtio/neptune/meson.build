@@ -43,10 +43,9 @@ npt_common_src = files(
 # which the generator emits alongside the .c/.h files, so a protocol
 # update only requires re-running the generator and copying in the new
 # files -- no hand edit to this meson.build.
-npt_client_families = run_command(
-  'cat', files('neptune-protocol/npt_client_families.txt'),
-  check: true,
-).stdout().strip().split('\n')
+npt_client_families = import('fs').read(
+  'neptune-protocol/npt_client_families.txt',
+).strip().split('\n')
 
 foreach family : npt_client_families
   npt_common_src += files(
@@ -95,7 +94,9 @@ if npt_is_windows
   endif
 endif
 
-subdir('nptunix')
+if not npt_is_windows or get_option('npt_wine')
+  subdir('nptunix')
+endif
 
 if npt_is_windows
   # Windows: produce d3d11.dll and dxgi.dll as native DLLs for Wine
