@@ -100,10 +100,10 @@ void npt_profile_log_present_order(unsigned flip_idx,
  * replies.  Used by present_marker to distinguish "Present thread
  * actually stalled on sync calls" from "background thread did the
  * waits, Present thread was off doing CPU work". */
-extern __thread uint64_t npt_tl_reply_ns;
-extern __thread uint64_t npt_tl_sync_count;
-extern __thread uint64_t npt_tl_submit_ns;
-extern __thread uint64_t npt_tl_submit_count;
+extern NPT_TLS uint64_t npt_tl_reply_ns;
+extern NPT_TLS uint64_t npt_tl_sync_count;
+extern NPT_TLS uint64_t npt_tl_submit_ns;
+extern NPT_TLS uint64_t npt_tl_submit_count;
 
 static inline void
 npt_profile_record_thread_reply_ns(uint64_t reply_ns)

@@ -20,6 +20,12 @@
 
 #include <stdatomic.h>
 
+#if defined(_MSC_VER)
+#define NPT_TLS __declspec(thread)
+#else
+#define NPT_TLS __thread
+#endif
+
 #if defined(_WIN32)
 #include <windows.h>
 typedef CRITICAL_SECTION mtx_t;

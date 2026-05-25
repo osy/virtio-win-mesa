@@ -43,16 +43,16 @@ npt_profile_now_ns_posix(void)
 
 struct npt_profile npt_profile;
 
-__thread uint64_t npt_tl_reply_ns;
-__thread uint64_t npt_tl_sync_count;
-__thread uint64_t npt_tl_submit_ns;
-__thread uint64_t npt_tl_submit_count;
+NPT_TLS uint64_t npt_tl_reply_ns;
+NPT_TLS uint64_t npt_tl_sync_count;
+NPT_TLS uint64_t npt_tl_submit_ns;
+NPT_TLS uint64_t npt_tl_submit_count;
 /* Snapshot of the above at the previous Present marker, so we can
  * report the per-frame delta on the Present thread. */
-static __thread uint64_t npt_tl_reply_ns_prev;
-static __thread uint64_t npt_tl_sync_count_prev;
-static __thread uint64_t npt_tl_submit_ns_prev;
-static __thread uint64_t npt_tl_submit_count_prev;
+static NPT_TLS uint64_t npt_tl_reply_ns_prev;
+static NPT_TLS uint64_t npt_tl_sync_count_prev;
+static NPT_TLS uint64_t npt_tl_submit_ns_prev;
+static NPT_TLS uint64_t npt_tl_submit_count_prev;
 
 uint64_t
 npt_profile_now_ns(void)

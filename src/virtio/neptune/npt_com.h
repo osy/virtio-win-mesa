@@ -26,7 +26,14 @@
 
 #if defined(_WIN32)
 #define NPT_WINAPI __stdcall
+#if defined(_MSC_VER)
+/* The .def file controls exports under MSVC; emitting __declspec(dllexport)
+ * here would conflict with the SDK's __declspec(dllimport) declarations
+ * of the same names (D3D11CreateDevice, CreateDXGIFactory, ...). */
+#define NPT_DLLEXPORT
+#else
 #define NPT_DLLEXPORT __attribute__((dllexport))
+#endif
 #define NPT_API NPT_DLLEXPORT NPT_WINAPI
 #else
 #define NPT_WINAPI

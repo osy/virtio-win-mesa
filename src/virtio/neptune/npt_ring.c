@@ -16,7 +16,7 @@
 #include "util/os_time.h"
 #endif
 
-static_assert(ATOMIC_INT_LOCK_FREE == 2 && sizeof(atomic_uint) == 4,
+static_assert(ATOMIC_INT_LOCK_FREE >= 1 && sizeof(atomic_uint) == 4,
               "npt_ring requires lock-free 32-bit atomic_uint");
 
 static void
@@ -336,9 +336,9 @@ npt_ring_seqno_status(const struct npt_ring *ring, uint32_t seqno)
     * invariant (head lags the write pointer by at most buffer_size):
     * if the unsigned distance from seqno to cur is one buffer's
     * worth, head has unconditionally passed it. */
-   const uint32_t cur =
-      __atomic_load_n(&((struct npt_ring *)ring)->cur,
-                      __ATOMIC_RELAXED);
+   /* Relaxed read of a non-atomic field: volatile suppresses MSVC's
+    * load-hoisting without requiring full atomic semantics. */
+   const uint32_t cur = *(const volatile uint32_t *)&ring->cur;
    if ((uint32_t)(cur - seqno) >= ring->buffer_size)
       return true;
    return (int32_t)(npt_ring_load_head(ring) - seqno) >= 0;

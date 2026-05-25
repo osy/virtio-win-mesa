@@ -43,10 +43,9 @@ npt_common_src = files(
 # which the generator emits alongside the .c/.h files, so a protocol
 # update only requires re-running the generator and copying in the new
 # files -- no hand edit to this meson.build.
-npt_client_families = run_command(
-  'cat', files('neptune-protocol/npt_client_families.txt'),
-  check: true,
-).stdout().strip().split('\n')
+npt_client_families = import('fs').read(
+  'neptune-protocol/npt_client_families.txt',
+).strip().split('\n')
 
 foreach family : npt_client_families
   npt_common_src += files(
@@ -72,6 +71,13 @@ npt_c_args = [
   no_override_init_args,
 ]
 
+# The vendored protocol output intentionally carries GCC diagnostic pragmas
+# around generated inline helpers.  They are inert under MSVC, which otherwise
+# emits C4068 for every push/ignored/pop directive and floods native builds.
+if cc.get_argument_syntax() == 'msvc'
+  npt_c_args += ['/wd4068']
+endif
+
 npt_is_windows = host_machine.system() == 'windows'
 
 # vtest + virtgpu backends.  The Windows build defaults to the Wine PE
@@ -95,7 +101,9 @@ if npt_is_windows
   endif
 endif
 
-subdir('nptunix')
+if not npt_is_windows or get_option('npt_wine')
+  subdir('nptunix')
+endif
 
 if npt_is_windows
   # Windows: produce d3d11.dll and dxgi.dll as native DLLs for Wine

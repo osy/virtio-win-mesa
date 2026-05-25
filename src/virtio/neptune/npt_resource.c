@@ -72,21 +72,25 @@ static void *shmem_reaper_main(void *arg)
 }
 
 static void
+shmem_reaper_init_impl(void)
+{
+   mtx_init(&g_shmem_reaper.mutex, mtx_plain);
+   cnd_init(&g_shmem_reaper.cond);
+   list_inithead(&g_shmem_reaper.queue);
+#if defined(_WIN32)
+   HANDLE h = CreateThread(NULL, 0, shmem_reaper_main, NULL, 0, NULL);
+   if (h) CloseHandle(h);
+#else
+   pthread_t t;
+   if (pthread_create(&t, NULL, shmem_reaper_main, NULL) == 0)
+      pthread_detach(t);
+#endif
+}
+
+static void
 shmem_reaper_lazy_init(void)
 {
-   NPT_CALL_ONCE(g_shmem_reaper.state, ({
-      mtx_init(&g_shmem_reaper.mutex, mtx_plain);
-      cnd_init(&g_shmem_reaper.cond);
-      list_inithead(&g_shmem_reaper.queue);
-#if defined(_WIN32)
-      HANDLE h = CreateThread(NULL, 0, shmem_reaper_main, NULL, 0, NULL);
-      if (h) CloseHandle(h);
-#else
-      pthread_t t;
-      if (pthread_create(&t, NULL, shmem_reaper_main, NULL) == 0)
-         pthread_detach(t);
-#endif
-   }));
+   NPT_CALL_ONCE(g_shmem_reaper.state, shmem_reaper_init_impl());
 }
 
 static void
