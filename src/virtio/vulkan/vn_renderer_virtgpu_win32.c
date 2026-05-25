@@ -16,8 +16,8 @@
 #include "virtio/virtio-gpu/wddm_hw.h"
 
 #define VIRTGPU_PCI_VENDOR_ID 0x1af4
-#define VIRTGPU_PCI_DEVICE_ID 0x10f7                   // TODO: 1050
-#define VIRTGPU_WIN_DEVICE_ID "PCI\\VEN_1AF4&DEV_10F7" // TODO: 1050
+#define VIRTGPU_PCI_DEVICE_ID 0x1050
+#define VIRTGPU_WIN_DEVICE_ID "PCI\\VEN_1AF4&DEV_1050"
 
 struct virtgpu;
 
