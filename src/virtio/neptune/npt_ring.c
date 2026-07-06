@@ -16,6 +16,10 @@
 #include "util/os_time.h"
 #endif
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <cpuid.h> /* __cpuid: detect x86-on-non-x86 translators (FEX/TCG) */
+#endif
+
 static_assert(ATOMIC_INT_LOCK_FREE >= 1 && sizeof(atomic_uint) == 4,
               "npt_ring requires lock-free 32-bit atomic_uint");
 
@@ -33,6 +37,52 @@ static_assert(ATOMIC_INT_LOCK_FREE >= 1 && sizeof(atomic_uint) == 4,
 
 /* Grows on demand. */
 #define NPT_RING_REPLY_POOL_MIN_SIZE (1u << 20)
+
+/*
+ * Whether this environment can do an atomic read-modify-write on the ring's
+ * write-combining shmem.  Native x86 can; x86-on-non-x86 binary translators
+ * (FEX, QEMU-TCG) cannot -- they lower the guest's LOCK-prefixed RMW to an ARM
+ * atomic, and ARM has no atomic RMW on non-cacheable memory (WC maps to Normal
+ * Non-cacheable), so it faults with SIGILL.  Plain loads/stores are fine, which
+ * is why only the watchdog's ALIVE clear (the ring's sole atomic RMW) breaks.
+ *
+ * -1 = undetected, 0 = unsupported (emulated), 1 = supported.  Detected once via
+ * CPUID -- a passive read, no faulting: the translator self-identifies on the
+ * hypervisor vendor leaf.  Real-x86 hypervisors (KVM/VMware/Hyper-V) also set
+ * the present bit but do atomics fine, so we key off the specific translator
+ * signatures, not the bit alone.
+ */
+static atomic_int npt_wc_atomic_ok = -1;
+
+static int
+npt_detect_wc_atomic_ok(void)
+{
+#if defined(__x86_64__) || defined(__i386__)
+   unsigned a, b, c, d;
+
+   /* No hypervisor/emulator present bit -> bare-metal x86 -> atomics fine. */
+   __cpuid(1, a, b, c, d);
+   if (!(c & (1u << 31)))
+      return 1;
+
+   /* Hypervisor vendor leaf 0x40000000: 12-byte signature in EBX,ECX,EDX. */
+   __cpuid(0x40000000u, a, b, c, d);
+   (void)a;
+   char sig[13];
+   memcpy(sig + 0, &b, 4);
+   memcpy(sig + 4, &c, 4);
+   memcpy(sig + 8, &d, 4);
+   sig[12] = '\0';
+
+   if (!memcmp(sig, "FEXIFEXIEMU", 12) ||   /* FEX-Emu */
+       !memcmp(sig, "TCGTCGTCGTCG", 12))    /* QEMU TCG (qemu-user / full TCG) */
+      return 0;                             /* x86-on-non-x86: WC atomics fault */
+
+   return 1; /* real-x86 hypervisor or an emulator that does atomics correctly */
+#else
+   return 1; /* non-x86 native: normal cacheable atomics, no WC-atomic issue */
+#endif
+}
 
 /*
  * Adaptive backoff with watchdog.  After warn_order iters, check the
@@ -69,9 +119,14 @@ npt_ring_relax(struct npt_ring *ring, uint32_t *iter)
          return;
 
       if (status & NPT_RING_STATUS_ALIVE_BIT) {
-         atomic_fetch_and_explicit(ring->status,
-                                   ~(unsigned)NPT_RING_STATUS_ALIVE_BIT,
-                                   memory_order_seq_cst);
+         /* Clearing ALIVE (so a host re-set is detectable) is the ring's only
+          * atomic RMW.  Skip it where WC atomics fault -- emulated x86-on-ARM,
+          * per npt_detect_wc_atomic_ok; the watchdog then degrades to a no-op
+          * there.  Native x86 keeps the full watchdog. */
+         if (atomic_load_explicit(&npt_wc_atomic_ok, memory_order_relaxed) == 1)
+            atomic_fetch_and_explicit(ring->status,
+                                      ~(unsigned)NPT_RING_STATUS_ALIVE_BIT,
+                                      memory_order_seq_cst);
          ring->watchdog_misses = 0;
       } else {
          if (++ring->watchdog_misses >= max_misses) {
@@ -845,6 +900,16 @@ npt_ring_create(struct npt_device *device,
    atomic_store_explicit(ring->head, 0, memory_order_relaxed);
    atomic_store_explicit(ring->tail, 0, memory_order_relaxed);
    atomic_store_explicit(ring->status, 0, memory_order_relaxed);
+
+   /* Detect once whether atomic RMWs work on the WC ring shmem here; gates the
+    * watchdog's ALIVE clear -- see npt_detect_wc_atomic_ok. */
+   if (atomic_load_explicit(&npt_wc_atomic_ok, memory_order_acquire) < 0) {
+      const int ok = npt_detect_wc_atomic_ok();
+      atomic_store_explicit(&npt_wc_atomic_ok, ok, memory_order_release);
+      npt_log("ring WC-atomic support -> %s",
+              ok ? "yes (native x86)"
+                 : "no (x86 emulation) -- watchdog ALIVE-clear disabled");
+   }
 
    mtx_init(&ring->mutex, mtx_plain);
 
