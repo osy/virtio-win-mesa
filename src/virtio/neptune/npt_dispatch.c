@@ -69,6 +69,7 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
                           uint32_t access_flags, uint32_t api_map_flags,
                           uint32_t shmem_res_id, uint64_t byte_size,
                           uint32_t mip_height, uint32_t mip_depth,
+                          uint32_t shmem_offset,
                           uint32_t *out_row_pitch, uint32_t *out_depth_pitch)
 {
    struct npt_cmd_map_resource cmd;
@@ -87,6 +88,7 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
    cmd.byte_size = byte_size;
    cmd.mip_height = mip_height;
    cmd.mip_depth = mip_depth;
+   cmd.shmem_offset = shmem_offset;
 
    struct npt_ring_submit_command submit;
    memset(&submit, 0, sizeof(submit));
@@ -202,48 +204,23 @@ npt_dispatch_resource_update(struct npt_ring *ring, uint64_t resource_host_id,
 }
 
 /* ==========================================================================
- * WSI
+ * SHARED
  * ========================================================================== */
 
-bool
-npt_dispatch_wsi_set_preferred_display_info(struct npt_renderer *renderer,
-                                            uint32_t virgl_format,
-                                            uint32_t refresh_num,
-                                            uint32_t refresh_den,
-                                            const char *app_path,
-                                            uint32_t app_path_len)
+HRESULT
+npt_dispatch_shared_export_blob(struct npt_ring *ring, uint64_t texture_id,
+                                uint64_t blob_id, uint32_t data_res_id,
+                                uint32_t data_off)
 {
-   struct npt_cmd_set_preferred_display_info cmd;
+   struct npt_cmd_shared_export_blob cmd;
    memset(&cmd, 0, sizeof(cmd));
    cmd.header.cmd_type =
-      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_WSI,
-                             NPT_TRANSPORT_WSI_SET_PREFERRED_DISPLAY_INFO);
-   cmd.header.cmd_size = sizeof(cmd);
-   cmd.virgl_format = virgl_format;
-   cmd.refresh_num = refresh_num;
-   cmd.refresh_den = refresh_den;
-   if (app_path && app_path_len && app_path_len <= sizeof(cmd.app_path)) {
-      memcpy(cmd.app_path, app_path, app_path_len);
-      cmd.app_path_len = app_path_len;
-   }
-   return npt_renderer_submit_cmd(renderer, &cmd, sizeof(cmd));
-}
-
-bool
-npt_dispatch_wsi_get_swapchain_images(struct npt_ring *ring,
-                                      uint64_t swapchain_id,
-                                      uint32_t data_res_id,
-                                      uint32_t data_off)
-{
-   struct npt_cmd_get_swapchain_images cmd;
-   memset(&cmd, 0, sizeof(cmd));
-   cmd.header.cmd_type =
-      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_WSI,
-                             NPT_TRANSPORT_WSI_GET_SWAPCHAIN_IMAGES);
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_SHARED,
+                             NPT_TRANSPORT_SHARED_EXPORT_BLOB);
    cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
    cmd.header.cmd_size = sizeof(cmd);
-   cmd.header.object_id = swapchain_id;
-   cmd.swapchain_id = swapchain_id;
+   cmd.header.object_id = texture_id;
+   cmd.blob_id = blob_id;
    cmd.data_res_id = data_res_id;
    cmd.data_off = data_off;
 
@@ -251,33 +228,60 @@ npt_dispatch_wsi_get_swapchain_images(struct npt_ring *ring,
    memset(&submit, 0, sizeof(submit));
    struct npt_cs_encoder *enc = npt_ring_submit_command_init(
       ring, &submit, &cmd, sizeof(cmd),
-      sizeof(struct npt_cmd_get_swapchain_images_reply));
+      sizeof(struct npt_cmd_shared_export_blob_reply));
    if (enc)
       enc->cur = (uint8_t *)&cmd + sizeof(cmd);
    npt_ring_submit_command(ring, &submit);
 
-   /* The reply payload (image dimensions, blob_ids, ...) lives in the
-    * caller-supplied data shmem; the reply itself is just a sync
-    * barrier confirming the host has populated it. */
    struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_shared_export_blob_reply)) {
+      const struct npt_cmd_shared_export_blob_reply *reply =
+         (const struct npt_cmd_shared_export_blob_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+   }
    if (dec)
       npt_ring_free_command_reply(ring, &submit);
-   return true;
+
+   return hr;
 }
 
-bool
-npt_dispatch_wsi_image_release(struct npt_renderer *renderer,
-                               uint64_t swapchain_id, uint32_t image_index)
+HRESULT
+npt_dispatch_shared_open_res(struct npt_ring *ring, uint64_t device_id,
+                             struct npt_cmd_shared_open_res *cmd)
 {
-   struct npt_cmd_image_release cmd;
-   memset(&cmd, 0, sizeof(cmd));
-   cmd.header.cmd_type =
-      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_WSI,
-                             NPT_TRANSPORT_WSI_IMAGE_RELEASE);
-   cmd.header.cmd_size = sizeof(cmd);
-   cmd.header.object_id = swapchain_id;
-   cmd.image_index = image_index;
-   return npt_renderer_submit_cmd(renderer, &cmd, sizeof(cmd));
+   memset(&cmd->header, 0, sizeof(cmd->header));
+   cmd->header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_SHARED,
+                             NPT_TRANSPORT_SHARED_OPEN_RES);
+   cmd->header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd->header.cmd_size = sizeof(*cmd);
+   cmd->header.object_id = device_id;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, cmd, sizeof(*cmd),
+      sizeof(struct npt_cmd_shared_open_res_reply));
+   if (enc)
+      enc->cur = (uint8_t *)cmd + sizeof(*cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_shared_open_res_reply)) {
+      const struct npt_cmd_shared_open_res_reply *reply =
+         (const struct npt_cmd_shared_open_res_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+
+   return hr;
 }
 
 /* ==========================================================================

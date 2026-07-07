@@ -100,6 +100,7 @@ ctx_Map_buffer(void *self, struct npt_d3d11_buffer *b, UINT Subresource,
       npt_d3d11_buffer_get_map_shmem_res_id(b),
       /*pessimistic_size=*/npt_d3d11_buffer_get_byte_width(b),
       /*mip_height=*/0, /*mip_depth=*/0,
+      /*shmem_offset=*/npt_d3d11_buffer_slot_offset(b, 0),
       &row_pitch, &depth_pitch);
    if (NPT_FAILED(hr))
       return hr;
@@ -175,6 +176,7 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
       npt_d3d11_texture_get_map_shmem_res_id(t),
       /*byte_size=*/per_slot,
       mip_h, mip_d,
+      /*shmem_offset=*/npt_d3d11_texture_slot_offset(t, 0),
       &row_pitch, &depth_pitch);
    if (NPT_FAILED(hr))
       return hr;
