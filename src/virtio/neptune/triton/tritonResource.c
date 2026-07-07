@@ -11,6 +11,7 @@
 #include "triton_log.h"
 #include "tritonPresent.h"
 #include "tritonSharedBridge.h"
+#include "npt_shared_texture.h"          /* shared format + export helpers */
 
 #include "virtio/virtio-gpu/wddm_hw.h"   /* VIOGPU resource / shared-allocation ABI */
 
@@ -117,21 +118,6 @@ tritonBuildInitData(const D3D11DDIARG_CREATERESOURCE *a)
     return p;
 }
 
-/* DXGI B8G8R8A8/R8G8B8A8-family formats -> enum virgl_formats (the wire
- * namespace SET_SCANOUT_BLOB consumes).  Only the scanout-capable subset
- * needs mapping; anything else falls back to B8G8R8A8. */
-static ULONG tritonDxgiToVirglFormat(DXGI_FORMAT fmt)
-{
-    switch (fmt) {
-    case DXGI_FORMAT_B8G8R8A8_UNORM: return 1;   /* VIRGL_FORMAT_B8G8R8A8_UNORM */
-    case DXGI_FORMAT_B8G8R8X8_UNORM: return 2;   /* VIRGL_FORMAT_B8G8R8X8_UNORM */
-    case DXGI_FORMAT_R8G8B8A8_UNORM: return 67;  /* VIRGL_FORMAT_R8G8B8A8_UNORM */
-    default:
-        TR_LOG("scanout: unmapped DXGI format %d, assuming BGRA8", fmt);
-        return 1;
-    }
-}
-
 /* Exporter side of the shared/presentable texture plumbing.  The host
  * texture r->pResource was created with exportable (dmabuf) storage;
  * stage its export as this context's pending blob and create the shared
@@ -189,7 +175,7 @@ tritonRegisterSharedBlob(PTRITON_DEVICE pD, PTRITON_RESOURCE r,
     if (primary) {
         o->ScanoutInfo.width      = r->Width;
         o->ScanoutInfo.height     = r->Height;
-        o->ScanoutInfo.format     = tritonDxgiToVirglFormat(hostFmt);
+        o->ScanoutInfo.format     = npt_shared_texture_virgl_format(hostFmt);
         o->ScanoutInfo.strides[0] = (ULONG)o->planes[0].pitch;
         o->ScanoutInfo.offsets[0] = (ULONG)o->planes[0].offset;
     }
@@ -293,19 +279,7 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
          * for SRGB backbuffers must be created with the UNORM base
          * (gamma is applied through SRGB views, which dxvk permits on
          * UNORM textures via its mutable view-format list). */
-        DXGI_FORMAT scFmt = r->Format;
-        switch (scFmt) {
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
-        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
-            scFmt = DXGI_FORMAT_R8G8B8A8_UNORM;
-            break;
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-        case DXGI_FORMAT_B8G8R8A8_TYPELESS:
-            scFmt = DXGI_FORMAT_B8G8R8A8_UNORM;
-            break;
-        default:
-            break;
-        }
+        DXGI_FORMAT scFmt = (DXGI_FORMAT)npt_shared_texture_host_format(r->Format);
 
         /* MISC_SHARED gives the texture exportable dedicated storage;
          * the vendor LINEAR_EXPORT bit forces DRM_FORMAT_MOD_LINEAR so
