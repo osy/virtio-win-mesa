@@ -58,58 +58,6 @@ static struct {
    xcb_special_event_t *special_event;
 } g_wsi;
 
-/* DRM fourccs we may emit for the X root visual. */
-#define DRM_FORMAT_XRGB8888 0x34325258u
-#define DRM_FORMAT_XBGR8888 0x34324258u
-
-/* XRGB or XBGR fourcc based on root visual masks. */
-static uint32_t
-detect_visual_drm_format(xcb_connection_t *conn)
-{
-   const xcb_setup_t *setup = xcb_get_setup(conn);
-   xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-   if (!iter.rem)
-      return DRM_FORMAT_XRGB8888;
-
-   xcb_screen_t *screen = iter.data;
-   xcb_visualid_t root_visual = screen->root_visual;
-
-   xcb_depth_iterator_t depth_iter = xcb_screen_allowed_depths_iterator(screen);
-   for (; depth_iter.rem; xcb_depth_next(&depth_iter)) {
-      xcb_visualtype_iterator_t vis_iter =
-         xcb_depth_visuals_iterator(depth_iter.data);
-      for (; vis_iter.rem; xcb_visualtype_next(&vis_iter)) {
-         if (vis_iter.data->visual_id == root_visual) {
-            /* LE red_mask 0x000000ff = R,G,B,X in memory = XBGR. */
-            if (vis_iter.data->red_mask == 0x000000ff)
-               return DRM_FORMAT_XBGR8888;
-            else
-               return DRM_FORMAT_XRGB8888;
-         }
-      }
-   }
-   return DRM_FORMAT_XRGB8888;
-}
-
-/* Cheap one-shot: open a fresh xcb connection, read the root visual's
- * fourcc, close.  Run from npt_do_query_preferred_drm_format before any
- * swapchain has been created.  drm_format=0 if no X connection (e.g.
- * native-Windows guest path or DISPLAY unset). */
-NTSTATUS npt_do_query_preferred_drm_format(void *args)
-{
-   struct npt_unix_query_preferred_drm_format_params *p = args;
-   p->drm_format = 0;
-
-   xcb_connection_t *conn = xcb_connect(NULL, NULL);
-   if (!conn || xcb_connection_has_error(conn)) {
-      if (conn) xcb_disconnect(conn);
-      return STATUS_SUCCESS;
-   }
-   p->drm_format = detect_visual_drm_format(conn);
-   xcb_disconnect(conn);
-   return STATUS_SUCCESS;
-}
-
 NTSTATUS npt_do_wsi_init(void *args)
 {
    struct npt_unix_wsi_init_params *p = args;

@@ -54,6 +54,7 @@ HRESULT npt_dispatch_resource_map(struct npt_ring *ring,
                                   uint64_t byte_size,
                                   uint32_t mip_height,
                                   uint32_t mip_depth,
+                                  uint32_t shmem_offset,
                                   uint32_t *out_row_pitch,
                                   uint32_t *out_depth_pitch);
 
@@ -86,24 +87,28 @@ bool npt_dispatch_resource_update(struct npt_ring *ring,
                                   uint32_t byte_size);
 
 /* ==========================================================================
- * WSI
+ * SHARED
  * ========================================================================== */
 
-bool npt_dispatch_wsi_set_preferred_display_info(struct npt_renderer *renderer,
-                                                 uint32_t virgl_format,
-                                                 uint32_t refresh_num,
-                                                 uint32_t refresh_den,
-                                                 const char *app_path,
-                                                 uint32_t app_path_len);
+struct npt_blob_export_info;
+struct npt_cmd_shared_open_res;
 
-bool npt_dispatch_wsi_get_swapchain_images(struct npt_ring *ring,
-                                           uint64_t swapchain_id,
-                                           uint32_t data_res_id,
-                                           uint32_t data_off);
+/* Sync: stage texture_id's dmabuf export as this context's pending
+ * blob under blob_id; the host writes npt_blob_export_info into
+ * (data_res_id, data_off). */
+HRESULT npt_dispatch_shared_export_blob(struct npt_ring *ring,
+                                        uint64_t texture_id,
+                                        uint64_t blob_id,
+                                        uint32_t data_res_id,
+                                        uint32_t data_off);
 
-bool npt_dispatch_wsi_image_release(struct npt_renderer *renderer,
-                                    uint64_t swapchain_id,
-                                    uint32_t image_index);
+/* Sync: import the texture backed by virtio resource res_id on
+ * device_id and register it under mint_object_id.  desc/export info
+ * fields are caller-populated in *cmd (header fields are owned by the
+ * dispatcher). */
+HRESULT npt_dispatch_shared_open_res(struct npt_ring *ring,
+                                     uint64_t device_id,
+                                     struct npt_cmd_shared_open_res *cmd);
 
 /* ==========================================================================
  * EVENT

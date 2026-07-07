@@ -260,8 +260,6 @@ npt_device_create(void)
    }
 
    atomic_store(&dev->next_ring_id, 1);
-   /* ring_idx 0 is reserved for CPU-timeline fences; swapchains start at 1. */
-   atomic_store(&dev->next_present_ring_idx, 1);
    npt_wrapper_cache_init(&dev->wrapper_cache);
 
    mtx_init(&dev->tls_rings_mutex, mtx_plain);
@@ -304,61 +302,6 @@ npt_device_create(void)
                          memory_order_relaxed);
 
    npt_event_init(dev);
-
-   /* Tell the host our display hints (consumer format, refresh rate,
-    * exe path) before any swapchain is created and before the host
-    * triggers any DXVK code path that locks in DXVK's per-process
-    * configuration.  All fields are independent and best-effort -- a 0
-    * value preserves the host's own fallback for that field. */
-   {
-      /* Consumer-format hint.  Host translates the virgl_format back
-       * to its local namespace and applies it via the swap-chain
-       * library's preferred-format knob.  0 = no preference. */
-      uint32_t preferred_virgl =
-         npt_renderer_query_preferred_virgl_format(dev->renderer);
-
-      uint32_t refresh_num = 0, refresh_den = 0;
-      char app_path[NPT_APP_PATH_MAX] = { 0 };
-      uint32_t app_path_len = 0;
-
-#if defined(_WIN32)
-      /* Display refresh rate.  DXVK on the host derives its FpsLimiter
-       * target from m_frameRateRefresh / SyncInterval; without this
-       * hint the host falls back to the WSI driver's hardcoded 60 Hz,
-       * which mis-paces SyncInterval > 1 games to half their intended
-       * rate. */
-      DEVMODEW dm = { 0 };
-      dm.dmSize = sizeof(dm);
-      if (EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &dm)
-          && dm.dmDisplayFrequency) {
-         refresh_num = dm.dmDisplayFrequency * 1000u;
-         refresh_den = 1000u;
-      }
-
-      /* Exe path for DXVK's per-game profile match.  DXVK's regex
-       * matches against env::getExePath(); in vtest the host reads
-       * /proc/self/exe = virgl_render_server, so the match always
-       * fails.  We send the guest's GetModuleFileNameW result and the
-       * host applies it via DXVK_APP_PATH so DXVK's getExePath consults
-       * the override before falling back. */
-      WCHAR wpath[MAX_PATH];
-      DWORD wlen = GetModuleFileNameW(NULL, wpath, MAX_PATH);
-      if (wlen > 0 && wlen < MAX_PATH) {
-         int n = WideCharToMultiByte(CP_UTF8, 0, wpath, (int)wlen,
-                                     app_path, sizeof(app_path),
-                                     NULL, NULL);
-         if (n > 0)
-            app_path_len = (uint32_t)n;
-      }
-#endif
-
-      npt_dispatch_wsi_set_preferred_display_info(dev->renderer,
-                                                  preferred_virgl,
-                                                  refresh_num, refresh_den,
-                                                  app_path, app_path_len);
-      npt_log("WSI hints: virgl_format=%u refresh=%u/%u app_path_len=%u",
-              preferred_virgl, refresh_num, refresh_den, app_path_len);
-   }
 
    npt_log("Neptune device created successfully");
    return dev;

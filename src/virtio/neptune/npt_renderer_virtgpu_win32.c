@@ -379,6 +379,72 @@ virtgpu_resource_destroy_blob(struct npt_virtgpu *gpu,
    return virtgpu_drain(gpu) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
+/* Attach an existing VM-global virtio resource to this transport
+ * context via a VIOGPU_RESOURCE_TYPE_IMPORT allocation, so the host
+ * worker receives the resource fd (proxy attach-forwarding) before a
+ * SHARED_OPEN_RES names it. */
+static bool
+npt_vgw32_import_res(struct npt_renderer *r, uint32_t res_id, uint64_t size,
+                     uint32_t *out_alloc, uint32_t *out_res_kmt)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+
+   VIOGPU_CREATE_ALLOCATION_EXCHANGE alloc_priv = {
+      .Type = VIOGPU_RESOURCE_TYPE_IMPORT,
+      .OptionsImport = {
+         .res_id = res_id,
+      },
+      .Size = npt_align64(size ? size : 4096, 4096),
+   };
+   VIOGPU_CREATE_RESOURCE_EXCHANGE res_priv = { 0 };
+   D3DDDI_ALLOCATIONINFO alloc_info = {
+      .pPrivateDriverData = &alloc_priv,
+      .PrivateDriverDataSize = sizeof(alloc_priv),
+   };
+
+   if (!virtgpu_drain(gpu))
+      return false;
+
+   D3DKMT_CREATEALLOCATION alloc = {
+      .hDevice = gpu->device,
+      .pPrivateDriverData = &res_priv,
+      .PrivateDriverDataSize = sizeof(res_priv),
+      .NumAllocations = 1,
+      .pAllocationInfo = &alloc_info,
+      .Flags = {
+         .CreateResource = 1,
+      },
+   };
+   NTSTATUS status = gpu->cb.createAllocation(&alloc);
+   if (!NT_SUCCESS(status)) {
+      npt_log("virtgpu: import_res res_id=%u failed 0x%lx", res_id, status);
+      return false;
+   }
+
+   *out_alloc = alloc_info.hAllocation;
+   *out_res_kmt = alloc.hResource;
+
+   /* Flush so the KMD's CTX_ATTACH_RESOURCE reaches the host before
+    * the caller's ring command names the resource. */
+   if (!virtgpu_drain(gpu))
+      npt_log("virtgpu: import_res res_id=%u post-drain failed", res_id);
+
+   npt_log("virtgpu: import_res res_id=%u alloc=0x%x", res_id,
+           alloc_info.hAllocation);
+   return true;
+}
+
+static void
+npt_vgw32_release_import_res(struct npt_renderer *r, uint32_t alloc,
+                             uint32_t res_kmt)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   if (!alloc && !res_kmt)
+      return;
+   virtgpu_resource_destroy_blob(gpu, (D3DKMT_HANDLE)alloc,
+                                 (D3DKMT_HANDLE)res_kmt);
+}
+
 static struct npt_renderer_shmem *
 npt_vgw32_shmem_create(struct npt_renderer *r, size_t size)
 {
@@ -462,6 +528,21 @@ npt_vgw32_submit_cmd_sync(struct npt_renderer *r, const void *data,
       return false;
 
    return virtgpu_drain(gpu);
+}
+
+/* Arm a Win32 event for the next GPU retirement on the requested ring.
+ * The Wine path returns a sync_file FD; D3DKMT's CPU-event flag is the
+ * closest equivalent here, but the renderer interface return type is int
+ * (sync_file FD shape), which cannot safely carry a HANDLE on 64-bit
+ * Windows.  The native backend therefore reports "no fence available"
+ * (-1); a HANDLE-shaped fence return on the renderer interface would let
+ * this arm a Win32 event via D3DKMTSignalSynchronizationObject2. */
+static int
+npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
+{
+   (void)r;
+   (void)ring_idx;
+   return -1;
 }
 
 static void
@@ -663,13 +744,18 @@ npt_renderer_create_virtgpu(void)
       goto fail;
 
    gpu->base.info.max_timeline_count = 64;
+   /* The KMD targets this context by id when another device's flip
+    * present submits this transport's WSI_PRESENT bytes. */
+   gpu->base.info.virtio_ctx_id = ctx_init.CtxInit.CtxId;
 
    gpu->base.ops.destroy = npt_vgw32_destroy;
    gpu->base.ops.submit_cmd = npt_vgw32_submit_cmd;
    gpu->base.ops.submit_cmd_sync = npt_vgw32_submit_cmd_sync;
-   /* create_host_blob, submit_present_fence, wsi_* and
-    * query_preferred_virgl_format are wired in Phase C alongside the
-    * DXGI swapchain path; the renderer helpers NULL-check them. */
+   gpu->base.ops.submit_present_fence = npt_vgw32_submit_present_fence;
+   gpu->base.ops.import_res = npt_vgw32_import_res;
+   gpu->base.ops.release_import_res = npt_vgw32_release_import_res;
+   /* create_host_blob and wsi_* are wired alongside the DXGI swapchain
+    * Present path; the renderer helpers NULL-check them. */
 
    gpu->base.shmem_ops.create = npt_vgw32_shmem_create;
    gpu->base.shmem_ops.destroy = npt_vgw32_shmem_destroy;

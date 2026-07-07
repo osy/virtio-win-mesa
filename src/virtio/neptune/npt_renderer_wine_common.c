@@ -150,37 +150,12 @@ wine_wsi_drain(struct npt_renderer *r,
    return unixlib_wsi_drain(timeout_ms, out_released_count);
 }
 
-/* DRM fourccs that the unixlib's X-visual probe may report.  Kept
- * inline to avoid a libdrm dependency in this build. */
-#define NPT_DRM_FORMAT_XRGB8888  0x34325258u
-#define NPT_DRM_FORMAT_XBGR8888  0x34324258u
-
-static uint32_t
-drm_fourcc_to_virgl_format(uint32_t fourcc)
-{
-   switch (fourcc) {
-   case NPT_DRM_FORMAT_XRGB8888:   return VIRGL_FORMAT_B8G8R8X8_UNORM;
-   case NPT_DRM_FORMAT_XBGR8888:   return VIRGL_FORMAT_R8G8B8X8_UNORM;
-   default:                        return VIRGL_FORMAT_NONE;
-   }
-}
-
-static uint32_t
-wine_query_preferred_virgl_format(struct npt_renderer *r)
-{
-   (void)r;
-   struct npt_unix_query_preferred_drm_format_params p = { 0 };
-   npt_wine_unix_call(npt_unix_query_preferred_drm_format, &p);
-   return drm_fourcc_to_virgl_format(p.drm_format);
-}
-
 void npt_wine_install_wsi_ops(struct npt_renderer_ops *ops)
 {
    ops->wsi_init = wine_wsi_init;
    ops->wsi_present = wine_wsi_present;
    ops->wsi_destroy = wine_wsi_destroy;
    ops->wsi_drain = wine_wsi_drain;
-   ops->query_preferred_virgl_format = wine_query_preferred_virgl_format;
 }
 
 #endif /* __WINE__ */

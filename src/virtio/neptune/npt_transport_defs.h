@@ -21,7 +21,7 @@
 #define NPT_TRANSPORT_SUBGROUP_RING     1u  /* ring lifecycle + sync        */
 #define NPT_TRANSPORT_SUBGROUP_COM      2u  /* IUnknown lifetime + QI       */
 #define NPT_TRANSPORT_SUBGROUP_RESOURCE 3u  /* Map/Unmap/Update/cmd-stream  */
-#define NPT_TRANSPORT_SUBGROUP_WSI      4u  /* swapchain dmabuf, image rls  */
+#define NPT_TRANSPORT_SUBGROUP_SHARED   4u  /* shared / presentable textures*/
 #define NPT_TRANSPORT_SUBGROUP_EVENT    5u  /* Win32 event bridge           */
 #define NPT_TRANSPORT_SUBGROUP_FEEDBACK 6u  /* shmem feedback (query, fence)*/
 
@@ -239,6 +239,13 @@ struct npt_cmd_map_resource {
     * pre-allocation estimate.  Buffer callers leave both 0. */
    uint32_t mip_height;
    uint32_t mip_depth;
+   /* Byte offset of the guest's slot window inside the shmem blob.
+    * The map pool sub-allocates many resources from one blob, so a
+    * READ prefill must land at the slot, not the blob base (a copy at
+    * the base hands the caller garbage AND clobbers whichever
+    * resource owns offset 0). */
+   uint32_t shmem_offset;
+   uint32_t pad;
 };
 
 struct npt_cmd_map_resource_reply {
@@ -263,7 +270,7 @@ struct npt_cmd_unmap_resource {
    uint64_t byte_size;
    /* Nonzero = rename-ring path: host runs a fresh Map + memcpy +
     * Unmap here with no prior MAP_RESOURCE.  Zero = paired with a
-    * prior MAP_RESOURCE (map_state path). */
+    * prior MAP_RESOURCE. */
    uint32_t access_flags;
    /* Byte offset within shmem_res_id; single-region callers leave 0. */
    uint32_t shmem_offset;
@@ -286,86 +293,87 @@ struct npt_cmd_execute_command_stream {
 };
 
 /* ====================================================================== */
-/* WSI                                                                    */
+/* SHARED                                                                 */
 /* ====================================================================== */
 
-#define NPT_TRANSPORT_WSI_GET_SWAPCHAIN_IMAGES        0u
-#define NPT_TRANSPORT_WSI_IMAGE_RELEASE               1u
-#define NPT_TRANSPORT_WSI_SET_PREFERRED_DISPLAY_INFO  2u
+/* Shared / presentable textures follow the Venus blob model: the
+ * exporter's host texture is exported as a dmabuf and staged as a
+ * pending blob under blob_id; the guest KMD claims it with
+ * RESOURCE_CREATE_BLOB(HOST3D, blob_id), which binds a VM-global
+ * virtio res_id to the dmabuf.  Cross-process consumers reach the
+ * same storage by res_id: the guest KMD attaches the resource to the
+ * consumer's context (the proxy forwards the fd into that worker) and
+ * OPEN_RES imports it on the consumer's device.  fds never cross the
+ * wire; texture metadata rides the WDDM allocation private data. */
 
-/* Must match NPT_WSI_MAX_IMAGES (nptunix/npt_unixlib.h). */
-#define NPT_SWAPCHAIN_MAX_IMAGES 4
+#define NPT_TRANSPORT_SHARED_EXPORT_BLOB 0u
+#define NPT_TRANSPORT_SHARED_OPEN_RES    1u
 
-/* Bytes available for the guest exe path used by the host's per-app
- * profile match (DXVK_APP_PATH).  256 ASCII-equivalent fits typical
- * paths; longer paths truncate and the host falls back to its own
- * /proc/self/exe. */
-#define NPT_APP_PATH_MAX  256
+#define NPT_BLOB_EXPORT_MAX_PLANES 4
 
-struct npt_cmd_get_swapchain_images {
+/* dmabuf-level export description, written by the host into the
+ * exporter's shmem window and round-tripped (via guest-side WDDM
+ * private data) into OPEN_RES.  No fd: the fd travels as the blob
+ * resource itself. */
+struct npt_blob_export_info {
+   uint64_t modifier;         /* DRM format modifier of the export */
+   uint64_t allocation_size;  /* exporter's memory object size */
+   uint32_t plane_count;
+   uint32_t texture_layout;   /* D3D11_TEXTURE_LAYOUT */
+   struct {
+      uint64_t offset;
+      uint64_t pitch;
+   } planes[NPT_BLOB_EXPORT_MAX_PLANES];
+};
+
+/* Synchronous.  Export the shared host texture in header.object_id as
+ * a dmabuf and stage it as this context's pending blob under blob_id.
+ * The host writes npt_blob_export_info at (data_res_id, data_off).
+ * Must complete before the guest KMD's RESOURCE_CREATE_BLOB claims
+ * blob_id (the guest orders this by waiting for the reply before
+ * creating the WDDM allocation).  Reply: cmd_return = HRESULT. */
+struct npt_cmd_shared_export_blob {
    struct npt_command_header header;
-   uint64_t swapchain_id;
+   uint64_t blob_id;
    uint32_t data_res_id;
-   /* Byte offset where the host writes the populated info struct.
-    * The guest allocates info slots out of a shared pool, so later
-    * consumers get non-zero offsets and this can't be implicit 0. */
    uint32_t data_off;
 };
 
-struct npt_cmd_get_swapchain_images_reply {
-   struct npt_reply_header header;
-   int32_t ret;
-   uint32_t pad;
+struct npt_cmd_shared_export_blob_reply {
+   struct npt_reply_header header; /* header.cmd_return = HRESULT */
 };
 
-/* Per-image metadata published after CreateSwapChain / ResizeBuffers.
- * virgl_format is the wire identifier (enum virgl_formats); guest-side
- * WSI maps it to a DRM fourcc / Vulkan format / etc. as needed. */
-struct npt_swapchain_images_info {
-   uint32_t num_images;
-   uint32_t virgl_format;
+/* Synchronous.  Import the shared texture backed by virtio resource
+ * res_id on the consumer device in header.object_id and register the
+ * imported texture under mint_object_id.  The D3D11 description and
+ * export info round-tripped through the exporter's WDDM allocation
+ * private data.  The host waits (bounded) for res_id to arrive via
+ * the proxy's attach-forwarding, which the guest KMD triggered when
+ * the consumer opened the allocation.  Reply: cmd_return = HRESULT. */
+struct npt_cmd_shared_open_res {
+   struct npt_command_header header;
+   uint64_t mint_object_id;
+   uint32_t res_id;
+   /* D3D11_TEXTURE2D_DESC of the exporter's texture. */
    uint32_t width;
    uint32_t height;
-   struct {
-      uint64_t blob_id;
-      uint32_t stride;
-      uint32_t pad;
-   } images[NPT_SWAPCHAIN_MAX_IMAGES];
-};
-
-/* Consumer-driven backpressure for the WSI surface: the host frame
- * worker blocks in onAcquireImage until a matching release arrives,
- * rate-limiting the calling app via frame-latency synchronisation.
- * Carries no fd — the consumer has already finished with the image. */
-struct npt_cmd_image_release {
-   struct npt_command_header header;
-   uint32_t image_index;
+   uint32_t mip_levels;
+   uint32_t array_size;
+   uint32_t format;           /* DXGI_FORMAT */
+   uint32_t sample_count;
+   uint32_t usage;            /* D3D11_USAGE */
+   uint32_t bind_flags;
+   uint32_t cpu_access_flags;
+   uint32_t misc_flags;
+   /* Explicit pad: 11 uint32 fields follow the uint64 mint_object_id,
+    * so export_info (uint64-first) needs 4 bytes to stay 8-aligned
+    * without compiler-inserted padding. */
    uint32_t pad;
+   struct npt_blob_export_info export_info;
 };
 
-/* Display hints applied by the host before the next CreateSwapChain
- * or ResizeBuffers.  Must be sent once per context, ahead of any
- * swapchain creation, before the host locks in its per-process
- * configuration.  Carries:
- *
- *   - virgl_format: consumer-format hint.  Host translates to its
- *     local pixel-format namespace; 0 = no preference.
- *
- *   - refresh_num/refresh_den: consumer refresh rate (rational).
- *     Used by the host WSI display-mode query so per-Present refresh
- *     logic lands at the actual host rate.  Both 0 = no preference.
- *
- *   - app_path / app_path_len: UTF-8 guest executable path.  Applied
- *     via DXVK_APP_PATH so per-app profile match works in hosted
- *     setups where /proc/self/exe is the renderer.  Not
- *     NUL-terminated.  app_path_len == 0 = no override. */
-struct npt_cmd_set_preferred_display_info {
-   struct npt_command_header header;
-   uint32_t virgl_format;
-   uint32_t refresh_num;
-   uint32_t refresh_den;
-   uint32_t app_path_len;
-   char     app_path[NPT_APP_PATH_MAX];
+struct npt_cmd_shared_open_res_reply {
+   struct npt_reply_header header; /* header.cmd_return = HRESULT */
 };
 
 /* ====================================================================== */

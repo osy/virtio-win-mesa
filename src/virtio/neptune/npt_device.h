@@ -86,11 +86,6 @@ struct npt_device {
     */
    bool multi_ring_enabled;
 
-   /* GPU-done sync_file ring_idx allocator.  ring_idx == 0 is reserved
-    * for CPU-timeline fences, so swapchains start at 1; bounded by
-    * the host context's sync_queues table (1..63). */
-   _Atomic uint32_t next_present_ring_idx;
-
    struct npt_wrapper_cache wrapper_cache;
 
    /* Win32 event-HANDLE emulation; opaque, defined in npt_event.c. */

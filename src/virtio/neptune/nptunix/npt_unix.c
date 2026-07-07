@@ -203,7 +203,6 @@ extern NTSTATUS npt_do_wsi_init(void *);
 extern NTSTATUS npt_do_wsi_present(void *);
 extern NTSTATUS npt_do_wsi_destroy(void *);
 extern NTSTATUS npt_do_wsi_drain(void *);
-extern NTSTATUS npt_do_query_preferred_drm_format(void *);
 extern NTSTATUS npt_do_virtgpu_open(void *);
 extern NTSTATUS npt_do_virtgpu_getparam(void *);
 extern NTSTATUS npt_do_virtgpu_get_caps(void *);
@@ -237,7 +236,6 @@ DECLSPEC_EXPORT const unixlib_entry_t __wine_unix_call_funcs[] = {
    npt_do_virtgpu_gem_close,
    npt_do_virtgpu_prime_handle_to_fd,
    npt_do_enumerate_outputs,
-   npt_do_query_preferred_drm_format,
    npt_do_dup,
    npt_do_singleton_acquire,
    npt_do_singleton_publish,

@@ -82,7 +82,6 @@ typedef struct _VIOGPU_ADAPTERINFO
 
 #define VIOGPU_RES_INFO              0x100
 #define VIOGPU_RES_BUSY              0x101
-#define VIOGPU_RES_BLOB_SET_INFO     0x102
 
 #define VIOGPU_CTX_INIT              0x200
 
@@ -152,18 +151,12 @@ typedef struct _VIOGPU_RES_BUSY_REQ
 #pragma pack()
 
 #pragma pack(1)
-typedef struct {
-    D3DKMT_HANDLE ResHandle;
-    VIOGPU_BLOB_INFO Info;
-} VIOGPU_RES_BLOB_SET_INFO_REQ, *PVIOGPU_RES_BLOB_SET_INFO_REQ;
-#pragma pack()
-
-#pragma pack(1)
 typedef struct _VIOGPU_CTX_INIT_REQ
 {
     UINT CapsetID;
     UINT NumRings;
     UCHAR DebugName[64];
+    UINT CtxId; // out: virtio context id of the created context
 } VIOGPU_CTX_INIT_REQ;
 #pragma pack()
 
@@ -192,7 +185,6 @@ typedef struct _VIOGPU_ESCAPE
 
         VIOGPU_RES_INFO_REQ ResourceInfo;
         VIOGPU_RES_BUSY_REQ ResourceBusy;
-        VIOGPU_RES_BLOB_SET_INFO_REQ BlobInfoSet;
 
         VIOGPU_CTX_INIT_REQ CtxInit;
 
@@ -241,8 +233,68 @@ typedef struct _VIOGPU_CREATE_RESOURCE_EXCHANGE
 } VIOGPU_CREATE_RESOURCE_EXCHANGE;
 #pragma pack()
 
-#define VIOGPU_RESOURCE_TYPE_3D   0
-#define VIOGPU_RESOURCE_TYPE_BLOB 1
+// Import an existing VM-global virtio resource (a shared texture's blob,
+// created by another process/device) into this device's context.  The KMD
+// does NOT mint a res_id, issue RESOURCE_CREATE_BLOB, or destroy the
+// resource: ownership stays with the creating allocation.  Opening the
+// allocation attaches the resource to the opening device's virtio context
+// (CTX_ATTACH_RESOURCE), which is what forwards the host dmabuf into that
+// context's render worker.  Venus analog: dma-buf import.
+// Keep in lockstep with kvm-guest-drivers-windows/viogpu/shared/viogpum.h.
+#pragma pack(1)
+typedef struct _VIOGPU_RESOURCE_IMPORT_OPTIONS
+{
+    ULONG res_id;
+} VIOGPU_RESOURCE_IMPORT_OPTIONS;
+#pragma pack()
+
+// Shared / presentable D3D11 texture backed by a virtio-gpu blob resource
+// (Venus model).  The UMD created the host texture with exportable storage
+// and staged its dmabuf as a pending blob under blob_id on create_ctx_id
+// (the UMD's transport context) via SHARED_EXPORT_BLOB.  The KMD mints a
+// res_id and issues RESOURCE_CREATE_BLOB(HOST3D, blob_id) on create_ctx_id
+// when the creating device opens the allocation, binding the res_id to the
+// dmabuf VM-globally.  primary != 0 marks a flippable scanout primary:
+// segment-1 residency, scanout promotion, and FlushToScreen uses
+// ScanoutInfo for SET_SCANOUT_BLOB.  The trailing D3D11/dmabuf description
+// is opaque to the KMD; it round-trips through the WDDM allocation private
+// data so an opening process's UMD can rebuild the texture (paired with
+// the res_id from VIOGPU_RES_INFO) via SHARED_OPEN_RES.
+// Keep in lockstep with kvm-guest-drivers-windows/viogpu/shared/viogpum.h.
+#pragma pack(1)
+typedef struct _VIOGPU_RESOURCE_SHARED_TEXTURE_OPTIONS
+{
+    // --- blob binding (consumed by the KMD) ---
+    ULONGLONG blob_id;
+    ULONG create_ctx_id;    // 0 = the opening device's own context
+    ULONG primary;
+    VIOGPU_BLOB_INFO ScanoutInfo;
+    // --- D3D11 + dmabuf rebuild info for opening UMDs (opaque to KMD) ---
+    ULONG width;
+    ULONG height;
+    ULONG mip_levels;
+    ULONG array_size;
+    ULONG format;           // DXGI_FORMAT
+    ULONG sample_count;
+    ULONG usage;            // D3D11_USAGE
+    ULONG bind_flags;
+    ULONG cpu_access_flags;
+    ULONG misc_flags;
+    ULONG texture_layout;   // D3D11_TEXTURE_LAYOUT
+    ULONG plane_count;
+    ULONGLONG modifier;     // DRM format modifier of the export
+    ULONGLONG allocation_size;
+    struct {
+        ULONGLONG offset;
+        ULONGLONG pitch;
+    } planes[4];
+} VIOGPU_RESOURCE_SHARED_TEXTURE_OPTIONS;
+#pragma pack()
+
+#define VIOGPU_RESOURCE_TYPE_3D     0
+#define VIOGPU_RESOURCE_TYPE_BLOB   1
+#define VIOGPU_RESOURCE_TYPE_IMPORT 2
+#define VIOGPU_RESOURCE_TYPE_SHARED 3
 #pragma pack(1)
 typedef struct _VIOGPU_CREATE_ALLOCATION_EXCHANGE
 {
@@ -250,6 +302,8 @@ typedef struct _VIOGPU_CREATE_ALLOCATION_EXCHANGE
     union {
         VIOGPU_RESOURCE_3D_OPTIONS Options3D;
         VIOGPU_RESOURCE_BLOB_OPTIONS OptionsBlob;
+        VIOGPU_RESOURCE_IMPORT_OPTIONS OptionsImport;
+        VIOGPU_RESOURCE_SHARED_TEXTURE_OPTIONS OptionsShared;
     };
     ULONGLONG Size;
 } VIOGPU_CREATE_ALLOCATION_EXCHANGE;

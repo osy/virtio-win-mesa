@@ -177,16 +177,6 @@ struct npt_unix_enumerate_outputs_params {
    struct npt_output_list list;
 };
 
-/* Detects the DRM fourcc that matches the X11 root visual's red/blue
- * masks (XRGB8888 / XBGR8888 and the alpha variants).  Sent by the PE
- * side at device init so the host can configure DXVK to produce a
- * dmabuf in that format -- avoiding B/R swap on non-default visuals.
- * drm_format=0 on failure (no DISPLAY, no X connection, etc.). */
-struct npt_unix_query_preferred_drm_format_params {
-   uint32_t drm_format;
-   uint32_t pad;
-};
-
 /*
  * Process-wide npt_device singleton bridge (see npt_device.c).
  *
@@ -249,7 +239,6 @@ enum npt_unix_funcs {
    npt_unix_virtgpu_gem_close,
    npt_unix_virtgpu_prime_handle_to_fd,
    npt_unix_enumerate_outputs,
-   npt_unix_query_preferred_drm_format,
    npt_unix_dup,
    npt_unix_singleton_acquire,
    npt_unix_singleton_publish,
