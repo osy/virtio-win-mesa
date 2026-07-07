@@ -10,6 +10,7 @@
 
 #include "npt_com.h"
 #include "npt_overrides.h"
+#include "npt_swapchain.h"
 #include "npt_device.h"
 
 #include "neptune-protocol/npt_protocol_client_idxgifactory.h"
@@ -110,13 +111,27 @@ fac7_UnregisterAdaptersChangedEvent_override(void *self, DWORD dwCookie)
 }
 
 /* =========================================================================
- * IDXGIOutput-related overrides
+ * Swapchain creation + IDXGIOutput-related overrides
+ *
+ * Swapchains are guest-fabricated on Wine (the host refuses to create
+ * one); see npt_guest_swapchain_create.  On native Win32 the helper
+ * returns E_NOTIMPL, matching the host's refusal, and the wire forward
+ * is skipped entirely.
  *
  * pRestrictToOutput would be a guest-fab IDXGIOutput (see
- * npt_overrides_dxgi_output.c); pass NULL to the default thunk so the
- * host never sees a bit-63-set id.  No bookkeeping — pre-refactor wire
- * round-trip preserved identity but had no visible effect.
+ * npt_overrides_dxgi_output.c); it never reaches the host.
  * ========================================================================= */
+
+static HRESULT NPT_STDMETHODCALLTYPE
+fac_CreateSwapChain_override(void *self, IUnknown *pDevice,
+                             DXGI_SWAP_CHAIN_DESC *pDesc,
+                             IDXGISwapChain **ppSwapChain)
+{
+   if (!pDevice || !pDesc || !ppSwapChain)
+      return NPT_DXGI_ERROR_INVALID_CALL;
+   return npt_guest_swapchain_create_legacy(pDevice, pDesc, self,
+                                            (void **)ppSwapChain);
+}
 
 static HRESULT NPT_STDMETHODCALLTYPE
 fac2_CreateSwapChainForHwnd_override(void *self, IUnknown *pDevice, HWND hWnd,
@@ -126,10 +141,13 @@ fac2_CreateSwapChainForHwnd_override(void *self, IUnknown *pDevice, HWND hWnd,
                                      IDXGISwapChain1 **ppSwapChain)
 {
    (void)pRestrictToOutput;
-   return npt_idxgifactory2_default_CreateSwapChainForHwnd(
-      self, pDevice, hWnd, pDesc, pFs, NULL, ppSwapChain);
+   if (!pDevice || !pDesc || !ppSwapChain)
+      return NPT_DXGI_ERROR_INVALID_CALL;
+   return npt_guest_swapchain_create(pDevice, pDesc, pFs, hWnd, self,
+                                     (void **)ppSwapChain);
 }
 
+/* CoreWindow/composition have no HWND for the X11 WSI to bind. */
 static HRESULT NPT_STDMETHODCALLTYPE
 fac2_CreateSwapChainForCoreWindow_override(void *self, IUnknown *pDevice,
                                            IUnknown *pWindow,
@@ -137,9 +155,11 @@ fac2_CreateSwapChainForCoreWindow_override(void *self, IUnknown *pDevice,
                                            IDXGIOutput *pRestrictToOutput,
                                            IDXGISwapChain1 **ppSwapChain)
 {
+   (void)self; (void)pDevice; (void)pWindow; (void)pDesc;
    (void)pRestrictToOutput;
-   return npt_idxgifactory2_default_CreateSwapChainForCoreWindow(
-      self, pDevice, pWindow, pDesc, NULL, ppSwapChain);
+   if (ppSwapChain)
+      *ppSwapChain = NULL;
+   return NPT_DXGI_ERROR_INVALID_CALL;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
@@ -148,9 +168,10 @@ fac2_CreateSwapChainForComposition_override(void *self, IUnknown *pDevice,
                                             IDXGIOutput *pRestrictToOutput,
                                             IDXGISwapChain1 **ppSwapChain)
 {
-   (void)pRestrictToOutput;
-   return npt_idxgifactory2_default_CreateSwapChainForComposition(
-      self, pDevice, pDesc, NULL, ppSwapChain);
+   (void)self; (void)pDevice; (void)pDesc; (void)pRestrictToOutput;
+   if (ppSwapChain)
+      *ppSwapChain = NULL;
+   return NPT_DXGI_ERROR_INVALID_CALL;
 }
 
 #define NPT_REGISTER_OVERRIDE_DXGI_FACTORY7(m, f) \
@@ -210,6 +231,8 @@ npt_overrides_dxgi_factory_init(void)
                                        fac7_RegisterAdaptersChangedEvent_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY7(UnregisterAdaptersChangedEvent,
                                        fac7_UnregisterAdaptersChangedEvent_override);
+   NPT_REGISTER_OVERRIDE_DXGI_FACTORY (CreateSwapChain,
+                                       fac_CreateSwapChain_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY2(CreateSwapChainForHwnd,
                                        fac2_CreateSwapChainForHwnd_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY2(CreateSwapChainForCoreWindow,

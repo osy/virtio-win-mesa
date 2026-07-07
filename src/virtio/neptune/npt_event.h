@@ -32,4 +32,11 @@ void npt_event_fini(struct npt_device *dev);
  * driven by the waiter thread when the last in-flight arm completes. */
 bool npt_event_arm(struct npt_device *dev, void *hEvent);
 
+/* Single-use token arm returning the caller-owned sync_file fd (-1 on
+ * failure).  Pair a successful arm with npt_event_release_token after
+ * the fd's wait completes; failures self-release.  The token must be
+ * process-unique and never reused (host proxies are one-shot). */
+int npt_event_arm_token_fd(struct npt_device *dev, uint64_t token);
+void npt_event_release_token(struct npt_device *dev, uint64_t token);
+
 #endif /* NPT_EVENT_H */

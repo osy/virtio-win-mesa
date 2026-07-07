@@ -2,10 +2,10 @@
  * Copyright 2026 Turing Software LLC
  * SPDX-License-Identifier: MIT
  *
- * IDXGIFactoryMedia overrides that strip pRestrictToOutput so guest-fab
- * IDXGIOutput wrappers (see npt_overrides_dxgi_output.c) never reach the
- * host.  Decode swapchains have no restrict-to-output getter; the input
- * arg is silently dropped on that path.
+ * IDXGIFactoryMedia overrides.  Composition-surface and decode swapchains
+ * have no guest-fabricated implementation and the host owns no swapchains,
+ * so both creation methods return DXGI_ERROR_UNSUPPORTED rather than
+ * forwarding to the host.
  */
 
 #include "npt_com.h"
@@ -21,9 +21,11 @@ facm_CreateSwapChainForCompositionSurfaceHandle_override(
    const DXGI_SWAP_CHAIN_DESC1 *pDesc, IDXGIOutput *pRestrictToOutput,
    IDXGISwapChain1 **ppSwapChain)
 {
+   (void)self; (void)pDevice; (void)hSurface; (void)pDesc;
    (void)pRestrictToOutput;
-   return npt_idxgifactorymedia_default_CreateSwapChainForCompositionSurfaceHandle(
-      self, pDevice, hSurface, pDesc, NULL, ppSwapChain);
+   if (ppSwapChain)
+      *ppSwapChain = NULL;
+   return NPT_DXGI_ERROR_UNSUPPORTED;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
@@ -32,9 +34,11 @@ facm_CreateDecodeSwapChainForCompositionSurfaceHandle_override(
    DXGI_DECODE_SWAP_CHAIN_DESC *pDesc, IDXGIResource *pYuvDecodeBuffers,
    IDXGIOutput *pRestrictToOutput, IDXGIDecodeSwapChain **ppSwapChain)
 {
-   (void)pRestrictToOutput;
-   return npt_idxgifactorymedia_default_CreateDecodeSwapChainForCompositionSurfaceHandle(
-      self, pDevice, hSurface, pDesc, pYuvDecodeBuffers, NULL, ppSwapChain);
+   (void)self; (void)pDevice; (void)hSurface; (void)pDesc;
+   (void)pYuvDecodeBuffers; (void)pRestrictToOutput;
+   if (ppSwapChain)
+      *ppSwapChain = NULL;
+   return NPT_DXGI_ERROR_UNSUPPORTED;
 }
 
 static const GUID *const factorymedia_tiers[] = {
