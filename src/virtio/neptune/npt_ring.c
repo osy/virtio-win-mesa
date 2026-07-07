@@ -128,18 +128,39 @@ npt_ring_store_tail(struct npt_ring *ring)
     * a drain the consumer can see a new tail value while earlier cmd
     * bytes are still in the producer's WC store buffer.
     *
-    * x86: SFENCE drains WC stores in ~5 cycles, after which a relaxed
-    * mov publishes the tail (it cannot reorder ahead of the SFENCE).
-    * Replaces ~30-50 cycle LOCK xchg / MFENCE that seq_cst lowers to.
+    * x86: SFENCE drains the WC store buffer, after which a relaxed mov
+    * publishes the tail (it cannot reorder ahead of the SFENCE).  A
+    * seq_cst store lowers to LOCK/MFENCE instead, and on a WC mapping
+    * that MFENCE is far more than the textbook ~30 cycles: it must both
+    * drain the WC buffers and fence for global visibility, so SFENCE is
+    * the cheaper primitive here.
     *
-    * ARM64 (and other non-x86): seq_cst lowers to STLR, which is
-    * already cheap and is the correct primitive for ordering Normal
-    * Non-cacheable stores -- keep seq_cst there.  Non-GCC/Clang x86
-    * toolchains without __builtin_ia32_sfence also fall back via
-    * __has_builtin -- correct, just slower. */
+    * The GCC/Clang SFENCE builtin is gated on __x86_64__/__i386__, which
+    * the guest's MSVC (cl.exe) toolchain does not define, so MSVC uses the
+    * _mm_sfence() intrinsic (from <intrin.h>, pulled in via windows.h;
+    * same intrinsic family as the __rdtsc/_BitScanReverse used elsewhere).
+    *
+    * ARM64 (and other non-x86): seq_cst lowers to STLR, which is already
+    * cheap and is the correct primitive for ordering Normal Non-cacheable
+    * stores -- keep seq_cst there.
+    *
+    * arm64ec must not take the MSVC x86 branch: MSVC defines _M_X64 for it
+    * (it uses the x64 ABI for source compatibility) while emitting ARM64
+    * code, so that branch would publish the tail with a plain relaxed store
+    * on ARM.  The idle handshake needs store->load ordering here --
+    * npt_ring_submit_locked stores the tail, then loads status to decide
+    * whether an IDLE host needs a notify -- and a relaxed tail store lets
+    * ARM order that load first while the host, which sets IDLE and then
+    * re-reads the tail, still observes the old value.  Both sides then miss
+    * each other: the guest skips the notify and the host stays parked.
+    * seq_cst (STLR) supplies the required Dekker ordering. */
 #if (defined(__x86_64__) || defined(__i386__)) && \
     __has_builtin(__builtin_ia32_sfence)
    __builtin_ia32_sfence();
+   atomic_store_explicit(ring->tail, ring->cur, memory_order_relaxed);
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)) && \
+    !defined(_M_ARM64EC) && !defined(__arm64ec__)
+   _mm_sfence();
    atomic_store_explicit(ring->tail, ring->cur, memory_order_relaxed);
 #else
    atomic_store_explicit(ring->tail, ring->cur, memory_order_seq_cst);
