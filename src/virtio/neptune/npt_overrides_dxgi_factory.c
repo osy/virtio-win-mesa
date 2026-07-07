@@ -14,7 +14,21 @@
 #include "npt_device.h"
 
 #include "neptune-protocol/npt_protocol_client_idxgifactory.h"
+#include "neptune-protocol/npt_protocol_client_idxgiswapchain.h"
 #include "neptune-protocol/npt_protocol_defs.h"
+
+/* A swap chain created with a fullscreen desc must transition to fullscreen
+ * immediately.  The swap chain wrapper's SetFullscreenState override does the
+ * guest-side window management. */
+static void
+npt_swapchain_apply_initial_fullscreen(void *swapchain)
+{
+   if (!swapchain)
+      return;
+   const struct npt_idxgiswapchain_client_vtbl *v =
+      (const void *)((struct npt_com_base *)swapchain)->lpVtbl;
+   v->SetFullscreenState(swapchain, TRUE, NULL);
+}
 
 static HRESULT NPT_STDMETHODCALLTYPE
 fac_MakeWindowAssociation_override(void *self, HWND WindowHandle, UINT Flags)
@@ -122,6 +136,7 @@ fac7_UnregisterAdaptersChangedEvent_override(void *self, DWORD dwCookie)
  * npt_overrides_dxgi_output.c); it never reaches the host.
  * ========================================================================= */
 
+/* Classic CreateSwapChain: DXGI_SWAP_CHAIN_DESC carries Windowed directly. */
 static HRESULT NPT_STDMETHODCALLTYPE
 fac_CreateSwapChain_override(void *self, IUnknown *pDevice,
                              DXGI_SWAP_CHAIN_DESC *pDesc,
@@ -129,8 +144,11 @@ fac_CreateSwapChain_override(void *self, IUnknown *pDevice,
 {
    if (!pDevice || !pDesc || !ppSwapChain)
       return NPT_DXGI_ERROR_INVALID_CALL;
-   return npt_guest_swapchain_create_legacy(pDevice, pDesc, self,
-                                            (void **)ppSwapChain);
+   HRESULT hr = npt_guest_swapchain_create_legacy(pDevice, pDesc, self,
+                                                  (void **)ppSwapChain);
+   if (NPT_SUCCEEDED(hr) && !pDesc->Windowed)
+      npt_swapchain_apply_initial_fullscreen(*ppSwapChain);
+   return hr;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
@@ -143,8 +161,13 @@ fac2_CreateSwapChainForHwnd_override(void *self, IUnknown *pDevice, HWND hWnd,
    (void)pRestrictToOutput;
    if (!pDevice || !pDesc || !ppSwapChain)
       return NPT_DXGI_ERROR_INVALID_CALL;
-   return npt_guest_swapchain_create(pDevice, pDesc, pFs, hWnd, self,
-                                     (void **)ppSwapChain);
+   HRESULT hr = npt_guest_swapchain_create(pDevice, pDesc, pFs, hWnd, self,
+                                           (void **)ppSwapChain);
+   /* pFs == NULL means windowed (per DXGI); only enter fullscreen when the
+    * app explicitly asked for it. */
+   if (NPT_SUCCEEDED(hr) && pFs && !pFs->Windowed)
+      npt_swapchain_apply_initial_fullscreen(*ppSwapChain);
+   return hr;
 }
 
 /* No native window to bind the WSI to. */

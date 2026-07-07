@@ -32,6 +32,10 @@
 #define NPT_DXGI_ERROR_NOT_FOUND    ((HRESULT)0x887A0002)
 #define NPT_DXGI_ERROR_MORE_DATA    ((HRESULT)0x887A0003)
 #define NPT_DXGI_ERROR_UNSUPPORTED  ((HRESULT)0x887A0004)
+#define NPT_DXGI_ERROR_NOT_CURRENTLY_AVAILABLE ((HRESULT)0x887A0022)
+/* Success-range status (high bit clear): a fullscreen/windowed transition
+ * is already running on another thread. */
+#define NPT_DXGI_STATUS_MODE_CHANGE_IN_PROGRESS ((HRESULT)0x087A0025)
 
 #define NPT_SUCCEEDED(hr) ((HRESULT)(hr) >= 0)
 #define NPT_FAILED(hr)    ((HRESULT)(hr) < 0)
