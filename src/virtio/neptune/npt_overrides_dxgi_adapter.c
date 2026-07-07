@@ -13,6 +13,7 @@
 
 #include "npt_com.h"
 #include "npt_display.h"
+#include "npt_env.h"
 #include "npt_overrides.h"
 #include "npt_device.h"
 
@@ -85,6 +86,7 @@ fetch_output_list(struct npt_output_list *list)
    if (npt_unixlib_ensure_init() == 0) {
       struct npt_unix_enumerate_outputs_params p;
       memset(&p, 0, sizeof(p));
+      p.expose_all_modes = NPT_DEBUG(EXPOSE_ALL_MODES) ? 1 : 0;
       npt_wine_unix_call(npt_unix_enumerate_outputs, &p);
       *list = p.list;
    }

@@ -27,6 +27,7 @@ static const struct debug_control npt_debug_options[] = {
    { "force_vtest",              NPT_DEBUG_FORCE_VTEST },
    { "present_timing",           NPT_DEBUG_PRESENT_TIMING },
    { "present_order",            NPT_DEBUG_PRESENT_ORDER },
+   { "expose_all_modes",         NPT_DEBUG_EXPOSE_ALL_MODES },
    { NULL, 0 },
 };
 

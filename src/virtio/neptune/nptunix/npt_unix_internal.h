@@ -32,6 +32,6 @@ int npt_pick_drm_device_paths(char primary[], size_t primary_sz,
  * Enumerate every DRM_MODE_CONNECTED connector on the picked device
  * and populate list->outputs[].  Returns true on at least one connector.
  */
-bool npt_enumerate_outputs(struct npt_output_list *list);
+bool npt_enumerate_outputs(struct npt_output_list *list, bool expose_all_modes);
 
 #endif /* NPT_UNIX_INTERNAL_H */
