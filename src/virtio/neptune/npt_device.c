@@ -9,7 +9,8 @@
 #include "npt_env.h"
 #include "npt_event.h"
 #include "npt_tls.h"
-#include "npt_transport_defs.h"
+#include "npt_workaround.h"
+#include "npt_ring.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -235,6 +236,35 @@ static mtx_t g_npt_device_mutex;
 static _Atomic int g_npt_device_mutex_inited;
 static uint32_t g_npt_device_use_count;  /* protected by g_npt_device_mutex */
 #endif
+
+/* The host backend's workaround flags, read from the primary ring blob and
+ * cached on the first read that sees NPT_WA_FLAGS_PRESENT.  Every consumer is a
+ * device-level DDI, so it runs after D3D11CreateDevice has blocked for its reply
+ * on the primary ring, and the host writes the word before it creates the ring
+ * thread that serves that reply -- the flags are always present by the first
+ * read that matters, and the zero return is only defence in depth.
+ *
+ * The Wine path passes prebuilt DXBC and never calls this, so it returns 0
+ * there. */
+uint32_t
+npt_host_workaround_flags(void)
+{
+   static atomic_uint cached = 0;
+   uint32_t c = atomic_load_explicit(&cached, memory_order_relaxed);
+   if (c & NPT_WA_FLAGS_PRESENT)
+      return c & ~(uint32_t)NPT_WA_FLAGS_PRESENT;
+#if !defined(__WINE__)
+   struct npt_device *dev = g_npt_device;
+   if (dev && dev->ring && dev->ring->wa_word) {
+      uint32_t w = atomic_load_explicit(dev->ring->wa_word, memory_order_acquire);
+      if (w & NPT_WA_FLAGS_PRESENT) {
+         atomic_store_explicit(&cached, w, memory_order_relaxed);
+         return w & ~(uint32_t)NPT_WA_FLAGS_PRESENT;
+      }
+   }
+#endif
+   return 0;
+}
 
 static void npt_device_destroy(struct npt_device *dev);
 

@@ -241,6 +241,13 @@ option(
   description : 'Target the Wine PE backend (uses the unixlib bridge); when false, target native Windows.',
 )
 option(
+  'npt_umd',
+  type : 'combo',
+  choices : ['off', 'ddi', 'both'],
+  value : 'off',
+  description : 'Native Windows packaging: off = COM-only DLLs, ddi = Triton DDI DLL only, both = produce both side-by-side',
+)
+option(
   'amdgpu-virtio',
   type : 'boolean',
   value : false,

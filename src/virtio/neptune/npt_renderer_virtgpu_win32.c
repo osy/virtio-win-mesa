@@ -530,19 +530,34 @@ npt_vgw32_submit_cmd_sync(struct npt_renderer *r, const void *data,
    return virtgpu_drain(gpu);
 }
 
-/* Arm a Win32 event for the next GPU retirement on the requested ring.
- * The Wine path returns a sync_file FD; D3DKMT's CPU-event flag is the
- * closest equivalent here, but the renderer interface return type is int
- * (sync_file FD shape), which cannot safely carry a HANDLE on 64-bit
- * Windows.  The native backend therefore reports "no fence available"
- * (-1); a HANDLE-shaped fence return on the renderer interface would let
- * this arm a Win32 event via D3DKMTSignalSynchronizationObject2. */
+/* Arm a Win32 event for the next GPU retirement on the requested ring: create an
+ * auto-reset event and hand it to the KMD via VIOGPU_SUBMIT_PRESENT_FENCE, which
+ * signals it at GPU completion.  npt_event's waiter blocks on it (wait_one) and
+ * then SetEvents the caller's app event.
+ *
+ * The renderer interface return is int (sync_file-FD shape on Linux).  Windows
+ * handles are 32-bit-significant (MSDN 32/64-bit interop), so the value
+ * survives; callers treat a negative int as failure, so a handle with bit 31 set
+ * would be misread as an error. */
 static int
 npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
 {
-   (void)r;
-   (void)ring_idx;
-   return -1;
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   HANDLE hWait = CreateEventW(NULL, /*bManualReset*/ FALSE, /*bInitial*/ FALSE, NULL);
+   if (!hWait)
+      return -1;
+   VIOGPU_ESCAPE esc = {
+      .Type = VIOGPU_SUBMIT_PRESENT_FENCE,
+      .DataLength = sizeof(esc.PresentFence),
+      .PresentFence = { .EventUM = hWait, .RingIdx = ring_idx },
+   };
+   NTSTATUS status = virtgpu_escape(gpu, &esc);
+   if (!NT_SUCCESS(status)) {
+      npt_log("virtgpu: SUBMIT_PRESENT_FENCE failed 0x%lx ring=%u", status, ring_idx);
+      CloseHandle(hWait);
+      return -1;
+   }
+   return (int)(intptr_t)hWait;
 }
 
 static void

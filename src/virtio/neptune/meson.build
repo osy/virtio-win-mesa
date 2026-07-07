@@ -105,6 +105,10 @@ if not npt_is_windows or get_option('npt_wine')
   subdir('nptunix')
 endif
 
+if npt_is_windows and get_option('npt_umd') != 'off'
+  subdir('triton')
+endif
+
 if npt_is_windows
   # Windows: produce d3d11.dll and dxgi.dll as native DLLs for Wine
   # (MinGW cross-compile, installed to Wine prefix system32 like dxvk).

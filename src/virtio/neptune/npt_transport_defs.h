@@ -82,7 +82,11 @@ struct npt_cmd_create_ring {
     * (best-effort, may fail without CAP_SYS_NICE). */
    uint32_t priority_valid;
    int32_t  priority;
-   uint32_t pad;
+   /* Guest-chosen byte offset within the ring blob at which the host writes the
+    * workaround-flags word; 0 = the guest does not want them.  The bits are
+    * defined per side against the same wire values: npt_library.h on the host,
+    * npt_workaround.h on the guest. */
+   uint32_t workaround_offset;
 };
 
 struct npt_cmd_destroy_ring {

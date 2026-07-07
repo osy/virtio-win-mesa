@@ -75,7 +75,6 @@ event_release_one(struct npt_device *dev, void *hEvent)
 {
    struct npt_event_state *st = dev->event;
    uint64_t token = (uint64_t)(uintptr_t)hEvent;
-   bool should_release = false;
 
    mtx_lock(&st->registry_mutex);
    if (st->registry) {
@@ -85,14 +84,14 @@ event_release_one(struct npt_device *dev, void *hEvent)
          if (--ent->refcount == 0) {
             _mesa_hash_table_remove(st->registry, e);
             free(ent);
-            should_release = true;
+            /* Submitted on the method ring and still under registry_mutex, so
+             * this token's REGISTER/RELEASE reach the host in refcount-
+             * transition order (see npt_dispatch_event_release_ring). */
+            npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
          }
       }
    }
    mtx_unlock(&st->registry_mutex);
-
-   if (should_release)
-      npt_dispatch_event_release(dev->renderer, token);
 }
 
 #if defined(__WINE__)
@@ -133,13 +132,18 @@ do_set_event(void *handle)
 static int
 wait_one(int fd, int timeout_ms)
 {
-   (void)fd; (void)timeout_ms;
-   return -1;
+   /* fd carries a Win32 auto-reset event HANDLE from
+    * npt_vgw32_submit_present_fence; the KMD signals it from its completion DPC
+    * when the host retires the event-ring fence, i.e. at GPU completion. */
+   HANDLE h = (HANDLE)(ULONG_PTR)(ULONG)fd;
+   DWORD rc = WaitForSingleObject(h, (DWORD)timeout_ms);
+   return rc == WAIT_OBJECT_0 ? 1 : (rc == WAIT_TIMEOUT ? 0 : -1);
 }
 static void
 close_fd(int fd)
 {
-   (void)fd;
+   if (fd >= 0)
+      CloseHandle((HANDLE)(ULONG_PTR)(ULONG)fd);
 }
 #else
 static void
@@ -295,7 +299,6 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
    /* Take a refcount under the registry lock; the matching decrement
     * happens in the waiter (or in the failure paths below).  When the
     * count drops to zero event_release_one emits RELEASE_EVENT. */
-   bool needs_register = false;
    mtx_lock(&st->registry_mutex);
    if (!st->registry) {
       mtx_unlock(&st->registry_mutex);
@@ -312,12 +315,14 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
       }
       ent->refcount = 1;
       _mesa_hash_table_insert(st->registry, hEvent, ent);
-      needs_register = true;
+      /* Submitted on the method ring so it precedes the ARM_EVENT_FENCE issued
+       * below (see npt_dispatch_event_register_ring).  Holding registry_mutex
+       * across the submit also keeps this REGISTER before any other thread's
+       * ARM, since that thread must take registry_mutex to bump the refcount
+       * before it can arm. */
+      npt_dispatch_event_register_ring(npt_device_method_ring(dev), token);
    }
    mtx_unlock(&st->registry_mutex);
-
-   if (needs_register)
-      npt_dispatch_event_register(dev->renderer, token);
 
    /* Round-robin across event rings so independent in-flight arms
     * don't queue up on one sync-queue worker. */

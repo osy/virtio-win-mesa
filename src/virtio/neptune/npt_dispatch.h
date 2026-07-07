@@ -117,12 +117,29 @@ HRESULT npt_dispatch_shared_open_res(struct npt_ring *ring,
 bool npt_dispatch_event_register(struct npt_renderer *renderer,
                                  uint64_t event_token);
 
+/* Ring-borne REGISTER_EVENT: rides the method ring (not the renderer command
+ * stream) so it is ordered ahead of the synchronous ARM_EVENT_FENCE that
+ * follows on the same ring.  The host therefore holds a registration reference
+ * on the event proxy before the (ctrl-queue) present-fence SUBMIT pops the arm
+ * reference -- otherwise a lazily-created proxy is freed the instant the SUBMIT
+ * matches its pending-arm, and the following SetEventOnCompletion hands the raw
+ * token to the host backend, which dereferences it. */
+bool npt_dispatch_event_register_ring(struct npt_ring *ring,
+                                      uint64_t event_token);
+
 bool npt_dispatch_event_arm_fence(struct npt_ring *ring,
                                   uint64_t event_token,
                                   uint32_t ring_idx);
 
 bool npt_dispatch_event_release(struct npt_renderer *renderer,
                                 uint64_t event_token);
+
+/* Ring-borne RELEASE_EVENT, the counterpart to npt_dispatch_event_register_ring.
+ * Riding the same method ring keeps a token's RELEASE strictly before the next
+ * REGISTER for that token (ring FIFO), so a stale RELEASE cannot unref a proxy
+ * that a subsequent re-arm just created for the reused HANDLE. */
+bool npt_dispatch_event_release_ring(struct npt_ring *ring,
+                                     uint64_t event_token);
 
 /* ==========================================================================
  * FEEDBACK

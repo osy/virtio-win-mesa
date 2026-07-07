@@ -301,6 +301,23 @@ npt_dispatch_event_register(struct npt_renderer *renderer, uint64_t event_token)
    return npt_renderer_submit_cmd(renderer, &cmd, sizeof(cmd));
 }
 
+/* Same command as npt_dispatch_event_register, but submitted fire-and-forget on
+ * the method ring instead of the renderer command stream; the synchronous
+ * ARM_EVENT_FENCE that follows on the same ring flushes it.  See the header for
+ * the ordering this buys. */
+bool
+npt_dispatch_event_register_ring(struct npt_ring *ring, uint64_t event_token)
+{
+   struct npt_cmd_register_event cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_EVENT,
+                             NPT_TRANSPORT_EVENT_REGISTER);
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.event_token = event_token;
+   return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
+}
+
 bool
 npt_dispatch_event_arm_fence(struct npt_ring *ring, uint64_t event_token,
                              uint32_t ring_idx)
@@ -349,6 +366,21 @@ npt_dispatch_event_release(struct npt_renderer *renderer, uint64_t event_token)
    cmd.header.cmd_size = sizeof(cmd);
    cmd.event_token = event_token;
    return npt_renderer_submit_cmd(renderer, &cmd, sizeof(cmd));
+}
+
+/* Ring-borne RELEASE_EVENT -- counterpart to npt_dispatch_event_register_ring.
+ * See the header for why RELEASE must share the method ring with REGISTER. */
+bool
+npt_dispatch_event_release_ring(struct npt_ring *ring, uint64_t event_token)
+{
+   struct npt_cmd_release_event cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_EVENT,
+                             NPT_TRANSPORT_EVENT_RELEASE);
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.event_token = event_token;
+   return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
 }
 
 /* ==========================================================================

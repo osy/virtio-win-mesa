@@ -4,6 +4,7 @@
  */
 
 #include "npt_ring.h"
+#include "npt_workaround.h"
 #include "npt_device.h"
 #include "npt_env.h"
 #include "npt_profile.h"
@@ -848,6 +849,8 @@ npt_ring_create(struct npt_device *device,
    ring->head = (volatile atomic_uint *)(base + layout->head_offset);
    ring->tail = (volatile atomic_uint *)(base + layout->tail_offset);
    ring->status = (volatile atomic_uint *)(base + layout->status_offset);
+   /* Host writes the backend workaround-flags word here once at ring create. */
+   ring->wa_word = (const volatile atomic_uint *)(base + NPT_RING_WORKAROUND_OFFSET);
    ring->buffer = base + layout->buffer_offset;
    ring->extra = base + layout->extra_offset;
 
@@ -882,6 +885,7 @@ npt_ring_create(struct npt_device *device,
    create_cmd.head_offset = layout->head_offset;
    create_cmd.tail_offset = layout->tail_offset;
    create_cmd.status_offset = layout->status_offset;
+   create_cmd.workaround_offset = NPT_RING_WORKAROUND_OFFSET;
    create_cmd.buffer_offset = layout->buffer_offset;
    create_cmd.buffer_size = layout->buffer_size;
    create_cmd.extra_offset = layout->extra_offset;

@@ -61,6 +61,9 @@ struct npt_ring {
    const volatile atomic_uint *head;
    volatile atomic_uint *tail;
    volatile atomic_uint *status;
+   /* Host-written once at ring create: the backend workaround flags word
+    * (NPT_WA_* | NPT_WA_FLAGS_PRESENT). Read by npt_host_workaround_flags(). */
+   const volatile atomic_uint *wa_word;
    void *buffer;
    void *extra;
 
