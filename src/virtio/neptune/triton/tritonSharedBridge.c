@@ -9,82 +9,49 @@
 
 #include "tritonSharedBridge.h"
 
-#include <inttypes.h>
+#include <string.h>
 
 #include "npt_com.h"
 #include "npt_common.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
 #include "npt_renderer.h"
+#include "npt_shared_texture.h"
 #include "npt_transport_defs.h"
 
 #include "neptune-protocol/npt_protocol_defs.h"
+
+/* The two descs carry the same export half but are copied field by
+ * field, so only the plane-array bound has to agree. */
+_Static_assert(TRITON_SHARED_MAX_PLANES == NPT_SHARED_TEXTURE_MAX_PLANES,
+               "shared texture plane count mismatch");
 
 bool
 tritonSharedBridgeExportBlob(void *pResourceWrapper,
                              struct triton_shared_texture_desc *opts)
 {
-   if (!pResourceWrapper || !opts)
+   if (!opts)
       return false;
 
-   struct npt_device *dev = npt_com_self_device(pResourceWrapper);
-   if (!dev || !dev->renderer)
-      return false;
-   struct npt_renderer *renderer = dev->renderer;
-
-   const uint64_t texture_id = npt_com_self_id(pResourceWrapper);
-   if (!texture_id)
+   /* Export via the shared helper, then copy the export half into the
+    * Triton-side desc. */
+   struct npt_shared_texture_desc exp;
+   memset(&exp, 0, sizeof(exp));
+   if (!npt_shared_texture_export_blob(pResourceWrapper, &exp))
       return false;
 
-   /* Reply window for npt_blob_export_info.  data_off is required: the
-    * info shmem comes from a bump-allocated pool, so the host deposits
-    * the struct at our offset, not at the resource start. */
-   size_t info_off = 0;
-   struct npt_renderer_shmem *shm =
-      npt_device_alloc_data(dev, sizeof(struct npt_blob_export_info),
-                            &info_off);
-   if (!shm)
-      return false;
-   memset((uint8_t *)shm->mmap_ptr + info_off, 0,
-          sizeof(struct npt_blob_export_info));
-
-   /* blob_id = the texture's object id: unique within this context,
-    * which is the scope of the host's pending-blob table. */
-   HRESULT hr = npt_dispatch_shared_export_blob(
-      npt_com_self_ring(pResourceWrapper), texture_id, texture_id,
-      shm->res_id, (uint32_t)info_off);
-
-   bool ok = false;
-   if (NPT_SUCCEEDED(hr)) {
-      const struct npt_blob_export_info *info =
-         (const struct npt_blob_export_info *)
-            ((uint8_t *)shm->mmap_ptr + info_off);
-      if (info->plane_count >= 1 &&
-          info->plane_count <= NPT_BLOB_EXPORT_MAX_PLANES &&
-          info->allocation_size) {
-         opts->blob_id = texture_id;
-         opts->create_ctx_id = renderer->info.virtio_ctx_id;
-         opts->plane_count = info->plane_count;
-         opts->texture_layout = info->texture_layout;
-         opts->modifier = info->modifier;
-         opts->allocation_size = info->allocation_size;
-         for (uint32_t i = 0; i < info->plane_count; i++) {
-            opts->planes[i].offset = info->planes[i].offset;
-            opts->planes[i].pitch = info->planes[i].pitch;
-         }
-         ok = true;
-      } else {
-         npt_log("shared bridge: export id 0x%016" PRIx64
-                 " returned bad info (planes=%u size=%" PRIu64 ")",
-                 texture_id, info->plane_count, info->allocation_size);
-      }
-   } else {
-      npt_log("shared bridge: export id 0x%016" PRIx64 " failed hr=0x%x",
-              texture_id, hr);
+   opts->blob_id = exp.blob_id;
+   opts->create_ctx_id = exp.create_ctx_id;
+   opts->plane_count = exp.plane_count;
+   opts->texture_layout = exp.texture_layout;
+   opts->modifier = exp.modifier;
+   opts->allocation_size = exp.allocation_size;
+   for (uint32_t i = 0;
+        i < exp.plane_count && i < TRITON_SHARED_MAX_PLANES; i++) {
+      opts->planes[i].offset = exp.planes[i].offset;
+      opts->planes[i].pitch = exp.planes[i].pitch;
    }
-
-   npt_renderer_shmem_unref(renderer, shm);
-   return ok;
+   return true;
 }
 
 bool
