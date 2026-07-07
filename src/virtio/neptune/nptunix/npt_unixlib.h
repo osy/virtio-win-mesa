@@ -175,6 +175,9 @@ struct npt_unix_virtgpu_prime_handle_to_fd_params {
  * was usable; caller fabricates a synthetic output in that case. */
 struct npt_unix_enumerate_outputs_params {
    struct npt_output_list list;
+   /* When zero, the mode list is capped to the active CRTC scanout; the
+    * PE side sets it from NPT_DEBUG=expose_all_modes. */
+   uint32_t expose_all_modes;
 };
 
 /*

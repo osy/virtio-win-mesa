@@ -82,11 +82,51 @@ npt_connector_name(drmModeConnector *conn, char out[32])
    snprintf(out, 32, "%s-%u", type, conn->connector_type_id);
 }
 
+/* Resolution the compositor currently has programmed on this connector's
+ * CRTC.  The guest cannot modeset, so whatever the KMS master put on the CRTC
+ * is the real scanout ceiling regardless of the larger modes the connector
+ * advertises.  Returns 0x0 if the connector is not driven by a CRTC with a
+ * valid mode. */
+static void
+npt_active_crtc_mode(int drm_fd, const drmModeConnector *conn,
+                     uint32_t *out_width, uint32_t *out_height)
+{
+   *out_width = 0;
+   *out_height = 0;
+   if (!conn->encoder_id)
+      return;
+   drmModeEncoder *enc = drmModeGetEncoder(drm_fd, conn->encoder_id);
+   if (!enc)
+      return;
+   if (enc->crtc_id) {
+      drmModeCrtc *crtc = drmModeGetCrtc(drm_fd, enc->crtc_id);
+      if (crtc) {
+         if (crtc->mode_valid) {
+            *out_width  = crtc->mode.hdisplay;
+            *out_height = crtc->mode.vdisplay;
+         }
+         drmModeFreeCrtc(crtc);
+      }
+   }
+   drmModeFreeEncoder(enc);
+}
+
 static bool
-npt_output_from_connector(drmModeConnector *conn, struct npt_output_info *out)
+npt_output_from_connector(int drm_fd, drmModeConnector *conn,
+                          struct npt_output_info *out, bool expose_all_modes)
 {
    memset(out, 0, sizeof(*out));
    npt_connector_name(conn, out->name);
+
+   /* Cap the advertised list to the active CRTC scanout.  The connector lists
+    * modes larger than the compositor's active mode (e.g. 5120x2160 while the
+    * session runs smaller); since the guest cannot scan those out, reporting
+    * them through IDXGIOutput::GetDisplayModeList would let an app pick a
+    * resolution the display can never show and size its swapchain past it.
+    * expose_all_modes leaves the raw KMS list in place for modeset work. */
+   uint32_t cap_w = 0, cap_h = 0;
+   if (!expose_all_modes)
+      npt_active_crtc_mode(drm_fd, conn, &cap_w, &cap_h);
 
    for (int i = 0; i < conn->count_modes &&
                    out->num_modes < NPT_DISPLAY_MAX_MODES; i++) {
@@ -94,26 +134,37 @@ npt_output_from_connector(drmModeConnector *conn, struct npt_output_info *out)
       npt_drm_mode_to_npt(&conn->modes[i], &tmp);
       if (!tmp.refresh_den)
          continue;
+      /* Drop anything the compositor cannot actually present. */
+      if (cap_w && cap_h && (tmp.width > cap_w || tmp.height > cap_h))
+         continue;
       if (npt_mode_dedup_in(&tmp, out->modes, out->num_modes))
          continue;
       out->modes[out->num_modes++] = tmp;
    }
 
-   /* Preferred-or-largest, like wsi_display_fill_in_display_properties. */
-   const struct npt_display_mode *picked = NULL;
-   for (uint32_t i = 0; i < out->num_modes; i++) {
-      const struct npt_display_mode *m = &out->modes[i];
-      if (m->preferred) { picked = m; break; }
-      if (!picked || (uint64_t)m->width * m->height >
-                     (uint64_t)picked->width * picked->height)
-         picked = m;
-   }
-   if (picked) {
-      out->current_width  = picked->width;
-      out->current_height = picked->height;
+   if (cap_w && cap_h) {
+      /* Current mode is the active scanout.  Reported even if no entry of the
+       * capped list matches it. */
+      out->current_width  = cap_w;
+      out->current_height = cap_h;
    } else {
-      out->current_width  = 1024;
-      out->current_height = 768;
+      /* No CRTC bound, or exposing all modes: fall back to
+       * preferred-or-largest. */
+      const struct npt_display_mode *picked = NULL;
+      for (uint32_t i = 0; i < out->num_modes; i++) {
+         const struct npt_display_mode *m = &out->modes[i];
+         if (m->preferred) { picked = m; break; }
+         if (!picked || (uint64_t)m->width * m->height >
+                        (uint64_t)picked->width * picked->height)
+            picked = m;
+      }
+      if (picked) {
+         out->current_width  = picked->width;
+         out->current_height = picked->height;
+      } else {
+         out->current_width  = 1024;
+         out->current_height = 768;
+      }
    }
 
    if (out->num_modes > 1)
@@ -124,7 +175,8 @@ npt_output_from_connector(drmModeConnector *conn, struct npt_output_info *out)
 }
 
 static bool
-npt_enumerate_outputs_drm(int drm_fd, struct npt_output_list *list)
+npt_enumerate_outputs_drm(int drm_fd, struct npt_output_list *list,
+                          bool expose_all_modes)
 {
    /* Not required for connector queries; EACCES on read-only fds ignored. */
    drmSetClientCap(drm_fd, DRM_CLIENT_CAP_ATOMIC, 1);
@@ -144,7 +196,7 @@ npt_enumerate_outputs_drm(int drm_fd, struct npt_output_list *list)
          continue;
       }
       struct npt_output_info *info = &list->outputs[list->num_outputs];
-      if (npt_output_from_connector(c, info)) {
+      if (npt_output_from_connector(drm_fd, c, info, expose_all_modes)) {
          /* Synthetic horizontal-stack desktop arrangement; the
           * windowed Neptune model has no real CRTC layout. */
          info->desktop_x = x_offset;
@@ -219,7 +271,7 @@ npt_pick_drm_device_paths(char primary[], size_t primary_sz,
 }
 
 bool
-npt_enumerate_outputs(struct npt_output_list *list)
+npt_enumerate_outputs(struct npt_output_list *list, bool expose_all_modes)
 {
    if (!list)
       return false;
@@ -233,7 +285,7 @@ npt_enumerate_outputs(struct npt_output_list *list)
    if (fd < 0)
       return false;
 
-   bool ok = npt_enumerate_outputs_drm(fd, list);
+   bool ok = npt_enumerate_outputs_drm(fd, list, expose_all_modes);
    close(fd);
    return ok;
 }

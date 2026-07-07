@@ -44,6 +44,11 @@ enum npt_debug {
     * (sc_Present_override -> npt_do_wsi_present -> X11 IDLE_NOTIFY).
     * Diagnoses visible frames appearing out of order. */
    NPT_DEBUG_PRESENT_ORDER           = 1ull << 3,
+
+   /* Report the connector's full KMS mode list through IDXGIOutput
+    * instead of capping it to the active CRTC scanout.  For modeset
+    * experiments where the guest is meant to drive resolution changes. */
+   NPT_DEBUG_EXPOSE_ALL_MODES        = 1ull << 4,
 };
 
 struct npt_env {

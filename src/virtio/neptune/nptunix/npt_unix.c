@@ -119,8 +119,9 @@ static NTSTATUS npt_do_munmap(void *args)
 static NTSTATUS npt_do_enumerate_outputs(void *args)
 {
    struct npt_unix_enumerate_outputs_params *p = args;
+   bool expose_all_modes = p->expose_all_modes != 0;
    memset(&p->list, 0, sizeof(p->list));
-   (void)npt_enumerate_outputs(&p->list);
+   (void)npt_enumerate_outputs(&p->list, expose_all_modes);
    return STATUS_SUCCESS;
 }
 
