@@ -13,6 +13,8 @@ npt_common_src = files(
   'npt_tls.c',
   'npt_shmem_pool.c',
   'npt_resource.c',
+  'npt_shared_texture.c',
+  'npt_swapchain.c',
   'npt_overrides_d3d11_buffer.c',
   'npt_overrides_d3d11_context.c',
   'npt_overrides_d3d11_device.c',
@@ -24,7 +26,6 @@ npt_common_src = files(
   'npt_overrides_dxgi_factory.c',
   'npt_overrides_dxgi_factorymedia.c',
   'npt_overrides_dxgi_output.c',
-  'npt_overrides_dxgi_swapchain.c',
 )
 
 # Generated client-side COM sources from neptune-protocol.  One out-of-line

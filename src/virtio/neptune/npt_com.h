@@ -76,6 +76,7 @@ _Static_assert(offsetof(struct npt_object, id) == 0,
  */
 #define NPT_GUEST_FAB_BIT (1ull << 63)
 #define NPT_GUEST_KIND_OUTPUT 1u
+#define NPT_GUEST_KIND_SWAPCHAIN 2u
 
 static inline uint64_t
 npt_com_make_guest_id(uint8_t kind, uint64_t low)

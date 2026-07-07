@@ -8,9 +8,48 @@
 
 #include "npt_com.h"
 #include "npt_device.h"
+#include "npt_swapchain.h"
 
 #include "neptune-protocol/npt_protocol_guest_toplevel.h"
 #include "neptune-protocol/npt_protocol_defs.h"
+
+/* Cross-TU entry helpers: Triton's tritonDDI.c declares matching
+ * externs, and the D3D11* exports below wrap them. */
+HRESULT
+npt_d3d11_create_device_internal(IDXGIAdapter *pAdapter,
+                  D3D_DRIVER_TYPE DriverType,
+                  HMODULE Software,
+                  UINT Flags,
+                  const D3D_FEATURE_LEVEL *pFeatureLevels,
+                  UINT FeatureLevels,
+                  UINT SDKVersion,
+                  ID3D11Device **ppDevice,
+                  D3D_FEATURE_LEVEL *pFeatureLevel,
+                  ID3D11DeviceContext **ppImmediateContext);
+HRESULT
+npt_d3d11on12_create_device_internal(IUnknown *pDevice,
+                      UINT Flags,
+                      const D3D_FEATURE_LEVEL *pFeatureLevels,
+                      UINT FeatureLevels,
+                      const IUnknown **ppCommandQueues,
+                      UINT NumQueues,
+                      UINT NodeMask,
+                      ID3D11Device **ppDevice,
+                      ID3D11DeviceContext **ppImmediateContext,
+                      D3D_FEATURE_LEVEL *pChosenFeatureLevel);
+HRESULT
+npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
+                              D3D_DRIVER_TYPE DriverType,
+                              HMODULE Software,
+                              UINT Flags,
+                              const D3D_FEATURE_LEVEL *pFeatureLevels,
+                              UINT FeatureLevels,
+                              UINT SDKVersion,
+                              const DXGI_SWAP_CHAIN_DESC *pSwapChainDesc,
+                              IDXGISwapChain **ppSwapChain,
+                              ID3D11Device **ppDevice,
+                              D3D_FEATURE_LEVEL *pFeatureLevel,
+                              ID3D11DeviceContext **ppImmediateContext);
 
 HRESULT
 npt_d3d11_create_device_internal(IDXGIAdapter *pAdapter,
@@ -207,15 +246,13 @@ npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
 
    ID3D11Device *raw_device = NULL;
    ID3D11DeviceContext *raw_context = NULL;
-   IDXGISwapChain *raw_swapchain = NULL;
    D3D_FEATURE_LEVEL fl = 0;
 
-   HRESULT hr = npt_call_D3D11CreateDeviceAndSwapChain(
+   HRESULT hr = npt_call_D3D11CreateDevice(
       dev->ring,
       pAdapter,
       DriverType, (HMODULE)0, Flags,
       pFeatureLevels, FeatureLevels, SDKVersion,
-      pSwapChainDesc, &raw_swapchain,
       &raw_device, pFeatureLevel ? &fl : NULL, &raw_context);
 
    if (NPT_FAILED(hr) || !raw_device) {
@@ -223,8 +260,6 @@ npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
          npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_device);
       if (raw_context)
          npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_context);
-      if (raw_swapchain)
-         npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_swapchain);
       npt_device_release();
       return NPT_FAILED(hr) ? hr : NPT_E_FAIL;
    }
@@ -235,8 +270,6 @@ npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
    if (!device_wrapper) {
       if (raw_context)
          npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_context);
-      if (raw_swapchain)
-         npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_swapchain);
       npt_device_release();
       return NPT_E_OUTOFMEMORY;
    }
@@ -251,24 +284,23 @@ npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
                                         (uint64_t)(uintptr_t)raw_context,
                                         (struct npt_com_base *)device_wrapper);
       if (!ctx_wrapper) {
-         if (raw_swapchain)
-            npt_com_send_release(dev, (uint64_t)(uintptr_t)raw_swapchain);
          npt_com_default_release(device_wrapper);
          return NPT_E_OUTOFMEMORY;
       }
    }
 
    IDXGISwapChain *sc_wrapper = NULL;
-   if (raw_swapchain) {
-      sc_wrapper = (IDXGISwapChain *)
-         npt_com_get_or_wrap_or_release(dev, &NPT_IID_IDXGISwapChain,
-                                        (uint64_t)(uintptr_t)raw_swapchain,
-                                        NULL);
-      if (!sc_wrapper) {
+   if (ppSwapChain && pSwapChainDesc) {
+      HRESULT sc_hr = npt_guest_swapchain_create_legacy(
+         device_wrapper, pSwapChainDesc, NULL, (void **)&sc_wrapper);
+      /* E_NOTIMPL = no guest presentation backend (native Win32):
+       * preserve the pre-guest-swapchain contract of a NULL swapchain
+       * with a successful device.  Real failures fail the call. */
+      if (NPT_FAILED(sc_hr) && sc_hr != NPT_E_NOTIMPL) {
          if (ctx_wrapper)
             npt_com_default_release(ctx_wrapper);
          npt_com_default_release(device_wrapper);
-         return NPT_E_OUTOFMEMORY;
+         return sc_hr;
       }
    }
 

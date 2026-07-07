@@ -360,3 +360,50 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
    mtx_unlock(&st->pending_mutex);
    return true;
 }
+
+/*
+ * Single-use token arm for callers that consume the sync_file
+ * themselves (the guest swapchain's per-Present GPU-done fence)
+ * instead of routing through the waiter thread.  Shares the ring
+ * allocator and arm_mutex with npt_event_arm so ARM +
+ * submit_present_fence pairs from both users can never cross-match on
+ * a ring's host-side FIFO.
+ *
+ * The caller owns the returned fd (or -1) and must pair a successful
+ * arm with npt_event_release_token once the wait is over -- tokens
+ * are single-use: the host eventfd proxy is never drained, so a
+ * signaled proxy can't be re-armed for a second wait.
+ */
+int
+npt_event_arm_token_fd(struct npt_device *dev, uint64_t token)
+{
+   struct npt_event_state *st = dev->event;
+   if (!st || !token)
+      return -1;
+
+   npt_dispatch_event_register(dev->renderer, token);
+
+   uint32_t ring_idx = atomic_fetch_add(&st->next_event_ring_idx, 1);
+   const uint32_t span = st->ring_end - st->ring_base;
+   if (!span)
+      return -1;
+   ring_idx = st->ring_base + (ring_idx - st->ring_base) % span;
+
+   mtx_lock(&st->arm_mutex);
+   bool arm_ok = npt_dispatch_event_arm_fence(npt_device_method_ring(dev),
+                                              token, ring_idx);
+   int sync_fd = arm_ok
+      ? npt_renderer_submit_present_fence(dev->renderer, ring_idx) : -1;
+   mtx_unlock(&st->arm_mutex);
+
+   if (sync_fd < 0)
+      npt_dispatch_event_release(dev->renderer, token);
+   return sync_fd;
+}
+
+void
+npt_event_release_token(struct npt_device *dev, uint64_t token)
+{
+   if (token)
+      npt_dispatch_event_release(dev->renderer, token);
+}

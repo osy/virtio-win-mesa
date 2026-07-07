@@ -19,7 +19,6 @@ void npt_overrides_d3d11_texture_init(void);
 void npt_overrides_d3d11_view_init(void);
 void npt_overrides_d3d11_fence_init(void);
 void npt_overrides_d3d11_query_init(void);
-void npt_overrides_dxgi_swapchain_init(void);
 void npt_overrides_dxgi_output_init(void);
 void npt_overrides_dxgi_factory_init(void);
 void npt_overrides_dxgi_factorymedia_init(void);
