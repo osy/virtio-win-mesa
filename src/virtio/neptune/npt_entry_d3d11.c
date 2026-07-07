@@ -12,8 +12,8 @@
 #include "neptune-protocol/npt_protocol_guest_toplevel.h"
 #include "neptune-protocol/npt_protocol_defs.h"
 
-HRESULT NPT_API
-D3D11CreateDevice(IDXGIAdapter *pAdapter,
+HRESULT
+npt_d3d11_create_device_internal(IDXGIAdapter *pAdapter,
                   D3D_DRIVER_TYPE DriverType,
                   HMODULE Software,
                   UINT Flags,
@@ -103,8 +103,8 @@ D3D11CreateDevice(IDXGIAdapter *pAdapter,
    return hr;
 }
 
-HRESULT NPT_API
-D3D11On12CreateDevice(IUnknown *pDevice,
+HRESULT
+npt_d3d11on12_create_device_internal(IUnknown *pDevice,
                       UINT Flags,
                       const D3D_FEATURE_LEVEL *pFeatureLevels,
                       UINT FeatureLevels,
@@ -183,8 +183,8 @@ D3D11On12CreateDevice(IUnknown *pDevice,
    return hr;
 }
 
-HRESULT NPT_API
-D3D11CreateDeviceAndSwapChain(IDXGIAdapter *pAdapter,
+HRESULT
+npt_d3d11_create_device_and_swap_chain_internal(IDXGIAdapter *pAdapter,
                               D3D_DRIVER_TYPE DriverType,
                               HMODULE Software,
                               UINT Flags,
@@ -289,4 +289,66 @@ D3D11CreateDeviceAndSwapChain(IDXGIAdapter *pAdapter,
 
    if (pFeatureLevel) *pFeatureLevel = fl;
    return hr;
+}
+
+/* Exported entry points: thin trampolines so callers reach the COM
+ * factory through the Windows runtime's DLL lookup.  Triton statically
+ * links the *_internal helpers above and does not go through these. */
+
+HRESULT NPT_API
+D3D11CreateDevice(IDXGIAdapter *pAdapter,
+                  D3D_DRIVER_TYPE DriverType,
+                  HMODULE Software,
+                  UINT Flags,
+                  const D3D_FEATURE_LEVEL *pFeatureLevels,
+                  UINT FeatureLevels,
+                  UINT SDKVersion,
+                  ID3D11Device **ppDevice,
+                  D3D_FEATURE_LEVEL *pFeatureLevel,
+                  ID3D11DeviceContext **ppImmediateContext)
+{
+   return npt_d3d11_create_device_internal(pAdapter, DriverType, Software,
+                                           Flags, pFeatureLevels,
+                                           FeatureLevels, SDKVersion,
+                                           ppDevice, pFeatureLevel,
+                                           ppImmediateContext);
+}
+
+HRESULT NPT_API
+D3D11On12CreateDevice(IUnknown *pDevice,
+                      UINT Flags,
+                      const D3D_FEATURE_LEVEL *pFeatureLevels,
+                      UINT FeatureLevels,
+                      const IUnknown **ppCommandQueues,
+                      UINT NumQueues,
+                      UINT NodeMask,
+                      ID3D11Device **ppDevice,
+                      ID3D11DeviceContext **ppImmediateContext,
+                      D3D_FEATURE_LEVEL *pChosenFeatureLevel)
+{
+   return npt_d3d11on12_create_device_internal(pDevice, Flags, pFeatureLevels,
+                                               FeatureLevels, ppCommandQueues,
+                                               NumQueues, NodeMask, ppDevice,
+                                               ppImmediateContext,
+                                               pChosenFeatureLevel);
+}
+
+HRESULT NPT_API
+D3D11CreateDeviceAndSwapChain(IDXGIAdapter *pAdapter,
+                              D3D_DRIVER_TYPE DriverType,
+                              HMODULE Software,
+                              UINT Flags,
+                              const D3D_FEATURE_LEVEL *pFeatureLevels,
+                              UINT FeatureLevels,
+                              UINT SDKVersion,
+                              const DXGI_SWAP_CHAIN_DESC *pSwapChainDesc,
+                              IDXGISwapChain **ppSwapChain,
+                              ID3D11Device **ppDevice,
+                              D3D_FEATURE_LEVEL *pFeatureLevel,
+                              ID3D11DeviceContext **ppImmediateContext)
+{
+   return npt_d3d11_create_device_and_swap_chain_internal(
+      pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels,
+      SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel,
+      ppImmediateContext);
 }
