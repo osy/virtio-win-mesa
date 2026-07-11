@@ -158,6 +158,20 @@ npt_ring_relax(struct npt_ring *ring, uint32_t *iter)
                     "status=0x%x is_tls=%d",
                     (unsigned long long)ring->id, *iter, head, tail, ring->cur, status,
                     (int)ring->is_tls_ring);
+            /* Distinguish a wedged host from a torn-down mapping: the
+             * host-written words (head, status) reading 0 while our
+             * local cur is far ahead means the blob mapping was
+             * replaced by the zero page (WDDM TDR removed the D3DKMT
+             * device).  A live-but-slow host would still show ALIVE
+             * being re-set between misses.  Mark the renderer lost so
+             * every wait loop bails instead of spinning on zeros. */
+            if (head == 0 && status == 0 && ring->cur != 0 &&
+                ring->renderer && !npt_renderer_is_lost(ring->renderer)) {
+               npt_log("watchdog: ring %llu mapping reads as zero page -- "
+                       "device removed; marking renderer lost",
+                       (unsigned long long)ring->id);
+               npt_renderer_set_lost(ring->renderer);
+            }
             ring->watchdog_misses = 0;
          }
       }
@@ -250,18 +264,22 @@ npt_ring_has_space(const struct npt_ring *ring, uint32_t size)
    return ring->cur + size - head <= ring->buffer_size;
 }
 
-static void
+static bool
 npt_ring_wait_space(struct npt_ring *ring, uint32_t size)
 {
    assert(size <= ring->buffer_size);
 
    if (likely(npt_ring_has_space(ring, size)))
-      return;
+      return true;
 
    /* Wait with adaptive backoff -- raw thrd_yield burns CPU when the
     * host falls behind. */
    uint32_t iter = 0;
    while (!npt_ring_has_space(ring, size)) {
+      if (npt_ring_load_status(ring) & NPT_RING_STATUS_FATAL_BIT)
+         return false;
+      if (ring->renderer && npt_renderer_is_lost(ring->renderer))
+         return false;
       if (iter && (iter & 0x7fff) == 0) {
          const uint32_t head =
             atomic_load_explicit(ring->head, memory_order_acquire);
@@ -274,6 +292,7 @@ npt_ring_wait_space(struct npt_ring *ring, uint32_t size)
    }
 
    npt_profile_record_full_wait(&ring->profile, iter);
+   return true;
 }
 
 /* Wrap-aware write of `size` bytes from `data` starting at `cur`.
@@ -306,7 +325,8 @@ static bool
 npt_ring_submit_locked(struct npt_ring *ring,
                        const void *data, uint32_t size)
 {
-   npt_ring_wait_space(ring, size);
+   if (!npt_ring_wait_space(ring, size))
+      return false;
    npt_ring_write_buffer(ring, data, size);
    npt_ring_store_tail(ring);
 
@@ -448,6 +468,21 @@ npt_ring_wait_all(struct npt_ring *ring)
       const uint32_t status = npt_ring_load_status(ring);
       if (status & NPT_RING_STATUS_FATAL_BIT)
          return;
+      if (ring->renderer && npt_renderer_is_lost(ring->renderer))
+         return;
+      /* The ALIVE watchdog is off here (NULL relax; see comment
+       * above), which made a TDR mapping-teardown a SILENT hang.
+       * Run the zero-page check directly at the same cadence the
+       * watchdog would. */
+      if (iter && (iter & 0x3fff) == 0 && ring->cur != 0 &&
+          npt_ring_load_head(ring) == 0 &&
+          npt_ring_load_status(ring) == 0 && ring->renderer) {
+         npt_log("wait_all: ring %llu mapping reads as zero page -- "
+                 "device removed; marking renderer lost",
+                 (unsigned long long)ring->id);
+         npt_renderer_set_lost(ring->renderer);
+         return;
+      }
       /* The watchdog is disabled on this wait, so report progress here
        * instead; a set IDLE bit while still stuck is the fingerprint of a
        * missed notify (host parked with work already published). */
@@ -475,6 +510,8 @@ npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno)
    uint32_t iter = 0;
    while (!npt_ring_seqno_status(ring, seqno)) {
       if (npt_ring_load_status(ring) & NPT_RING_STATUS_FATAL_BIT)
+         return iter;
+      if (ring->renderer && npt_renderer_is_lost(ring->renderer))
          return iter;
       /* Log once per ~32k iters so a wedged caller's target seqno is
        * recoverable from the log alongside the ring's own watchdog. */
@@ -641,7 +678,8 @@ npt_ring_submit_locked_split(struct npt_ring *ring,
                              uint32_t payload_padded_size)
 {
    const uint32_t total = header_size + payload_padded_size;
-   npt_ring_wait_space(ring, total);
+   if (!npt_ring_wait_space(ring, total))
+      return false;
    const uint32_t cur = ring->cur;
    npt_ring_write_buffer_at(ring, cur,               header,  header_size);
    if (payload_size)

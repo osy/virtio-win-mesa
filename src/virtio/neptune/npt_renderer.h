@@ -171,7 +171,27 @@ struct npt_renderer {
    struct npt_renderer_info info;
    struct npt_renderer_ops ops;
    struct npt_renderer_shmem_ops shmem_ops;
+
+   /* Set (never cleared) when a ring blob CPU mapping is observed torn
+    * down in place -- a guest WDDM TDR removes the whole D3DKMT device
+    * and every blob mapping of it reads as the zero page from then on.
+    * Every ring wait loop bails on it instead of spinning forever on
+    * zeros; submits fail; the runtime's own device-removed handling
+    * tears the device down.  See HANDOFF-fs-ring-wedge-tdr-2026-07-08. */
+   _Atomic uint32_t lost;
 };
+
+static inline bool
+npt_renderer_is_lost(struct npt_renderer *renderer)
+{
+   return atomic_load_explicit(&renderer->lost, memory_order_relaxed) != 0;
+}
+
+static inline void
+npt_renderer_set_lost(struct npt_renderer *renderer)
+{
+   atomic_store_explicit(&renderer->lost, 1, memory_order_relaxed);
+}
 
 struct npt_renderer *
 npt_renderer_create_vtest(void);
