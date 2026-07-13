@@ -172,13 +172,15 @@ tritonRegisterSharedBlob(PTRITON_DEVICE pD, PTRITON_RESOURCE r,
     o->cpu_access_flags = d3d11Cpu;
     o->misc_flags       = d3d11Misc;
 
-    if (primary) {
-        o->ScanoutInfo.width      = r->Width;
-        o->ScanoutInfo.height     = r->Height;
-        o->ScanoutInfo.format     = npt_shared_texture_virgl_format(hostFmt);
-        o->ScanoutInfo.strides[0] = (ULONG)o->planes[0].pitch;
-        o->ScanoutInfo.offsets[0] = (ULONG)o->planes[0].offset;
-    }
+    /* The KMD also needs the blob's format, extent and plane layout when a
+     * non-primary allocation is used as the source of a windowed Blt
+     * Present.  The separate primary bit, allocation Primary flag and
+     * VidPnSourceId below remain the only scanout-promotion controls. */
+    o->ScanoutInfo.width      = r->Width;
+    o->ScanoutInfo.height     = r->Height;
+    o->ScanoutInfo.format     = npt_shared_texture_virgl_format(hostFmt);
+    o->ScanoutInfo.strides[0] = (ULONG)o->planes[0].pitch;
+    o->ScanoutInfo.offsets[0] = (ULONG)o->planes[0].offset;
 
     ax.Size = (o->allocation_size + 4095ull) & ~4095ull;
     if (!ax.Size)
@@ -243,18 +245,24 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
      * is implied when used with Present").  BIND_PRESENT alone marks any
      * swapchain back buffer, including windowed ones that DWM composites
      * as ordinary shared textures and that must never claim the scanout. */
-    r->IsPresentable    = !!(pArgs->BindFlags & D3D10_DDI_BIND_PRESENT) &&
-                          pArgs->pPrimaryDesc != NULL;
+    const BOOL isPresentSource =
+        !!(pArgs->BindFlags & D3D10_DDI_BIND_PRESENT);
+    r->IsPresentable    = isPresentSource && pArgs->pPrimaryDesc != NULL;
     r->hKMAllocation    = 0;
     r->IsShared         = FALSE;
     r->hImportAlloc     = 0;
     r->hImportResKmt    = 0;
 
-    /* Non-primary TEXTURE2D with MISC_SHARED: emulate the shared handle.
-     * Display primaries take the host-swapchain route below. */
-    BOOL isShared = !r->IsPresentable &&
-                    pArgs->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D &&
-                    (pArgs->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) != 0;
+    /* A windowed/copy-style Present source has pPrimaryDesc == NULL, but
+     * DXGIDDICB_PRESENT still requires a pfnAllocateCb-produced source
+     * allocation.  Give it the same exportable blob transport as an
+     * explicitly shared texture, with primary=FALSE so it never becomes a
+     * VidPn scanout primary.  Display primaries take the route below. */
+    BOOL needsSharedAllocation =
+        !r->IsPresentable &&
+        pArgs->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D &&
+        (isPresentSource ||
+         (pArgs->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) != 0);
 
 
     /* Top-level dimensions come from the mip-0 entry of pMipInfoList. */
@@ -326,7 +334,8 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
      * MISC_SHARED so the host backs the texture with exportable
      * (importable-elsewhere) memory, and guarantee consumers (DWM
      * samples every composited surface) can create SRVs against it. */
-    if (isShared) {
+    if (needsSharedAllocation) {
+        misc |= D3D11_RESOURCE_MISC_SHARED;
         if (usage != D3D11_USAGE_STAGING)
             bind |= D3D11_BIND_SHADER_RESOURCE;
     }
@@ -432,10 +441,17 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
         return;
     }
 
-    if (isShared) {
+    if (needsSharedAllocation) {
         if (!tritonRegisterSharedBlob(pD, r, (UINT)usage, bind, cpuAccess,
-                                      misc, r->Format, FALSE))
-            TR_LOG("shared: registration failed; texture stays process-local");
+                                      misc, r->Format, FALSE)) {
+            if (isPresentSource) {
+                ID3D11Resource_Release(r->pResource);
+                r->pResource = NULL;
+                tritonSetError(pD, E_FAIL);
+            } else {
+                TR_LOG("shared: registration failed; texture stays process-local");
+            }
+        }
     }
 }
 
@@ -460,13 +476,18 @@ tritonDestroyResource(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hResource)
         r->pResource = NULL;
     }
 
-    /* Exporter: the KM allocation owns the virtio blob; deallocating it
-     * unrefs the host resource once every opener has closed. */
+    /* Exporter: pfnAllocateCb associated this allocation with hRTResource.
+     * D3DDDICB_DEALLOCATE requires the same resource handle here; HandleList
+     * is only valid for allocations that were created without hResource. */
     if (r->hKMAllocation && pD && pD->KTCallbacks.pfnDeallocateCb) {
         D3DDDICB_DEALLOCATE da;
         memset(&da, 0, sizeof(da));
-        da.NumAllocations = 1;
-        da.HandleList     = &r->hKMAllocation;
+        if (r->hRTResource.handle) {
+            da.hResource = r->hRTResource.handle;
+        } else {
+            da.NumAllocations = 1;
+            da.HandleList = &r->hKMAllocation;
+        }
         pD->KTCallbacks.pfnDeallocateCb(pD->hRTDevice.handle, &da);
         r->hKMAllocation = 0;
     }
