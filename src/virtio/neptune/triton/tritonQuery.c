@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2026 Turing Software LLC
  * SPDX-License-Identifier: MIT
  *
@@ -146,10 +146,15 @@ tritonSetPredication(D3D10DDI_HDEVICE hDevice, D3D10DDI_HQUERY hPred, BOOL Predi
  * MULTISAMPLE_RENDERTARGET bit, so the two can never disagree -- the D3D11
  * runtime rejects any disagreement during device finalization with "MSAA
  * quality reported to be 0" -> DXGI_ERROR_DRIVER_INTERNAL_ERROR.  Also
- * enforces the typeless<->typed invariant for the depth families (dxvk
- * reports MSAA on the typed depth member but 0 on the typeless parent, which
- * the runtime also rejects); normalise the typeless parent up to its typed
- * depth member. */
+ * enforces the typeless<->typed invariant across ALL typeless families: dxvk
+ * maps a family's typeless parent and typed views to different Vulkan formats
+ * and can report different MSAA per member (typed depth vs padded read-view;
+ * typed R32G32B32_FLOAT vs its typeless parent), which the runtime rejects as
+ * "MSAA quality for parent != child".  tritonMsaaQuality resolves every
+ * format to its family and reports a conservative family value to the
+ * typeless parent and participating targets.  Depth read-only views remain
+ * zero because the runtime requires formats without the MSAA-target cap to
+ * report no multisample quality levels. */
 /* Cap-query results are constant per host device, but DWM/Direct2D re-query
  * format caps on every composition frame, and each query is a host round-trip
  * whose reply-wait sleeps the calling (compositor) thread.  Answer re-queries
@@ -160,60 +165,163 @@ static unsigned char s_msaaValid[256][33];
 static UINT          s_fmtCache[256];
 static unsigned char s_fmtValid[256];
 
-static UINT tritonMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format, UINT SampleCount)
+/* Every DXGI typeless format family: the typeless parent together with all
+ * its typed view formats (depth, colour, integer, sRGB).  MSAA is a
+ * resource-allocation property shared by the whole family, but dxvk-over-
+ * Vulkan maps each member to a DIFFERENT Vulkan format and can report a
+ * different MSAA quality per member (e.g. the typed R32G32B32_FLOAT view
+ * supports 2x while the R32G32B32_TYPELESS parent reports 0; the typed depth
+ * member of R32G8X24 is MSAA-capable while its padded read-only views are
+ * not).  The D3D11 runtime requires the typeless parent and participating
+ * targets to agree, while read-only depth views must report zero when their
+ * concrete format lacks the MSAA-target cap.  Rows shorter than the width
+ * are zero-filled by C, and DXGI_FORMAT_UNKNOWN (0) terminates each row. */
+static const DXGI_FORMAT k_msaaGroups[][7] = {
+    { DXGI_FORMAT_R32G32B32A32_TYPELESS, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_UINT, DXGI_FORMAT_R32G32B32A32_SINT },
+    { DXGI_FORMAT_R32G32B32_TYPELESS, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32_UINT, DXGI_FORMAT_R32G32B32_SINT },
+    { DXGI_FORMAT_R16G16B16A16_TYPELESS, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_FORMAT_R16G16B16A16_UINT, DXGI_FORMAT_R16G16B16A16_SNORM, DXGI_FORMAT_R16G16B16A16_SINT },
+    { DXGI_FORMAT_R32G32_TYPELESS, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32_UINT, DXGI_FORMAT_R32G32_SINT },
+    { DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, DXGI_FORMAT_X32_TYPELESS_G8X24_UINT },
+    { DXGI_FORMAT_R10G10B10A2_TYPELESS, DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R10G10B10A2_UINT, DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM },
+    { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_SINT },
+    { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R16G16_SNORM, DXGI_FORMAT_R16G16_SINT },
+    { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_SINT },
+    { DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R24_UNORM_X8_TYPELESS, DXGI_FORMAT_X24_TYPELESS_G8_UINT },
+    { DXGI_FORMAT_R8G8_TYPELESS, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UINT, DXGI_FORMAT_R8G8_SNORM, DXGI_FORMAT_R8G8_SINT },
+    { DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_SNORM, DXGI_FORMAT_R16_SINT },
+    { DXGI_FORMAT_R8_TYPELESS, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SNORM, DXGI_FORMAT_R8_SINT },
+    { DXGI_FORMAT_BC1_TYPELESS, DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC1_UNORM_SRGB },
+    { DXGI_FORMAT_BC2_TYPELESS, DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC2_UNORM_SRGB },
+    { DXGI_FORMAT_BC3_TYPELESS, DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC3_UNORM_SRGB },
+    { DXGI_FORMAT_BC4_TYPELESS, DXGI_FORMAT_BC4_UNORM, DXGI_FORMAT_BC4_SNORM },
+    { DXGI_FORMAT_BC5_TYPELESS, DXGI_FORMAT_BC5_UNORM, DXGI_FORMAT_BC5_SNORM },
+    { DXGI_FORMAT_B8G8R8A8_TYPELESS, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB },
+    { DXGI_FORMAT_B8G8R8X8_TYPELESS, DXGI_FORMAT_B8G8R8X8_UNORM, DXGI_FORMAT_B8G8R8X8_UNORM_SRGB },
+    { DXGI_FORMAT_BC6H_TYPELESS, DXGI_FORMAT_BC6H_UF16, DXGI_FORMAT_BC6H_SF16 },
+    { DXGI_FORMAT_BC7_TYPELESS, DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC7_UNORM_SRGB },
+};
+
+/* Locate the family row containing Format, or NULL for a standalone format
+ * (R11G11B10_FLOAT, A8_UNORM, packed/video formats) that has no typeless
+ * family and thus no parent==child constraint. */
+static const DXGI_FORMAT *tritonMsaaGroup(DXGI_FORMAT Format)
 {
-    if ((UINT)Format < 256u && SampleCount <= 32u && s_msaaValid[Format][SampleCount])
-        return s_msaaCache[Format][SampleCount];
-    /* The runtime requires EVERY member of a typeless format family (the
-     * typeless parent AND all its typed views) to report identical MSAA
-     * quality.  dxvk violates this for the padded depth-stencil families
-     * (R32G8X24 / R24G8): only the typed DEPTH member maps to a real
-     * MSAA-capable Vulkan depth format, while the typeless / depth-read /
-     * stencil-read members map to assorted formats with differing (often 0)
-     * MSAA.  Resolve the WHOLE family to its canonical typed-depth member so
-     * all four members agree -- otherwise the runtime throws "MSAA quality
-     * reported to be 0" -> DXGI_ERROR_DRIVER_INTERNAL_ERROR during device
-     * finalization.  (The R32/R16 families have real colour views that dxvk
-     * reports consistently, so they need no remap.) */
-    /* The X-padded depth-read / stencil-read members of the R32G8X24 and
-     * R24G8 families are shader-resource-only VIEW formats -- you create the
-     * MSAA depth resource through the typeless / typed-depth member and only
-     * READ it through these, so they are not MSAA targets.  dxvk nonetheless
-     * reports them with the family's full support mask (DEPTH_STENCIL + MSAA),
-     * so they can't be distinguished from the real depth target by caps
-     * alone.  Force no-MSAA for them: otherwise the MULTISAMPLE_RENDERTARGET
-     * bit (derived from this helper) lands on a non-target and the runtime
-     * rejects the device ("MSAA quality reported to be 0"). */
+    if (Format == DXGI_FORMAT_UNKNOWN)
+        return NULL;
+    for (unsigned i = 0; i < sizeof(k_msaaGroups) / sizeof(k_msaaGroups[0]); i++)
+        for (unsigned j = 0; j < 7 && k_msaaGroups[i][j] != DXGI_FORMAT_UNKNOWN; j++)
+            if (k_msaaGroups[i][j] == Format)
+                return k_msaaGroups[i];
+    return NULL;
+}
+
+static BOOL tritonMsaaReadOnlyDepthView(DXGI_FORMAT Format)
+{
     switch (Format) {
     case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
     case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
     case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
     case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
-        return (SampleCount <= 1) ? 1 : 0;
-    default: break;
+        return TRUE;
+    default:
+        return FALSE;
     }
-    UINT n = 0;
-    if (FAILED(ID3D11Device1_CheckMultisampleQualityLevels(pD->pDev1, Format, SampleCount, &n)))
-        n = 0;
-    /* A typeless parent must report MSAA quality at least as high as any of
-     * its typed children (the runtime enforces parent >= child).  dxvk under-
-     * reports the padded depth-stencil typeless parents (R32G8X24/R24G8 map
-     * to plain Vulkan formats with no depth MSAA) while their typed depth
-     * member is MSAA-capable, so lift the parent to its typed depth member. */
-    DXGI_FORMAT typedDepth = DXGI_FORMAT_UNKNOWN;
+}
+
+static BOOL tritonMsaaForbidden(DXGI_FORMAT Format)
+{
     switch (Format) {
-    case DXGI_FORMAT_R32G8X24_TYPELESS: typedDepth = DXGI_FORMAT_D32_FLOAT_S8X24_UINT; break;
-    case DXGI_FORMAT_R32_TYPELESS:      typedDepth = DXGI_FORMAT_D32_FLOAT;            break;
-    case DXGI_FORMAT_R24G8_TYPELESS:    typedDepth = DXGI_FORMAT_D24_UNORM_S8_UINT;    break;
-    case DXGI_FORMAT_R16_TYPELESS:      typedDepth = DXGI_FORMAT_D16_UNORM;            break;
-    default: break;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G8X24_TYPELESS:
+    case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+    case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R16G16_TYPELESS:
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_R24G8_TYPELESS:
+    case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+    case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+    case DXGI_FORMAT_R8G8_TYPELESS:
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R8_TYPELESS:
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC7_TYPELESS:
+        return TRUE;
+    default:
+        return FALSE;
     }
-    if (typedDepth != DXGI_FORMAT_UNKNOWN) {
-        UINT nd = 0;
-        if (SUCCEEDED(ID3D11Device1_CheckMultisampleQualityLevels(pD->pDev1, typedDepth,
-                                                                  SampleCount, &nd)) && nd > n)
-            n = nd;
+}
+
+static UINT tritonNativeMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format,
+                                    UINT SampleCount)
+{
+    UINT support = 0;
+    UINT quality = 0;
+    if (FAILED(ID3D11Device1_CheckFormatSupport(pD->pDev1, Format, &support)) ||
+        !(support & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET) ||
+        FAILED(ID3D11Device1_CheckMultisampleQualityLevels(pD->pDev1, Format,
+                                                            SampleCount, &quality)))
+        return 0;
+    return quality;
+}
+
+static UINT tritonMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format, UINT SampleCount)
+{
+    if ((UINT)Format < 256u && SampleCount <= 32u && s_msaaValid[Format][SampleCount])
+        return s_msaaCache[Format][SampleCount];
+
+    /* Required DDI edge cases, independent of format capability. */
+    if (SampleCount == 1)
+        return 1;
+    if (SampleCount == 0 || SampleCount > 32)
+        return 0;
+
+    /* The runtime compares the optional MSAA-render-target capability across
+     * participating typed members of a colour cast set.  Use the conservative
+     * minimum of the members' native per-format results, so the whole group is
+     * enabled only when every member can satisfy the DDI contract.  Depth
+     * targets are singleton groups; their typeless/read-only views are handled
+     * by the forbidden path above. */
+    const DXGI_FORMAT *group = tritonMsaaGroup(Format);
+    if (group) {
+        UINT n = ~0u;
+        for (unsigned j = 0; j < 7 && group[j] != DXGI_FORMAT_UNKNOWN; j++) {
+            /* Typeless parents and depth read-only views are not native
+             * render-target candidates.  Derive the family value from the
+             * legal typed targets. */
+            if (tritonMsaaForbidden(group[j]))
+                continue;
+            UINT m = tritonNativeMsaaQuality(pD, group[j], SampleCount);
+            if (m < n)
+                n = m;
+        }
+        if (n == ~0u)
+            n = 0;
+        if (SampleCount <= 32u)
+            for (unsigned j = 0; j < 7 && group[j] != DXGI_FORMAT_UNKNOWN; j++)
+                if ((UINT)group[j] < 256u) {
+                    /* Typeless parents inherit the family value for the
+                     * runtime's parent/child comparison.  Read-only depth
+                     * views cannot be MSAA targets and must report zero. */
+                    s_msaaCache[group[j]][SampleCount] =
+                        tritonMsaaReadOnlyDepthView(group[j]) ? 0 : n;
+                    s_msaaValid[group[j]][SampleCount] = 1;
+                }
+        return tritonMsaaReadOnlyDepthView(Format) ? 0 : n;
     }
+
+    UINT n = tritonNativeMsaaQuality(pD, Format, SampleCount);
     if ((UINT)Format < 256u && SampleCount <= 32u) {
         s_msaaCache[Format][SampleCount] = n; s_msaaValid[Format][SampleCount] = 1;
     }
@@ -293,12 +401,18 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
         break;
     }
 
-    /* Derive MULTISAMPLE_RENDERTARGET from the SAME helper
-     * CheckMultisampleQualityLevels uses, so the format-support bit and the
-     * quality-level query are always consistent for every format (the helper
-     * already excludes shader-resource-only depth/stencil view formats, which
-     * are not valid MSAA targets).  A 4x query is the FL10.1+ gate. */
-    if (tritonMsaaQuality(pD, Format, 4) > 0)
+    /* Keep the quality value uniform across a typeless family, but do not let
+     * a member inherit MULTISAMPLE_RENDERTARGET eligibility from another
+     * member.  The D3D11 runtime validates this DDI bit against a per-format
+     * requirements table: advertising it for R32G32_UINT merely because a
+     * sibling in the R32G32 family has non-zero MSAA quality causes a direct
+     * DXGI_ERROR_DRIVER_INTERNAL_ERROR during device finalization.
+     *
+     * The host CheckFormatSupport result is the authority for whether this
+     * concrete format may be an MSAA render target; tritonMsaaQuality remains
+     * the authority for the family-consistent quality count.  Both conditions
+     * must hold.  A 4x query is the FL10.1+ quality gate. */
+    if (!tritonMsaaForbidden(Format) && tritonMsaaQuality(pD, Format, 4) > 0)
         *pOut |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
     else
         *pOut &= ~(UINT)D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
@@ -428,6 +542,19 @@ tritonCheckMultisampleQualityLevels_1_3(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Fo
 {
     PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
     if (!pD || !pNumQualityLevels) { if (pNumQualityLevels) *pNumQualityLevels = 0; return; }
+
+    /* The ordinary WDDM 1.3 query has the same contract as the legacy DDI.
+     * Keep it on the family-normalized path used by CheckFormatSupport;
+     * otherwise Device3 exposes the per-Vulkan-format Host result again and
+     * reintroduces both parent/child mismatches and support-vs-quality zero.
+     * Only the tiled-resource variant has semantics the legacy helper cannot
+     * represent and therefore needs the Flags-aware Device3 query. */
+    if (Flags == 0) {
+        tritonCheckMultisampleQualityLevels(hDevice, Format, SampleCount,
+                                            pNumQualityLevels);
+        return;
+    }
+
     if (pD->pDev3) {
         UINT n = 0;
         HRESULT hr = ID3D11Device3_CheckMultisampleQualityLevels1(
@@ -435,12 +562,8 @@ tritonCheckMultisampleQualityLevels_1_3(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Fo
         *pNumQualityLevels = SUCCEEDED(hr) ? n : 0;
         return;
     }
-    if (Flags == 0) {
-        tritonCheckMultisampleQualityLevels(hDevice, Format, SampleCount, pNumQualityLevels);
-    } else {
-        TR_STUB("CheckMultisampleQualityLevels_1_3 with Flags (no Device3)");
-        *pNumQualityLevels = 0;
-    }
+    TR_STUB("CheckMultisampleQualityLevels_1_3 with Flags (no Device3)");
+    *pNumQualityLevels = 0;
 }
 
 /* WDDM 1.3 profiling markers. The DDI provides no name string with
