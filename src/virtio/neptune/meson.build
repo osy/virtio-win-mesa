@@ -72,6 +72,13 @@ npt_c_args = [
   no_override_init_args,
 ]
 
+# The vendored protocol output intentionally carries GCC diagnostic pragmas
+# around generated inline helpers.  They are inert under MSVC, which otherwise
+# emits C4068 for every push/ignored/pop directive and floods native builds.
+if cc.get_argument_syntax() == 'msvc'
+  npt_c_args += ['/wd4068']
+endif
+
 npt_is_windows = host_machine.system() == 'windows'
 
 # vtest + virtgpu backends.  The Windows build defaults to the Wine PE
