@@ -17,6 +17,72 @@
 
 #include <dxgiddi.h>
 
+/* The generated client header also emits standalone DirectX type
+ * declarations, which conflict with the Windows SDK types already included
+ * by triton.h under MSVC.  Keep this narrow declaration in the Triton TU
+ * instead of including the generated protocol surface. */
+extern HRESULT STDMETHODCALLTYPE
+npt_id3d11devicecontext_default_GetData(void *self,
+                                        ID3D11Asynchronous *pAsync,
+                                        void *pData, UINT DataSize,
+                                        UINT GetDataFlags);
+
+#define TRITON_PRESENT_GPU_WAIT_MS 2000u
+
+/* Windowed Present sources are exported dmabufs consumed by a different
+ * virgl/KMD path.  That boundary has no implicit GPU synchronization: Flush
+ * submits the producer context but may return before its writes retire.
+ * Wait on an EVENT query before handing the allocation to dxgkrnl so the
+ * consumer cannot copy a partially updated animation frame.
+ *
+ * Use the generated synchronous GetData entry directly.  Neptune's public
+ * GetData override uses a feedback slot whose version advances at Begin;
+ * EVENT queries are ended without Begin, so reusing one through that local
+ * fast path could observe the previous Present's ready state. */
+static HRESULT
+tritonWaitForPresentGpu(PTRITON_DEVICE pD)
+{
+   if (!pD || !pD->pDev1 || !pD->pCtx1)
+      return E_INVALIDARG;
+
+   if (!pD->pPresentQuery) {
+      D3D11_QUERY_DESC desc;
+      memset(&desc, 0, sizeof(desc));
+      desc.Query = D3D11_QUERY_EVENT;
+      HRESULT hr = ID3D11Device1_CreateQuery(pD->pDev1, &desc,
+                                              &pD->pPresentQuery);
+      if (FAILED(hr) || !pD->pPresentQuery) {
+         TR_LOG("Present GPU query creation failed: 0x%08lx", hr);
+         pD->pPresentQuery = NULL;
+         return FAILED(hr) ? hr : E_FAIL;
+      }
+   }
+
+   ID3D11DeviceContext1_End(
+      pD->pCtx1, (ID3D11Asynchronous *)pD->pPresentQuery);
+   ID3D11DeviceContext1_Flush(pD->pCtx1);
+
+   const ULONGLONG start = GetTickCount64();
+   for (;;) {
+      BOOL complete = FALSE;
+      HRESULT hr = npt_id3d11devicecontext_default_GetData(
+         pD->pCtx1, (ID3D11Asynchronous *)pD->pPresentQuery,
+         &complete, sizeof(complete), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+      if (hr == S_OK && complete)
+         return S_OK;
+      if (FAILED(hr)) {
+         TR_LOG("Present GPU query failed: 0x%08lx", hr);
+         return hr;
+      }
+      if (GetTickCount64() - start >= TRITON_PRESENT_GPU_WAIT_MS) {
+         TR_LOG("Present GPU query timed out after %u ms",
+                TRITON_PRESENT_GPU_WAIT_MS);
+         return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+      }
+      SwitchToThread();
+   }
+}
+
 static HRESULT APIENTRY
 tritonDxgiPresent(DXGI_DDI_ARG_PRESENT *pArgs)
 {
@@ -44,13 +110,18 @@ tritonDxgiPresent(DXGI_DDI_ARG_PRESENT *pArgs)
                 n, src->hKMAllocation, src->Width, src->Height);
       return S_OK;
    }
-   /* Nothing host-side flushes the producing context on present: the
-    * scanout / DWM samples the dmabuf directly, so an unflushed frame
-    * would sit in the host D3D command buffer indefinitely and the
-    * consumer would composite stale or initial-zero contents.  Flush
-    * so the frame actually reaches the exported memory. */
-   if (pD->pCtx1)
-      ID3D11DeviceContext1_Flush(pD->pCtx1);
+   /* A windowed source is shared with a separate consumer path.  Flush alone
+    * is asynchronous, so wait until its producer writes are GPU-complete.
+    * Display primaries stay on the existing low-latency flush path. */
+   if (pD->pCtx1) {
+      if (!src->IsPresentable) {
+         HRESULT hr = tritonWaitForPresentGpu(pD);
+         if (FAILED(hr))
+            return hr;
+      } else {
+         ID3D11DeviceContext1_Flush(pD->pCtx1);
+      }
+   }
 
    /* DXGIDDICB_PRESENT (MSDN):
     *   hSrcAllocation  the rendered back buffer to present (a flip-primary
@@ -364,10 +435,13 @@ tritonDxgiPresent1(DXGI_DDI_ARG_PRESENT1 *pArgs)
                 n, src->hKMAllocation, src->Width, src->Height);
       return S_OK;
    }
-   /* See tritonDxgiPresent: windowed presents must flush the host
-    * context or the frame never reaches the shared dmabuf. */
-   if (!src->IsPresentable && pD->pCtx1)
-      ID3D11DeviceContext1_Flush(pD->pCtx1);
+   /* See tritonDxgiPresent: windowed shared sources require producer
+    * GPU completion, not merely an asynchronous Flush. */
+   if (!src->IsPresentable && pD->pCtx1) {
+      HRESULT hr = tritonWaitForPresentGpu(pD);
+      if (FAILED(hr))
+         return hr;
+   }
 
    DXGIDDICB_PRESENT cb;
    memset(&cb, 0, sizeof(cb));

@@ -620,6 +620,10 @@ static void APIENTRY tritonDestroyDevice(D3D10DDI_HDEVICE hDevice)
      * too, but being explicit is clearer. */
     if (p->pCtx1)
         ID3D11DeviceContext1_Flush(p->pCtx1);
+    if (p->pPresentQuery) {
+        ID3D11Query_Release(p->pPresentQuery);
+        p->pPresentQuery = NULL;
+    }
     /* Tear down the present kernel context before the device goes away. */
     if (p->hKMContext && p->KTCallbacks.pfnDestroyContextCb) {
         D3DDDICB_DESTROYCONTEXT dc;
@@ -695,6 +699,7 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
     p->pCtx1          = NULL;
     p->pCtx2          = NULL;
     p->pCtx3          = NULL;
+    p->pPresentQuery  = NULL;
     p->FeatureLevel   = D3D_FEATURE_LEVEL_11_0;
     p->pCurrentVS     = NULL;
     p->pCurrentLayout = NULL;

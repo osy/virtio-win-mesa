@@ -65,6 +65,7 @@ typedef struct TRITON_DEVICE {
     ID3D11DeviceContext1           *pCtx1;
     ID3D11DeviceContext2           *pCtx2;
     ID3D11DeviceContext3           *pCtx3;
+    ID3D11Query                    *pPresentQuery;
     D3D_FEATURE_LEVEL               FeatureLevel;
 
     /* Currently-bound VS and element layout. Used to lazily create the
