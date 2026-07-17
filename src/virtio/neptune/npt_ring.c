@@ -17,6 +17,10 @@
 #include "util/os_time.h"
 #endif
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <cpuid.h> /* __cpuid: detect x86-on-non-x86 translators (FEX/TCG) */
+#endif
+
 static_assert(ATOMIC_INT_LOCK_FREE >= 1 && sizeof(atomic_uint) == 4,
               "npt_ring requires lock-free 32-bit atomic_uint");
 
@@ -37,6 +41,62 @@ npt_ring_notify(struct npt_ring *ring);
 
 /* Grows on demand. */
 #define NPT_RING_REPLY_POOL_MIN_SIZE (1u << 20)
+
+/*
+ * Whether an atomic read-modify-write works on the ring's write-combining
+ * shmem.  ARM LSE atomics (ldclral) take a Data Abort on WC / Normal
+ * Non-cacheable memory, and x86-on-ARM translators lower a LOCK-prefixed RMW
+ * onto them, so both native ARM64 and translated x86 fault; plain loads and
+ * stores are fine, so only the watchdog's ALIVE clear (the ring's sole atomic
+ * RMW) is affected.
+ *
+ * -1 = undetected, 0 = unsupported (emulated), 1 = supported.  Detected once via
+ * CPUID -- a passive read, no faulting: the translator self-identifies on the
+ * hypervisor vendor leaf.  Real-x86 hypervisors (KVM/VMware/Hyper-V) also set
+ * the present bit but do atomics fine, so we key off the specific translator
+ * signatures, not the bit alone.
+ */
+static atomic_int npt_wc_atomic_ok = -1;
+
+static int
+npt_detect_wc_atomic_ok(void)
+{
+#if defined(_M_ARM64EC) || defined(__arm64ec__) || defined(_M_ARM64) || \
+   defined(__aarch64__)
+   /* All ARM64 flavors (native and arm64ec): the compiler lowers
+    * atomic_fetch_and to an LSE atomic (ldclral) -- MSVC native arm64 does so
+    * too, behind a runtime CPU-feature check that passes on every Apple
+    * Silicon host -- and LSE atomics take a Data Abort on Write-Combining /
+    * Non-cacheable memory.  The ring shmem is mapped WC, so the ALIVE-clear
+    * faults on any wait that outlives the watchdog threshold.  Disable it;
+    * the watchdog degrades to a no-op, as on the x86-emulation path. */
+   return 0;
+#elif defined(__x86_64__) || defined(__i386__)
+   unsigned a, b, c, d;
+
+   /* No hypervisor/emulator present bit -> bare-metal x86 -> atomics fine. */
+   __cpuid(1, a, b, c, d);
+   if (!(c & (1u << 31)))
+      return 1;
+
+   /* Hypervisor vendor leaf 0x40000000: 12-byte signature in EBX,ECX,EDX. */
+   __cpuid(0x40000000u, a, b, c, d);
+   (void)a;
+   char sig[13];
+   memcpy(sig + 0, &b, 4);
+   memcpy(sig + 4, &c, 4);
+   memcpy(sig + 8, &d, 4);
+   sig[12] = '\0';
+
+   if (!memcmp(sig, "FEXIFEXIEMU", 12) ||   /* FEX-Emu */
+       !memcmp(sig, "TCGTCGTCGTCG", 12))    /* QEMU TCG (qemu-user / full TCG) */
+      return 0;                             /* x86-on-non-x86: WC atomics fault */
+
+   return 1; /* real-x86 hypervisor or an emulator that does atomics correctly */
+#else
+   return 1; /* other architectures: no known WC-atomic restriction */
+#endif
+}
 
 /*
  * Adaptive backoff with watchdog.  After warn_order iters, check the
@@ -73,9 +133,16 @@ npt_ring_relax(struct npt_ring *ring, uint32_t *iter)
          return;
 
       if (status & NPT_RING_STATUS_ALIVE_BIT) {
-         atomic_fetch_and_explicit(ring->status,
-                                   ~(unsigned)NPT_RING_STATUS_ALIVE_BIT,
-                                   memory_order_seq_cst);
+         /* Clearing ALIVE (so a host re-set is detectable) is the ring's only
+          * atomic RMW.  Skip it where WC atomics fault -- emulated x86-on-ARM
+          * and every ARM64 flavor, per npt_detect_wc_atomic_ok.  With nothing
+          * clearing ALIVE, the wedge report below stops firing once the host
+          * has set it, leaving only the "host never came alive" case.  Native
+          * x86 keeps the full watchdog. */
+         if (atomic_load_explicit(&npt_wc_atomic_ok, memory_order_relaxed) == 1)
+            atomic_fetch_and_explicit(ring->status,
+                                      ~(unsigned)NPT_RING_STATUS_ALIVE_BIT,
+                                      memory_order_seq_cst);
          ring->watchdog_misses = 0;
       } else {
          if (++ring->watchdog_misses >= max_misses) {
@@ -378,8 +445,22 @@ npt_ring_wait_all(struct npt_ring *ring)
       atomic_load_explicit(ring->tail, memory_order_acquire);
    uint32_t iter = 0;
    while (!npt_ring_seqno_status(ring, target)) {
-      if (npt_ring_load_status(ring) & NPT_RING_STATUS_FATAL_BIT)
+      const uint32_t status = npt_ring_load_status(ring);
+      if (status & NPT_RING_STATUS_FATAL_BIT)
          return;
+      /* The watchdog is disabled on this wait, so report progress here
+       * instead; a set IDLE bit while still stuck is the fingerprint of a
+       * missed notify (host parked with work already published). */
+      if (iter && (iter & 0x7fff) == 0) {
+         const uint32_t head =
+            atomic_load_explicit(ring->head, memory_order_acquire);
+         npt_log("wait_all: ring %llu target=%u head=%u cur=%u status=0x%x "
+                 "iter=%u%s",
+                 (unsigned long long)ring->id, target, head, ring->cur,
+                 status, iter,
+                 (status & NPT_RING_STATUS_IDLE_BIT)
+                    ? " HOST-IDLE (missed notify?)" : "");
+      }
       npt_ring_relax(NULL, &iter);
    }
 }
@@ -863,6 +944,16 @@ npt_ring_create(struct npt_device *device,
    atomic_store_explicit(ring->head, 0, memory_order_relaxed);
    atomic_store_explicit(ring->tail, 0, memory_order_relaxed);
    atomic_store_explicit(ring->status, 0, memory_order_relaxed);
+
+   /* Detect once whether atomic RMWs work on the WC ring shmem here; gates the
+    * watchdog's ALIVE clear -- see npt_detect_wc_atomic_ok. */
+   if (atomic_load_explicit(&npt_wc_atomic_ok, memory_order_acquire) < 0) {
+      const int ok = npt_detect_wc_atomic_ok();
+      atomic_store_explicit(&npt_wc_atomic_ok, ok, memory_order_release);
+      npt_log("ring WC-atomic support -> %s",
+              ok ? "yes (native x86)"
+                 : "no -- watchdog ALIVE-clear disabled");
+   }
 
    mtx_init(&ring->mutex, mtx_plain);
 
