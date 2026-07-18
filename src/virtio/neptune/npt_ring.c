@@ -247,6 +247,18 @@ npt_ring_store_tail(struct npt_ring *ring)
 #else
    atomic_store_explicit(ring->tail, ring->cur, memory_order_seq_cst);
 #endif
+   /* Dekker pairing with the host's idle transition.  The submit path
+    * follows this store with a status load to decide whether to ring
+    * the doorbell; the host sets IDLE (seq_cst RMW) then re-reads the
+    * tail.  With only the SFENCE above, this producer's status load
+    * can execute while the tail store still sits in the store buffer:
+    * host misses the tail AND we miss IDLE -> no notify, host sleeps
+    * in cnd_wait forever (the load-correlated "status=0x0" transport
+    * wedge, with every host decoder left idle).  A
+    * full fence makes the tail globally visible before the status
+    * read on x86 (the store buffer is already SFENCE-drained, so this
+    * is cheap here). */
+   atomic_thread_fence(memory_order_seq_cst);
 }
 
 static inline uint32_t
