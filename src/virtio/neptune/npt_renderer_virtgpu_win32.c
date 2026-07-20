@@ -173,7 +173,7 @@ virtgpu_get_caps(struct npt_virtgpu *gpu, uint32_t id, uint32_t version,
          .CapsetId = id,
          .Version = version,
          .Size = capset_size,
-         .Capset = capset,
+         .Capset = VioGpuUmPtr(capset),
       },
    };
    return virtgpu_escape(gpu, &caps);
@@ -549,7 +549,7 @@ npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
    VIOGPU_ESCAPE esc = {
       .Type = VIOGPU_SUBMIT_PRESENT_FENCE,
       .DataLength = sizeof(esc.PresentFence),
-      .PresentFence = { .EventUM = hWait, .RingIdx = ring_idx },
+      .PresentFence = { .EventUM = VioGpuUmHandle(hWait), .RingIdx = ring_idx },
    };
    NTSTATUS status = virtgpu_escape(gpu, &esc);
    if (!NT_SUCCESS(status)) {

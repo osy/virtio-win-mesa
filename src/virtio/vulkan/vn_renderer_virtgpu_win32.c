@@ -811,7 +811,7 @@ virtgpu_ioctl_get_caps(struct virtgpu *gpu,
          .CapsetId = id,
          .Version = version,
          .Size = capset_size,
-         .Capset = capset,
+         .Capset = VioGpuUmPtr(capset),
       },
    };
 

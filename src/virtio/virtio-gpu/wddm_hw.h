@@ -31,6 +31,40 @@
 
 #include <d3dkmthk.h>
 
+// ================= UMD <-> KMD POINTER/HANDLE TRANSPORT
+//
+// A 32-bit (WOW) UMD and a 64-bit KMD must agree on the byte layout of every
+// structure crossing this interface, so user-mode addresses and handles are
+// carried in fixed 64-bit fields rather than in pointer-sized ones.  Use the
+// helpers below instead of open-coding the casts: the UMD packs with
+// VioGpuUmPtr()/VioGpuUmHandle(), the KMD unpacks with VIOGPU_UM_PTR_AS()/
+// VioGpuUmHandleValue().  The two-step cast through ULONG_PTR is deliberate --
+// it is what makes the round trip lossless in a 32-bit process.
+
+typedef ULONGLONG VIOGPU_UM_PTR;    // user-mode VA, zero-extended
+typedef ULONGLONG VIOGPU_UM_HANDLE; // user-mode HANDLE, zero-extended
+
+// Pack (user mode).
+static __inline VIOGPU_UM_PTR VioGpuUmPtr(const void *p)
+{
+    return (VIOGPU_UM_PTR)(ULONG_PTR)p;
+}
+
+static __inline VIOGPU_UM_HANDLE VioGpuUmHandle(HANDLE h)
+{
+    return (VIOGPU_UM_HANDLE)(ULONG_PTR)h;
+}
+
+// Unpack (kernel mode).  The pointer form is a macro because the caller picks
+// the target type; C++ will not implicitly convert the void * an inline
+// function would have to return.
+#define VIOGPU_UM_PTR_AS(type, v) ((type)(ULONG_PTR)(v))
+
+static __inline HANDLE VioGpuUmHandleValue(VIOGPU_UM_HANDLE v)
+{
+    return (HANDLE)(ULONG_PTR)v;
+}
+
 #pragma pack(1)
 typedef struct _VIOGPU_BOX
 {
@@ -116,7 +150,7 @@ typedef struct _VIOGPU_CAPSET_REQ
     ULONG CapsetId;
     ULONG Version;
     ULONG Size;
-    UCHAR *Capset;
+    VIOGPU_UM_PTR Capset; // output buffer, Size bytes
 } VIOGPU_CAPSET_REQ;
 #pragma pack()
 
@@ -172,17 +206,18 @@ typedef struct _VIOGPU_BLIT_PRESENT VIOGPU_BLIT_PRESENT, *PVIOGPU_BLIT_PRESENT;
 #pragma pack(1)
 typedef struct _VIOGPU_BLIT_INIT_REQ
 {
-    HANDLE EventUM;
-    HANDLE EventKM;
-    PVIOGPU_BLIT_PRESENT pBlitPresent;
+    VIOGPU_UM_HANDLE EventUM;
+    VIOGPU_UM_HANDLE EventKM;
+    VIOGPU_UM_PTR pBlitPresent; // PVIOGPU_BLIT_PRESENT
 } VIOGPU_BLIT_INIT_REQ;
 #pragma pack()
 
 #pragma pack(1)
 typedef struct _VIOGPU_PRESENT_FENCE_REQ
 {
-    HANDLE EventUM;   // UMD auto-reset event the KMD signals from the completion DPC
-    ULONG  RingIdx;   // event ring (>= NPT_EVENT_RING_BASE) to carry the fence
+    VIOGPU_UM_HANDLE EventUM; // UMD auto-reset event the KMD signals from the
+                              // completion DPC
+    ULONG RingIdx;            // event ring (>= NPT_EVENT_RING_BASE) to carry the fence
 } VIOGPU_PRESENT_FENCE_REQ;
 #pragma pack()
 
@@ -332,7 +367,7 @@ typedef struct _VIOGPU_CREATE_ALLOCATION_EXCHANGE
 struct _VIOGPU_BLIT_PRESENT
 {
     struct {
-        void *resource;
+        VIOGPU_UM_PTR resource; // UMD-private, opaque to the KMD (round-tripped)
         RECT rect;
     } src;
     struct {
