@@ -11,6 +11,8 @@
 #ifndef NPT_STDMETHODCALLTYPE
 #  if defined(_WIN32)
 #    define NPT_STDMETHODCALLTYPE __stdcall
+#  elif defined(__APPLE__) && defined(__x86_64__)
+#    define NPT_STDMETHODCALLTYPE __attribute__((ms_abi))
 #  else
 #    define NPT_STDMETHODCALLTYPE
 #  endif
@@ -8694,17 +8696,17 @@ typedef union {
 
 
 /* Top-level function declarations */
-HRESULT CreateDXGIFactory(const IID *riid, void **ppFactory);
-HRESULT CreateDXGIFactory1(const IID *riid, void **ppFactory);
-HRESULT CreateDXGIFactory2(UINT Flags, const IID *riid, void **ppFactory);
-HRESULT DXGIDeclareAdapterRemovalSupport(void);
-HRESULT D3D11CreateDevice(IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, ID3D11Device **ppDevice, D3D_FEATURE_LEVEL *pFeatureLevel, ID3D11DeviceContext **ppImmediateContext);
-HRESULT D3D11CreateDeviceAndSwapChain(IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, const DXGI_SWAP_CHAIN_DESC *pSwapChainDesc, IDXGISwapChain **ppSwapChain, ID3D11Device **ppDevice, D3D_FEATURE_LEVEL *pFeatureLevel, ID3D11DeviceContext **ppImmediateContext);
-HRESULT D3D11On12CreateDevice(IUnknown *pDevice, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, const IUnknown **ppCommandQueues, UINT NumQueues, UINT NodeMask, ID3D11Device **ppDevice, ID3D11DeviceContext **ppImmediateContext, D3D_FEATURE_LEVEL *pChosenFeatureLevel);
-HRESULT D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel, const IID *riid, void **ppDevice);
-HRESULT D3D12CreateRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
-HRESULT D3D12CreateVersionedRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
-HRESULT D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *pRootSignature, D3D_ROOT_SIGNATURE_VERSION Version, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
-HRESULT D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pRootSignature, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
+HRESULT NPT_STDMETHODCALLTYPE CreateDXGIFactory(const IID *riid, void **ppFactory);
+HRESULT NPT_STDMETHODCALLTYPE CreateDXGIFactory1(const IID *riid, void **ppFactory);
+HRESULT NPT_STDMETHODCALLTYPE CreateDXGIFactory2(UINT Flags, const IID *riid, void **ppFactory);
+HRESULT NPT_STDMETHODCALLTYPE DXGIDeclareAdapterRemovalSupport(void);
+HRESULT NPT_STDMETHODCALLTYPE D3D11CreateDevice(IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, ID3D11Device **ppDevice, D3D_FEATURE_LEVEL *pFeatureLevel, ID3D11DeviceContext **ppImmediateContext);
+HRESULT NPT_STDMETHODCALLTYPE D3D11CreateDeviceAndSwapChain(IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, const DXGI_SWAP_CHAIN_DESC *pSwapChainDesc, IDXGISwapChain **ppSwapChain, ID3D11Device **ppDevice, D3D_FEATURE_LEVEL *pFeatureLevel, ID3D11DeviceContext **ppImmediateContext);
+HRESULT NPT_STDMETHODCALLTYPE D3D11On12CreateDevice(IUnknown *pDevice, UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, const IUnknown **ppCommandQueues, UINT NumQueues, UINT NodeMask, ID3D11Device **ppDevice, ID3D11DeviceContext **ppImmediateContext, D3D_FEATURE_LEVEL *pChosenFeatureLevel);
+HRESULT NPT_STDMETHODCALLTYPE D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel, const IID *riid, void **ppDevice);
+HRESULT NPT_STDMETHODCALLTYPE D3D12CreateRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
+HRESULT NPT_STDMETHODCALLTYPE D3D12CreateVersionedRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
+HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *pRootSignature, D3D_ROOT_SIGNATURE_VERSION Version, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
+HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pRootSignature, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
 
 #endif /* NPT_PROTOCOL_DIRECTX_H */
