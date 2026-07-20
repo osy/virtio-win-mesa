@@ -1951,7 +1951,7 @@ vn_create_sync_handle(struct vn_device *dev,
    return *out_handle != NULL ? VK_SUCCESS : VK_ERROR_TOO_MANY_OBJECTS;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 vn_ImportFenceWin32HandleKHR(VkDevice device,
                              const VkImportFenceWin32HandleInfoKHR *pImportFenceWin32HandleInfo)
 {
@@ -1978,7 +1978,7 @@ vn_ImportFenceWin32HandleKHR(VkDevice device,
    return VK_SUCCESS;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 vn_GetFenceWin32HandleKHR(VkDevice device,
                           const VkFenceGetWin32HandleInfoKHR *pGetWin32HandleInfo,
                           HANDLE *pHandle)
