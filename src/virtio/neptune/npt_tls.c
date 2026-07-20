@@ -17,13 +17,8 @@ static tss_t npt_tls_key;
 /* 0=uninit, 1=initing, 2=done, 3=failed-stay-off */
 static _Atomic int npt_tls_init_state;
 
-#ifdef _WIN32
-static void WINAPI
-npt_tls_free(void *data)
-#else
 static void
 npt_tls_free(void *data)
-#endif
 {
    struct npt_tls *tls = data;
    if (!tls)

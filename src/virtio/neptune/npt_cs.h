@@ -230,14 +230,21 @@ npt_ring_free_command_reply(struct npt_ring *ring,
 
 struct npt_com_base;
 
+/* Prefix of struct npt_com_base, letting the compiler apply the same
+ * padding between lpVtbl and the 8-byte id that the full struct gets
+ * (they differ on 32-bit).  Avoids including npt_object.h; the
+ * static_asserts in npt_com.h pin the two layouts together. */
+struct npt_com_head {
+   const void **lpVtbl;
+   npt_object_id id;
+};
+
 static inline npt_object_id
 npt_object_get_id(const void *handle)
 {
    if (!handle)
       return 0;
-   /* Layout: { void **lpVtbl; { uint64_t id; ... } } -- pinned by the
-    * static_asserts in npt_com.h.  Avoids including npt_object.h. */
-   return *(const npt_object_id *)((const char *)handle + sizeof(void *));
+   return ((const struct npt_com_head *)handle)->id;
 }
 
 static inline void *

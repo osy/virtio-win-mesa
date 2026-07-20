@@ -56,10 +56,11 @@ struct npt_com_base {
    void (*aux_destroy)(void *aux);
 };
 
-/* npt_object_get_id (npt_cs.h) reads host_id as 8 bytes immediately
- * after lpVtbl; pin the layout so a struct change trips here. */
-_Static_assert(offsetof(struct npt_com_base, base) == sizeof(void *),
-               "npt_com_base: base must immediately follow lpVtbl");
+/* npt_object_get_id (npt_cs.h) reads host_id through struct npt_com_head;
+ * pin the layout so a struct change trips here. */
+_Static_assert(offsetof(struct npt_com_base, base) ==
+                  offsetof(struct npt_com_head, id),
+               "npt_com_base: base must overlay npt_com_head's id");
 _Static_assert(offsetof(struct npt_object, id) == 0,
                "npt_object: id must be the first field");
 
