@@ -31,6 +31,11 @@ struct event_pending {
    struct event_pending *next;
 };
 
+/* Upper bound on waiter threads.  Sized for the concurrent presents a
+ * compositor drives through one device; past it arms queue rather than
+ * spawn, since each extra thread only pays off while an arm is outstanding. */
+#define NPT_EVENT_WAITER_MAX 8
+
 /* Per-registered HANDLE: outstanding-arm refcount.  Inserted on the
  * first arm (refcount=1) and freed under registry_mutex when the
  * waiter completes the last in-flight arm and drops it to zero. */
@@ -54,15 +59,26 @@ struct npt_event_state {
    /* Holds ARM + submit_present_fence back-to-back on the same ring. */
    mtx_t                          arm_mutex;
 
+   /* Arms waiting for a waiter thread, oldest first.  Each entry occupies a
+    * waiter for as long as its fence takes to retire, so the queue is FIFO
+    * and serviced by a pool: one thread would make every arm wait out the
+    * one ahead of it, and the present gate arms once per frame per
+    * swapchain, with several swapchains presenting concurrently. */
    mtx_t                          pending_mutex;
    cnd_t                          pending_cond;
    struct event_pending         *pending_head;
+   struct event_pending         *pending_tail;
+   uint32_t                       pending_count;
    _Atomic bool                   waiter_join;
-   bool                           waiter_running;
+   /* Threads alive, and of those the ones blocked in cnd_wait with no entry.
+    * Both under pending_mutex; waiter_count is also the used length of
+    * waiter_thread. */
+   uint32_t                       waiter_count;
+   uint32_t                       waiter_idle;
 #if defined(_WIN32)
-   HANDLE                         waiter_thread;
+   HANDLE                         waiter_thread[NPT_EVENT_WAITER_MAX];
 #else
-   pthread_t                      waiter_thread;
+   pthread_t                      waiter_thread[NPT_EVENT_WAITER_MAX];
 #endif
 };
 
@@ -177,14 +193,19 @@ static void *event_waiter_thread(void *arg)
 
    for (;;) {
       mtx_lock(&st->pending_mutex);
+      st->waiter_idle++;
       while (!st->pending_head && !atomic_load(&st->waiter_join))
          cnd_wait(&st->pending_cond, &st->pending_mutex);
+      st->waiter_idle--;
       if (atomic_load(&st->waiter_join) && !st->pending_head) {
          mtx_unlock(&st->pending_mutex);
          break;
       }
       struct event_pending *p = st->pending_head;
       st->pending_head = p->next;
+      if (!st->pending_head)
+         st->pending_tail = NULL;
+      st->pending_count--;
       mtx_unlock(&st->pending_mutex);
 
       /* 5s caps shutdown latency on an arm mid-flight at join. */
@@ -199,6 +220,26 @@ static void *event_waiter_thread(void *arg)
    return 0;
 #else
    return NULL;
+#endif
+}
+
+/* Add one thread to the pool.  Caller holds pending_mutex except at init,
+ * where no other thread can see the state yet. */
+static void
+event_waiter_spawn(struct npt_device *dev, struct npt_event_state *st)
+{
+   if (st->waiter_count >= NPT_EVENT_WAITER_MAX)
+      return;
+#if defined(_WIN32)
+   HANDLE t = CreateThread(NULL, 0, event_waiter_thread, dev, 0, NULL);
+   if (!t)
+      return;
+   st->waiter_thread[st->waiter_count++] = t;
+#else
+   if (pthread_create(&st->waiter_thread[st->waiter_count], NULL,
+                      event_waiter_thread, dev) != 0)
+      return;
+   st->waiter_count++;
 #endif
 }
 
@@ -231,13 +272,7 @@ npt_event_init(struct npt_device *dev)
    /* Set dev->event before thread create so the waiter can read it. */
    dev->event = st;
 
-#if defined(_WIN32)
-   st->waiter_thread = CreateThread(NULL, 0, event_waiter_thread, dev, 0, NULL);
-   st->waiter_running = (st->waiter_thread != NULL);
-#else
-   st->waiter_running =
-      pthread_create(&st->waiter_thread, NULL, event_waiter_thread, dev) == 0;
-#endif
+   event_waiter_spawn(dev, st);
 }
 
 void
@@ -246,17 +281,21 @@ npt_event_fini(struct npt_device *dev)
    struct npt_event_state *st = dev->event;
    if (!st) return;
 
-   if (st->waiter_running) {
-      /* Wake the waiter so it observes the flag immediately. */
-      mtx_lock(&st->pending_mutex);
-      atomic_store(&st->waiter_join, true);
-      cnd_broadcast(&st->pending_cond);
-      mtx_unlock(&st->pending_mutex);
+   /* Wake every waiter so they observe the flag immediately.  The count is
+    * stable here: only npt_event_arm grows the pool, and the device is being
+    * destroyed. */
+   mtx_lock(&st->pending_mutex);
+   atomic_store(&st->waiter_join, true);
+   cnd_broadcast(&st->pending_cond);
+   const uint32_t waiters = st->waiter_count;
+   mtx_unlock(&st->pending_mutex);
+
+   for (uint32_t i = 0; i < waiters; i++) {
 #if defined(_WIN32)
-      WaitForSingleObject(st->waiter_thread, INFINITE);
-      CloseHandle(st->waiter_thread);
+      WaitForSingleObject(st->waiter_thread[i], INFINITE);
+      CloseHandle(st->waiter_thread[i]);
 #else
-      pthread_join(st->waiter_thread, NULL);
+      pthread_join(st->waiter_thread[i], NULL);
 #endif
    }
 
@@ -266,6 +305,8 @@ npt_event_fini(struct npt_device *dev)
       close_fd(p->sync_fd);
       free(p);
    }
+   st->pending_tail  = NULL;
+   st->pending_count = 0;
 
    /* Symmetric RELEASE for every entry left in the registry.  The
     * host's npt_event_fini will sweep anything we miss, but explicit
@@ -359,8 +400,19 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
    p->handle  = hEvent;
 
    mtx_lock(&st->pending_mutex);
-   p->next = st->pending_head;
-   st->pending_head = p;
+   p->next = NULL;
+   if (st->pending_tail)
+      st->pending_tail->next = p;
+   else
+      st->pending_head = p;
+   st->pending_tail = p;
+   st->pending_count++;
+   /* Grow the pool when the queue outruns the waiters still unclaimed: an
+    * idle waiter that has been signalled but not yet woken is still counted
+    * idle, so comparing against the depth avoids piling a second arm onto it.
+    * Each arm gates a present and holds its waiter until the fence retires. */
+   if (st->pending_count > st->waiter_idle)
+      event_waiter_spawn(dev, st);
    cnd_signal(&st->pending_cond);
    mtx_unlock(&st->pending_mutex);
    return true;
