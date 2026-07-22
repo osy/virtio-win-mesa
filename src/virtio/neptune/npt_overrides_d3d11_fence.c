@@ -159,10 +159,17 @@ fence_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
    if (hEvent && !npt_event_arm(dev, (void *)hEvent))
       return NPT_E_FAIL;
 
-   /* Same ring as npt_event_arm so ARM_EVENT_FENCE and the method
-    * call land on the same host dispatch thread. */
-   return npt_call_ID3D11Fence_SetEventOnCompletion(
+   /* Async dispatch, not npt_call_: a synchronous round-trip's reply is
+    * serialised behind the submitted draw stream, so under heavy submission
+    * it blocks for the whole backlog.  The host-side return value does not
+    * matter -- the event-ring gate that actually signals the event was
+    * already armed by npt_event_arm() above (the KMD signals it at GPU
+    * completion) -- so this COM registration only needs to be ORDERED after
+    * ARM_EVENT_FENCE on the same method ring, which async preserves, not
+    * awaited. */
+   npt_async_ID3D11Fence_SetEventOnCompletion(
       npt_device_method_ring(dev), npt_com_self_id(self), Value, hEvent);
+   return S_OK;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
