@@ -122,10 +122,10 @@ typedef struct _VIOGPU_ADAPTERINFO
 #define VIOGPU_BLIT_INIT             0x300
 
 // Submit an empty GPU-done fence on an event ring (>= NPT_EVENT_RING_BASE) and
-// signal EventUM from the completion DPC when the host retires it.  The host
-// defers an event-ring fence's used-ring response until real GPU completion, so
-// EventUM fires exactly when the frame's render finished -- this is what the UMD
-// waits on before flipping.
+// signal EventUM from the completion DPC when the host retires it.  Because an
+// event-ring fence's used-ring response is deferred by the host until real GPU
+// completion, EventUM fires exactly when the frame's render finished on the GPU
+// -- the async present-completion wait the UMD blocks on before the flip.
 #define VIOGPU_SUBMIT_PRESENT_FENCE  0x400
 
 #pragma pack(1)
@@ -269,6 +269,7 @@ typedef struct _VIOGPU_RESOURCE_3D_OPTIONS
 #define VIOGPU_BLOB_FLAG_USE_MAPPABLE     0x0001
 #define VIOGPU_BLOB_FLAG_USE_SHAREABLE    0x0002
 //#define VIOGPU_BLOB_FLAG_USE_CROSS_DEVICE 0x0004
+#define VIOGPU_BLOB_FLAG_PINNED           0x0008
 #pragma pack(1)
 typedef struct _VIOGPU_RESOURCE_BLOB_OPTIONS
 {
@@ -385,8 +386,6 @@ struct _VIOGPU_BLIT_PRESENT
 #define VIOGPU_CMD_TRANSFER_FROM_HOST 0x3 // Transfer resource to host
 #define VIOGPU_CMD_MAP_BLOB           0x4 // Map blob resource
 #define VIOGPU_CMD_UNMAP_BLOB         0x5 // Unmap blob resource
-
-//#define VIOGPU_CMD_SUBMIT_UM          0x6
 
 // #define VIOGPU_EXECBUF_FENCE_FD_IN  0x01
 // #define VIOGPU_EXECBUF_FENCE_FD_OUT 0x02
