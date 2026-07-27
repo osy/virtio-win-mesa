@@ -159,6 +159,18 @@ typedef struct TRITON_DEVICE {
      * so DestroyDevice must wait for this to reach zero before touching
      * anything it uses. */
     volatile LONG                   presentInFlight;
+
+    /* Stretch/convert blit rig for the DXGI Blt DDI (tritonDxgiBltStretch):
+     * a plain CopySubresourceRegion cannot stretch and the host silently
+     * copies ZEROS across formats, so Convert/Stretch blts draw a
+     * fullscreen triangle instead.  Lazily created under presentLock;
+     * released by DestroyDevice.  blitInitFailed latches a failed init so
+     * it is attempted once, falling back to the clamped copy. */
+    ID3D11VertexShader             *pBlitVS;
+    ID3D11PixelShader              *pBlitPS;
+    ID3D11SamplerState             *pBlitSampler;
+    ID3D11Buffer                   *pBlitCB;
+    BOOL                            blitInitFailed;
 } TRITON_DEVICE, *PTRITON_DEVICE;
 
 /* Present GPU-done gate timing.  DestroyDevice's drain must outlast the gate's

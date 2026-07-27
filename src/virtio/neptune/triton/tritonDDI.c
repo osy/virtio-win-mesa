@@ -672,6 +672,10 @@ static void APIENTRY tritonDestroyDevice(D3D10DDI_HDEVICE hDevice)
         p->presentFenceDisabled = TRUE;
         if (p->pPresentFence) { ID3D11Fence_Release(p->pPresentFence);  p->pPresentFence = NULL; }
         if (p->pCtx4)         { ID3D11DeviceContext4_Release(p->pCtx4); p->pCtx4 = NULL; }
+        if (p->pBlitVS)      { ID3D11VertexShader_Release(p->pBlitVS);      p->pBlitVS = NULL; }
+        if (p->pBlitPS)      { ID3D11PixelShader_Release(p->pBlitPS);       p->pBlitPS = NULL; }
+        if (p->pBlitSampler) { ID3D11SamplerState_Release(p->pBlitSampler); p->pBlitSampler = NULL; }
+        if (p->pBlitCB)      { ID3D11Buffer_Release(p->pBlitCB);            p->pBlitCB = NULL; }
         /* Drop the pooled events without closing them.  A pooled event can
          * still carry an outstanding arm: SetEventOnCompletion is serviced by
          * npt_event's waiter thread, which belongs to the process-wide device

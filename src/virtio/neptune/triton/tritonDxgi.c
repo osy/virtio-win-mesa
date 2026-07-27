@@ -18,6 +18,8 @@
 
 #include <dxgiddi.h>
 
+#include "tritonBlitShaders.h"
+
 /* Lazily create the GPU-done fence (rationale: the present-fence block in
  * triton.h).  Caller holds presentLock.  Returns TRUE if fencing is
  * available; FALSE => unfenced (bare-Flush) present. */
@@ -739,6 +741,253 @@ tritonDxgiRotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *pArg
    return S_OK;
 }
 
+/* Lazily create the stretch/convert blit objects (see the pBlit* block in
+ * triton.h).  Caller holds presentLock.  A failed init latches
+ * blitInitFailed so it is attempted once; partially created objects are
+ * released by DestroyDevice. */
+static BOOL
+tritonBlitEnsureLocked(PTRITON_DEVICE pD)
+{
+   if (pD->pBlitVS && pD->pBlitPS && pD->pBlitSampler && pD->pBlitCB)
+      return TRUE;
+   if (pD->blitInitFailed)
+      return FALSE;
+   pD->blitInitFailed = TRUE;
+
+   HRESULT hr = ID3D11Device1_CreateVertexShader(pD->pDev1,
+                                                 g_tritonBlitVS,
+                                                 sizeof(g_tritonBlitVS),
+                                                 NULL, &pD->pBlitVS);
+   if (FAILED(hr) || !pD->pBlitVS) {
+      TR_LOG("blit: CreateVertexShader failed 0x%08lx", hr);
+      return FALSE;
+   }
+   hr = ID3D11Device1_CreatePixelShader(pD->pDev1,
+                                        g_tritonBlitPS,
+                                        sizeof(g_tritonBlitPS),
+                                        NULL, &pD->pBlitPS);
+   if (FAILED(hr) || !pD->pBlitPS) {
+      TR_LOG("blit: CreatePixelShader failed 0x%08lx", hr);
+      return FALSE;
+   }
+   D3D11_SAMPLER_DESC sd;
+   memset(&sd, 0, sizeof(sd));
+   sd.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+   sd.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+   sd.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+   sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+   sd.MaxLOD   = D3D11_FLOAT32_MAX;
+   hr = ID3D11Device1_CreateSamplerState(pD->pDev1, &sd, &pD->pBlitSampler);
+   if (FAILED(hr) || !pD->pBlitSampler) {
+      TR_LOG("blit: CreateSamplerState failed 0x%08lx", hr);
+      return FALSE;
+   }
+   D3D11_BUFFER_DESC bd;
+   memset(&bd, 0, sizeof(bd));
+   bd.ByteWidth = 16;
+   bd.Usage     = D3D11_USAGE_DEFAULT;
+   bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+   hr = ID3D11Device1_CreateBuffer(pD->pDev1, &bd, NULL, &pD->pBlitCB);
+   if (FAILED(hr) || !pD->pBlitCB) {
+      TR_LOG("blit: CreateBuffer(cb) failed 0x%08lx", hr);
+      return FALSE;
+   }
+   pD->blitInitFailed = FALSE;
+   TR_LOG("blit: stretch/convert pipeline created");
+   return TRUE;
+}
+
+/* GPU stretch/convert blit: draw the source box into the dst rect through a
+ * fullscreen triangle.  CopySubresourceRegion cannot stretch, and the host
+ * D3D stack silently copies ZEROS across format families -- the runtime's
+ * blt-model exclusive-fullscreen present (R8G8B8A8 back buffer ->
+ * B8G8R8A8 primary, Convert|Stretch) therefore left the primary
+ * zero-filled and the display scanned out pure black.
+ *
+ * Pipeline state is driven directly on the shared immediate context under
+ * presentLock; afterwards every touched binding is dirtied through the
+ * runtime's pfnState*Cb callbacks so the runtime replays the app's state
+ * through the ordinary DDI before its next draw (the same mechanism
+ * RotateResourceIdentities uses above).  Predication is deliberately left
+ * alone: there is no dirty callback for it, and a present-path blt under
+ * active predication does not occur in practice. */
+static HRESULT
+tritonDxgiBltStretch(PTRITON_DEVICE pD,
+                     PTRITON_RESOURCE dst, UINT DstSubresource,
+                     UINT DstLeft, UINT DstTop, UINT DstRight, UINT DstBottom,
+                     PTRITON_RESOURCE src, UINT SrcSubresource,
+                     const D3D11_BOX *box)
+{
+   ID3D11ShaderResourceView *srv = NULL;
+   ID3D11RenderTargetView   *rtv = NULL;
+   HRESULT hr;
+
+   const UINT srcMips  = src->MipLevels ? src->MipLevels : 1;
+   const UINT srcMip   = SrcSubresource % srcMips;
+   const UINT srcSlice = SrcSubresource / srcMips;
+   const UINT dstMips  = dst->MipLevels ? dst->MipLevels : 1;
+   const UINT dstMip   = DstSubresource % dstMips;
+   const UINT dstSlice = DstSubresource / dstMips;
+
+   /* Subresource 0 (every present blt): NULL view descs, so the views
+    * inherit the host texture's real format -- primaries are created with
+    * a host-normalised format that can differ from dst->Format. */
+   if (SrcSubresource == 0) {
+      hr = ID3D11Device1_CreateShaderResourceView(pD->pDev1, src->pResource,
+                                                  NULL, &srv);
+   } else {
+      D3D11_SHADER_RESOURCE_VIEW_DESC sdc;
+      memset(&sdc, 0, sizeof(sdc));
+      sdc.Format = src->Format;
+      if (src->ArraySize > 1) {
+         sdc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+         sdc.Texture2DArray.MostDetailedMip  = srcMip;
+         sdc.Texture2DArray.MipLevels        = 1;
+         sdc.Texture2DArray.FirstArraySlice  = srcSlice;
+         sdc.Texture2DArray.ArraySize        = 1;
+      } else {
+         sdc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+         sdc.Texture2D.MostDetailedMip = srcMip;
+         sdc.Texture2D.MipLevels       = 1;
+      }
+      hr = ID3D11Device1_CreateShaderResourceView(pD->pDev1, src->pResource,
+                                                  &sdc, &srv);
+   }
+   if (FAILED(hr) || !srv) {
+      static LONG svN;
+      LONG n = InterlockedIncrement(&svN);
+      if (n == 1 || (n & 255) == 0)
+         TR_LOG("blit: CreateShaderResourceView failed 0x%08lx #%ld (fmt=%d bind=0x%x)",
+                hr, n, (int)src->Format, src->BindFlags);
+      return FAILED(hr) ? hr : E_FAIL;
+   }
+
+   if (DstSubresource == 0) {
+      hr = ID3D11Device1_CreateRenderTargetView(pD->pDev1, dst->pResource,
+                                                NULL, &rtv);
+   } else {
+      D3D11_RENDER_TARGET_VIEW_DESC rdc;
+      memset(&rdc, 0, sizeof(rdc));
+      rdc.Format = dst->Format;
+      if (dst->ArraySize > 1) {
+         rdc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+         rdc.Texture2DArray.MipSlice        = dstMip;
+         rdc.Texture2DArray.FirstArraySlice = dstSlice;
+         rdc.Texture2DArray.ArraySize       = 1;
+      } else {
+         rdc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+         rdc.Texture2D.MipSlice = dstMip;
+      }
+      hr = ID3D11Device1_CreateRenderTargetView(pD->pDev1, dst->pResource,
+                                                &rdc, &rtv);
+   }
+   if (FAILED(hr) || !rtv) {
+      static LONG rvN;
+      LONG n = InterlockedIncrement(&rvN);
+      if (n == 1 || (n & 255) == 0)
+         TR_LOG("blit: CreateRenderTargetView failed 0x%08lx #%ld (fmt=%d bind=0x%x)",
+                hr, n, (int)dst->Format, dst->BindFlags);
+      ID3D11ShaderResourceView_Release(srv);
+      return FAILED(hr) ? hr : E_FAIL;
+   }
+
+   /* Quad UV [0,1]^2 -> source box in normalised source-texture coords. */
+   UINT sw = src->Width  >> srcMip;  if (!sw) sw = 1;
+   UINT sh = src->Height >> srcMip;  if (!sh) sh = 1;
+   FLOAT consts[4];
+   consts[0] = (FLOAT)(box->right - box->left) / (FLOAT)sw;
+   consts[1] = (FLOAT)(box->bottom - box->top) / (FLOAT)sh;
+   consts[2] = (FLOAT)box->left / (FLOAT)sw;
+   consts[3] = (FLOAT)box->top  / (FLOAT)sh;
+
+   tritonPresentLock(pD);
+   if (!tritonBlitEnsureLocked(pD)) {
+      tritonPresentUnlock(pD);
+      ID3D11ShaderResourceView_Release(srv);
+      ID3D11RenderTargetView_Release(rtv);
+      return E_FAIL;
+   }
+   ID3D11DeviceContext1 *c = pD->pCtx1;
+   ID3D11DeviceContext1_UpdateSubresource(c, (ID3D11Resource *)pD->pBlitCB,
+                                          0, NULL, consts, 0, 0);
+   ID3D11DeviceContext1_OMSetRenderTargets(c, 1, &rtv, NULL);
+   ID3D11DeviceContext1_OMSetBlendState(c, NULL, NULL, 0xFFFFFFFFu);
+   ID3D11DeviceContext1_OMSetDepthStencilState(c, NULL, 0);
+   ID3D11DeviceContext1_RSSetState(c, NULL);
+   {
+      D3D11_VIEWPORT vp;
+      vp.TopLeftX = (FLOAT)DstLeft;
+      vp.TopLeftY = (FLOAT)DstTop;
+      vp.Width    = (FLOAT)(DstRight - DstLeft);
+      vp.Height   = (FLOAT)(DstBottom - DstTop);
+      vp.MinDepth = 0.0f;
+      vp.MaxDepth = 1.0f;
+      ID3D11DeviceContext1_RSSetViewports(c, 1, &vp);
+   }
+   ID3D11DeviceContext1_IASetInputLayout(c, NULL);
+   ID3D11DeviceContext1_IASetPrimitiveTopology(c, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+   ID3D11DeviceContext1_VSSetShader(c, pD->pBlitVS, NULL, 0);
+   ID3D11DeviceContext1_PSSetShader(c, pD->pBlitPS, NULL, 0);
+   ID3D11DeviceContext1_GSSetShader(c, NULL, NULL, 0);
+   ID3D11DeviceContext1_HSSetShader(c, NULL, NULL, 0);
+   ID3D11DeviceContext1_DSSetShader(c, NULL, NULL, 0);
+   ID3D11DeviceContext1_PSSetShaderResources(c, 0, 1, &srv);
+   ID3D11DeviceContext1_PSSetSamplers(c, 0, 1, &pD->pBlitSampler);
+   ID3D11DeviceContext1_PSSetConstantBuffers(c, 0, 1, &pD->pBlitCB);
+   ID3D11DeviceContext1_Draw(c, 3, 0);
+   {
+      /* Unbind our views before the runtime replays app state, so the
+       * primary is never simultaneously bound as PS resource and render
+       * target across the replay. */
+      ID3D11ShaderResourceView *nullSrv = NULL;
+      ID3D11RenderTargetView   *nullRtv = NULL;
+      ID3D11DeviceContext1_PSSetShaderResources(c, 0, 1, &nullSrv);
+      ID3D11DeviceContext1_OMSetRenderTargets(c, 1, &nullRtv, NULL);
+   }
+   tritonPresentUnlock(pD);
+
+   ID3D11ShaderResourceView_Release(srv);
+   ID3D11RenderTargetView_Release(rtv);
+
+   /* Have the runtime replay the app's bindings for everything touched. */
+   {
+      const D3D11DDI_CORELAYER_DEVICECALLBACKS *cb = pD->pUMCallbacks;
+      if (cb) {
+         if (cb->pfnStateOmRenderTargetsCb)
+            cb->pfnStateOmRenderTargetsCb(pD->hRTCoreLayer);
+         if (cb->pfnStateOmBlendStateCb)
+            cb->pfnStateOmBlendStateCb(pD->hRTCoreLayer);
+         if (cb->pfnStateOmDepthStateCb)
+            cb->pfnStateOmDepthStateCb(pD->hRTCoreLayer);
+         if (cb->pfnStateRsRastStateCb)
+            cb->pfnStateRsRastStateCb(pD->hRTCoreLayer);
+         if (cb->pfnStateRsViewportsCb)
+            cb->pfnStateRsViewportsCb(pD->hRTCoreLayer);
+         if (cb->pfnStateIaInputLayoutCb)
+            cb->pfnStateIaInputLayoutCb(pD->hRTCoreLayer);
+         if (cb->pfnStateIaPrimitiveTopologyCb)
+            cb->pfnStateIaPrimitiveTopologyCb(pD->hRTCoreLayer);
+         if (cb->pfnStateVsShaderCb)
+            cb->pfnStateVsShaderCb(pD->hRTCoreLayer);
+         if (cb->pfnStatePsShaderCb)
+            cb->pfnStatePsShaderCb(pD->hRTCoreLayer);
+         if (cb->pfnStateGsShaderCb)
+            cb->pfnStateGsShaderCb(pD->hRTCoreLayer);
+         if (cb->pfnStateHsShaderCb)
+            cb->pfnStateHsShaderCb(pD->hRTCoreLayer);
+         if (cb->pfnStateDsShaderCb)
+            cb->pfnStateDsShaderCb(pD->hRTCoreLayer);
+         if (cb->pfnStatePsSrvCb)
+            cb->pfnStatePsSrvCb(pD->hRTCoreLayer, 0, 1);
+         if (cb->pfnStatePsSamplerCb)
+            cb->pfnStatePsSamplerCb(pD->hRTCoreLayer, 0, 1);
+         if (cb->pfnStatePsConstBufCb)
+            cb->pfnStatePsConstBufCb(pD->hRTCoreLayer, 0, 1);
+      }
+   }
+   return S_OK;
+}
+
 /* Shared body for Blt and Blt1.  Blt has no explicit source rectangle
  * (the whole source subresource is the implied src); Blt1 passes one. */
 static HRESULT
@@ -785,10 +1034,37 @@ tritonDxgiBltCommon(DXGI_DDI_HDEVICE hDevice,
    box.bottom = SrcBottom;
    box.back   = 1;
 
-   /* Stretching blts have no CopySubresourceRegion equivalent; clamp the
-    * copied extent to the smaller of src box and dst rect.  DWM's
-    * redirection blts are 1:1, so the clamp only fires for explicit
-    * app-driven stretch (logged once). */
+   /* Stretching and cross-format blts cannot ride CopySubresourceRegion:
+    * it has no stretch semantics, and the host silently copies ZEROS
+    * between different format families (the blt-model exclusive-fullscreen
+    * present is exactly such a blt -- see tritonDxgiBltStretch).  Route
+    * them through the draw-based blit; same-format 1:1 blts (DWM's
+    * redirection copies) keep the plain copy below. */
+   {
+      const UINT bw = box.right  - box.left;
+      const UINT bh = box.bottom - box.top;
+      const BOOL needStretch = Flags.Stretch || Flags.Convert ||
+                               (dstW && bw != dstW) ||
+                               (dstH && bh != dstH) ||
+                               src->Format != dst->Format;
+      if (needStretch && dstW && dstH && bw && bh &&
+          src->SampleDesc.Count <= 1 && dst->SampleDesc.Count <= 1) {
+         HRESULT shr = tritonDxgiBltStretch(pD, dst, DstSubresource,
+                                            DstLeft, DstTop,
+                                            DstRight, DstBottom,
+                                            src, SrcSubresource, &box);
+         if (SUCCEEDED(shr)) {
+            if (Flags.Present)
+               tritonPresentFlushAndGate(pD, FALSE /* arm */, FALSE /* wait */);
+            InterlockedDecrement(&pD->presentInFlight);
+            return S_OK;
+         }
+         /* Fall through to the clamped copy as a last resort. */
+      }
+   }
+
+   /* Clamp the copied extent to the smaller of src box and dst rect (only
+    * reachable when the draw-based blit is unavailable). */
    if (dstW && (box.right - box.left) != dstW) {
       TR_STUB("DxgiBlt stretch width (copy clamped)");
       if (box.right - box.left > dstW)
