@@ -311,7 +311,7 @@ ctx_Unmap_override(void *self, ID3D11Resource *pResource, UINT Subresource)
  * route through RESOURCE_UPDATE.  Box sizing per resource:
  *   buffer:    pDstBox ? (right-left) : ByteWidth
  *   tex1d:     pDstBox ? (right-left)*bpp : width*bpp
- *   tex2d:     SrcRowPitch * height_box
+ *   tex2d:     SrcRowPitch * rows_of_memory(height_box)
  *   tex3d:     SrcDepthPitch * depth_box
  */
 static void NPT_STDMETHODCALLTYPE
@@ -348,7 +348,11 @@ ctx_UpdateSubresource_override(void *self, ID3D11Resource *pDstResource,
             if (tex_d > 1) {
                byte_size = SrcDepthPitch * box_d;
             } else if (tex_h > 1) {
-               byte_size = SrcRowPitch * box_h;
+               /* Box bounds are texels; SrcRowPitch spans a row of memory,
+                * which under block compression is four texel rows. */
+               byte_size = SrcRowPitch *
+                  npt_dxgi_format_block_rows(
+                     npt_d3d11_texture_get_format(t), box_h);
             } else {
                /* 1D: SrcRowPitch is meaningless; size from box_w * bpp. */
                byte_size = box_w *

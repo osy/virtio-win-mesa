@@ -442,8 +442,8 @@ npt_d3d11_texture_cast(void *resource)
    return (struct npt_d3d11_texture *)resource;
 }
 
-static uint32_t
-texture_format_bpp(DXGI_FORMAT fmt)
+uint32_t
+npt_dxgi_format_bytes_per_pixel(DXGI_FORMAT fmt)
 {
    switch ((int)fmt) {
    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
@@ -532,6 +532,66 @@ texture_format_bpp(DXGI_FORMAT fmt)
    }
 }
 
+static uint32_t
+format_block_height(DXGI_FORMAT fmt)
+{
+   switch ((int)fmt) {
+   case DXGI_FORMAT_BC1_TYPELESS:
+   case DXGI_FORMAT_BC1_UNORM:
+   case DXGI_FORMAT_BC1_UNORM_SRGB:
+   case DXGI_FORMAT_BC2_TYPELESS:
+   case DXGI_FORMAT_BC2_UNORM:
+   case DXGI_FORMAT_BC2_UNORM_SRGB:
+   case DXGI_FORMAT_BC3_TYPELESS:
+   case DXGI_FORMAT_BC3_UNORM:
+   case DXGI_FORMAT_BC3_UNORM_SRGB:
+   case DXGI_FORMAT_BC4_TYPELESS:
+   case DXGI_FORMAT_BC4_UNORM:
+   case DXGI_FORMAT_BC4_SNORM:
+   case DXGI_FORMAT_BC5_TYPELESS:
+   case DXGI_FORMAT_BC5_UNORM:
+   case DXGI_FORMAT_BC5_SNORM:
+   case DXGI_FORMAT_BC6H_TYPELESS:
+   case DXGI_FORMAT_BC6H_UF16:
+   case DXGI_FORMAT_BC6H_SF16:
+   case DXGI_FORMAT_BC7_TYPELESS:
+   case DXGI_FORMAT_BC7_UNORM:
+   case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return 4;
+   default:
+      return 1;
+   }
+}
+
+uint32_t
+npt_dxgi_format_block_rows(DXGI_FORMAT fmt, uint32_t texel_rows)
+{
+   const uint32_t bh = format_block_height(fmt);
+   return (texel_rows + bh - 1u) / bh;
+}
+
+uint32_t
+npt_dxgi_format_subresource_rows(DXGI_FORMAT fmt, uint32_t height)
+{
+   switch ((int)fmt) {
+   case DXGI_FORMAT_NV12:
+   case DXGI_FORMAT_P010:
+   case DXGI_FORMAT_P016:
+   case DXGI_FORMAT_420_OPAQUE:
+      /* Luma plane, then a half-height interleaved chroma plane. */
+      return height + height / 2u;
+   case DXGI_FORMAT_NV11:
+      /* Luma plane, then a half-pitch full-height chroma plane, then
+       * padding out to twice the luma plane. */
+      return height * 2u;
+   default:
+      /* P208 / V208 / V408 are multi-plane too but their initial-data
+       * footprint is undocumented; one row per texel row under-copies
+       * rather than reading past the app's buffer. */
+      return npt_dxgi_format_block_rows(fmt, height);
+   }
+}
+
 void
 npt_d3d11_texture_set_desc(struct npt_d3d11_texture *t,
                            const struct npt_d3d11_texture_desc *d)
@@ -544,7 +604,7 @@ npt_d3d11_texture_set_desc(struct npt_d3d11_texture *t,
    aux->mip_levels = d->mip_levels ? d->mip_levels : 1;
    aux->array_size = d->array_size ? d->array_size : 1;
    aux->format = d->format;
-   aux->bytes_per_pixel = texture_format_bpp(d->format);
+   aux->bytes_per_pixel = npt_dxgi_format_bytes_per_pixel(d->format);
    aux->usage = d->usage;
    aux->bind_flags = d->bind_flags;
    aux->cpu_access_flags = d->cpu_access_flags;
@@ -688,9 +748,12 @@ npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_texture *t,
    const struct npt_d3d11_texture_aux *aux = tex_aux(t);
    if (!aux) return 0;
    const uint32_t mip = texture_subresource_mip(aux, subresource);
-   const uint32_t h = mip_dim(aux->height, mip);
+   const uint32_t rows =
+      npt_dxgi_format_subresource_rows(aux->format, mip_dim(aux->height, mip));
    const uint32_t d = mip_dim(aux->depth, mip);
-   return row_pitch * h * d;
+   const uint64_t size = (uint64_t)row_pitch * rows * d;
+   /* 0 also means "cannot size this" to both callers. */
+   return size <= 0xffffffffu ? (uint32_t)size : 0;
 }
 
 void
@@ -715,6 +778,13 @@ npt_d3d11_texture_get_bytes_per_pixel(const struct npt_d3d11_texture *t)
 {
    const struct npt_d3d11_texture_aux *aux = tex_aux(t);
    return aux ? aux->bytes_per_pixel : 0;
+}
+
+DXGI_FORMAT
+npt_d3d11_texture_get_format(const struct npt_d3d11_texture *t)
+{
+   const struct npt_d3d11_texture_aux *aux = tex_aux(t);
+   return aux ? aux->format : DXGI_FORMAT_UNKNOWN;
 }
 
 bool

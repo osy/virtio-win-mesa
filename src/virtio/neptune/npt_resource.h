@@ -170,7 +170,7 @@ struct npt_d3d11_texture_desc {
 };
 
 /* Must be called before any Map(); otherwise dimensions are 0 and
- * texture_format_bpp returns 0. */
+ * the cached bytes-per-pixel is 0. */
 void npt_d3d11_texture_set_desc(struct npt_d3d11_texture *t,
                                 const struct npt_d3d11_texture_desc *d);
 
@@ -249,6 +249,20 @@ void npt_d3d11_texture_get_mip_dimensions(const struct npt_d3d11_texture *t,
 
 /* 0 = unknown / unsupported format. */
 uint32_t npt_d3d11_texture_get_bytes_per_pixel(const struct npt_d3d11_texture *t);
+uint32_t npt_dxgi_format_bytes_per_pixel(DXGI_FORMAT fmt);
+
+/* DXGI_FORMAT_UNKNOWN when set_desc has not run. */
+DXGI_FORMAT npt_d3d11_texture_get_format(const struct npt_d3d11_texture *t);
+
+/* Rows of memory spanned by texel_rows rows of texels: a row pitch addresses
+ * one row of memory, and the block-compressed families pack four texel rows
+ * into one row of 4x4 blocks.  Valid for a partial (box) region. */
+uint32_t npt_dxgi_format_block_rows(DXGI_FORMAT fmt, uint32_t texel_rows);
+
+/* Rows of memory in one whole 2D slice of a mip.  Adds the chroma-plane rows
+ * that the planar YUV formats store after the luma plane, so this is valid
+ * only for a whole subresource. */
+uint32_t npt_dxgi_format_subresource_rows(DXGI_FORMAT fmt, uint32_t height);
 
 /* ==========================================================================
  * Aux blob storage

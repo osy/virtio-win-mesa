@@ -128,17 +128,21 @@ dev_CreateBuffer_override(void *self,
 }
 
 /* Upload pSysMem via RESOURCE_UPDATE post-Create (the protocol can't
- * serialize unsized void*).  Subresource count = MipLevels *
- * ArraySize.  The app's SysMemPitch/SysMemSlicePitch already account
- * for format (block-compressed included), so block-size translation
- * is not needed here. */
+ * serialize unsized void*).  Subresource count = MipLevels * ArraySize.
+ *
+ * D3D defines SysMemSlicePitch for 3D only and SysMemPitch for 2D and 3D
+ * only, so each is free to hold stale garbage outside its resource type;
+ * size a slice from the narrowest field that D3D guarantees.  The app's
+ * pitches already account for the format, so no block-size scaling of the
+ * pitch is needed -- only the row count, since one row of memory covers
+ * four texel rows under block compression. */
 static void
 npt_upload_texture_initial_data(struct npt_device *dev,
                                 uint64_t tex_id,
                                 const D3D11_SUBRESOURCE_DATA *init,
                                 uint32_t num_subresources,
-                                uint32_t height, uint32_t depth,
-                                uint32_t mip_levels)
+                                uint32_t width, uint32_t height, uint32_t depth,
+                                uint32_t mip_levels, DXGI_FORMAT format)
 {
    if (!init || !num_subresources)
       return;
@@ -147,15 +151,20 @@ npt_upload_texture_initial_data(struct npt_device *dev,
       if (!d->pSysMem)
          continue;
       const uint32_t mip = sub % mip_levels;
+      const uint32_t mw = width  > (1u << mip) ? (width  >> mip) : 1u;
       const uint32_t mh = height > (1u << mip) ? (height >> mip) : 1u;
       const uint32_t md = depth  > (1u << mip) ? (depth  >> mip) : 1u;
-      /* SysMemSlicePitch covers 2D/3D; fall back to SysMemPitch *
-       * height for 1D where slice pitch is typically 0. */
+      const uint32_t rows = npt_dxgi_format_subresource_rows(format, mh);
       uint64_t size64 = 0;
-      if (d->SysMemSlicePitch)
+      if (depth > 1u && d->SysMemSlicePitch)
          size64 = (uint64_t)d->SysMemSlicePitch * (uint64_t)md;
       else if (d->SysMemPitch)
-         size64 = (uint64_t)d->SysMemPitch * (uint64_t)mh;
+         size64 = (uint64_t)d->SysMemPitch * (uint64_t)rows * (uint64_t)md;
+      else if (d->SysMemSlicePitch)
+         size64 = (uint64_t)d->SysMemSlicePitch * (uint64_t)md;
+      else if (height <= 1u && depth <= 1u)
+         /* A single row: pitch carries no information D3D promises. */
+         size64 = (uint64_t)mw * npt_dxgi_format_bytes_per_pixel(format);
       else
          continue;
       if (size64 == 0 || size64 > (uint64_t)(64u << 20))
@@ -188,7 +197,8 @@ finish_create_texture(void *self,
       const uint32_t arr  = desc->array_size ? desc->array_size : 1u;
       npt_upload_texture_initial_data(dev, raw_id,
                                       pInitialData, mips * arr,
-                                      desc->height, desc->depth, mips);
+                                      desc->width, desc->height, desc->depth,
+                                      mips, desc->format);
    }
 
    struct npt_d3d11_texture *t = (struct npt_d3d11_texture *)
