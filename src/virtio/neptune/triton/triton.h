@@ -134,6 +134,7 @@ typedef struct TRITON_DEVICE {
 #define TRITON_PRESENT_EVENT_POOL 8
     HANDLE                          presentEventPool[TRITON_PRESENT_EVENT_POOL];
     UINT                            presentEventPoolCount;
+    BOOL                            presentEventPoolArmed[TRITON_PRESENT_EVENT_POOL];
     /* Serialises the present-fence protocol and every use of the shared
      * internal immediate context (lazy fence init/teardown, the fence-value
      * increment, Signal/Flush, SetEventOnCompletion, the event pool): DWM

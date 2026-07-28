@@ -84,9 +84,14 @@ tritonPresentPopEvent(PTRITON_DEVICE pD)
     * the fired signal. */
    for (UINT i = 0; i < pD->presentEventPoolCount; i++) {
       HANDLE h = pD->presentEventPool[i];
-      if (WaitForSingleObject(h, 0) == WAIT_OBJECT_0) {
+      /* Reusable when no registration is outstanding (nothing can signal it
+       * spuriously), or when the outstanding one has already fired -- the
+       * WaitForSingleObject below both tests AND drains that signal. */
+      if (!pD->presentEventPoolArmed[i] ||
+          WaitForSingleObject(h, 0) == WAIT_OBJECT_0) {
          UINT last = --pD->presentEventPoolCount;
          pD->presentEventPool[i] = pD->presentEventPool[last];
+         pD->presentEventPoolArmed[i] = pD->presentEventPoolArmed[last];
          return h;
       }
    }
@@ -115,6 +120,7 @@ tritonPresentPushEvent(PTRITON_DEVICE pD, HANDLE hEvt, BOOL armed)
    if (!hEvt)
       return;
    if (pD->presentEventPoolCount < TRITON_PRESENT_EVENT_POOL) {
+      pD->presentEventPoolArmed[pD->presentEventPoolCount] = armed;
       pD->presentEventPool[pD->presentEventPoolCount++] = hEvt;
    } else if (!armed) {
       CloseHandle(hEvt);
@@ -411,6 +417,9 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
    unsigned rounds = 0;
    unsigned extensions = 0;
    BOOL hitDeadline = FALSE;
+   /* Whether a SetEventOnCompletion registration is still outstanding on
+    * hEvt.  Only a wait that actually consumed the signal clears it. */
+   BOOL regOutstanding = TRUE;
    while (ID3D11Fence_GetCompletedValue(pFence) < v) {
       const ULONGLONG now = GetTickCount64();
       if (now >= deadline) {
@@ -447,6 +456,8 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
          tritonPresentDrainEvent(hEvt);
          HRESULT rehr = ID3D11Fence_SetEventOnCompletion(pFence, v, hEvt);
          LeaveCriticalSection(&pD->presentLock);
+         if (SUCCEEDED(rehr))
+            regOutstanding = TRUE;
          if (FAILED(rehr)) {
             static LONG raN;
             LONG n = InterlockedIncrement(&raN);
@@ -461,6 +472,8 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
        * completion surfaces as the deadline instead of being hidden behind
        * repeated short polls. */
       DWORD r = WaitForSingleObject(hEvt, (DWORD)(deadline - now));
+      if (r == WAIT_OBJECT_0)
+         regOutstanding = FALSE;   /* fired; this wait consumed the signal */
       if (r != WAIT_OBJECT_0 && r != WAIT_TIMEOUT) {
          static LONG weN;
          LONG n = InterlockedIncrement(&weN);
@@ -480,8 +493,11 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
       tritonPresentDrainEvent(hEvt);
       HRESULT ghr = ID3D11Fence_SetEventOnCompletion(pFence, v, hEvt);
       LeaveCriticalSection(&pD->presentLock);
-      if (SUCCEEDED(ghr))
-         WaitForSingleObject(hEvt, TRITON_PRESENT_GRACE_MS);
+      if (SUCCEEDED(ghr)) {
+         regOutstanding = TRUE;
+         if (WaitForSingleObject(hEvt, TRITON_PRESENT_GRACE_MS) == WAIT_OBJECT_0)
+            regOutstanding = FALSE;
+      }
       if (ID3D11Fence_GetCompletedValue(pFence) < v) {
          static LONG ugN;
          LONG n = InterlockedIncrement(&ugN);
@@ -493,7 +509,7 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
    ID3D11Fence_Release(pFence);
 
    EnterCriticalSection(&pD->presentLock);
-   tritonPresentPushEvent(pD, hEvt, TRUE /* armed */);
+   tritonPresentPushEvent(pD, hEvt, regOutstanding);
    LeaveCriticalSection(&pD->presentLock);
 
    triton_pt_account(pt_sig - pt_t0, pt_arm - pt_sig,
