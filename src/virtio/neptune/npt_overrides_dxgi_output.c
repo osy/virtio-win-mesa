@@ -284,6 +284,36 @@ out_GetParent_override(void *self, REFIID riid, void **ppParent)
    return hr;
 }
 
+/* The generated defaults for these encode on the wire, but every output
+ * wrapper carries a guest-fabricated id the host never registered --
+ * any wire method is a fatal host decode error.  Stub locally, matching
+ * the guest swapchain. */
+static HRESULT NPT_STDMETHODCALLTYPE
+out_SetPrivateData_override(void *self, const GUID *Name, UINT DataSize,
+                            const void *pData)
+{
+   (void)self; (void)Name; (void)DataSize; (void)pData;
+   return NPT_S_OK;
+}
+
+static HRESULT NPT_STDMETHODCALLTYPE
+out_SetPrivateDataInterface_override(void *self, const GUID *Name,
+                                     const IUnknown *pUnknown)
+{
+   (void)self; (void)Name; (void)pUnknown;
+   return NPT_S_OK;
+}
+
+static HRESULT NPT_STDMETHODCALLTYPE
+out_GetPrivateData_override(void *self, const GUID *Name, UINT *pDataSize,
+                            void *pData)
+{
+   (void)self; (void)Name; (void)pData;
+   if (pDataSize)
+      *pDataSize = 0;
+   return NPT_DXGI_ERROR_NOT_FOUND;
+}
+
 static HRESULT NPT_STDMETHODCALLTYPE
 out_GetDesc_override(void *self, DXGI_OUTPUT_DESC *pDesc)
 {
@@ -727,6 +757,13 @@ out_GetDisplaySurfaceData_override(void *self, IDXGISurface *pDestination)
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
+out1_GetDisplaySurfaceData1_override(void *self, IDXGIResource *pDestination)
+{
+   (void)self; (void)pDestination;
+   return NPT_E_NOTIMPL;
+}
+
+static HRESULT NPT_STDMETHODCALLTYPE
 out_GetFrameStatistics_override(void *self, DXGI_FRAME_STATISTICS *pStats)
 {
    (void)self;
@@ -820,6 +857,12 @@ npt_overrides_dxgi_output_init(void)
                                       out_QueryInterface_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (GetParent,
                                       out_GetParent_override);
+   NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (SetPrivateData,
+                                      out_SetPrivateData_override);
+   NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (SetPrivateDataInterface,
+                                      out_SetPrivateDataInterface_override);
+   NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (GetPrivateData,
+                                      out_GetPrivateData_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (GetDesc,
                                       out_GetDesc_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT (GetDisplayModeList,
@@ -848,6 +891,8 @@ npt_overrides_dxgi_output_init(void)
                                       out1_GetDisplayModeList1_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT1(FindClosestMatchingMode1,
                                       out1_FindClosestMatchingMode1_override);
+   NPT_REGISTER_OVERRIDE_DXGI_OUTPUT1(GetDisplaySurfaceData1,
+                                      out1_GetDisplaySurfaceData1_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT1(DuplicateOutput,
                                       out1_DuplicateOutput_override);
    NPT_REGISTER_OVERRIDE_DXGI_OUTPUT2(SupportsOverlays,
