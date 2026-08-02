@@ -105,7 +105,7 @@ dev_CreateBuffer_override(void *self,
                                    /*depth_pitch=*/0,
                                    /*box=*/NULL,
                                    pInitialData->pSysMem,
-                                   pDesc->ByteWidth);
+                                   pDesc->ByteWidth, pDesc->ByteWidth);
    }
 
    if (NPT_SUCCEEDED(hr) && raw) {
@@ -131,11 +131,16 @@ dev_CreateBuffer_override(void *self,
  * serialize unsized void*).  Subresource count = MipLevels * ArraySize.
  *
  * D3D defines SysMemSlicePitch for 3D only and SysMemPitch for 2D and 3D
- * only, so each is free to hold stale garbage outside its resource type;
- * size a slice from the narrowest field that D3D guarantees.  The app's
- * pitches already account for the format, so no block-size scaling of the
- * pitch is needed -- only the row count, since one row of memory covers
- * four texel rows under block compression. */
+ * only; outside its resource type each field is free to hold stale
+ * garbage, so 1D ignores both and sizes one tight row from the format.
+ * The ring reservation charges the full pitch for every row -- the
+ * host may consume that much -- but the copy stops at the extent D3D
+ * guarantees readable in pSysMem, (rows-1)*pitch + RowSizeInBytes per
+ * slice.  Planar formats copy the full footprint, which MSDN documents
+ * as rowPitch * subresource_rows with no final-row discount.  The
+ * app's pitches already account for the format, so no block-size
+ * scaling of the pitch is needed -- only the row count, since one row
+ * of memory covers four texel rows under block compression. */
 static void
 npt_upload_texture_initial_data(struct npt_device *dev,
                                 uint64_t tex_id,
@@ -155,24 +160,41 @@ npt_upload_texture_initial_data(struct npt_device *dev,
       const uint32_t mh = height > (1u << mip) ? (height >> mip) : 1u;
       const uint32_t md = depth  > (1u << mip) ? (depth  >> mip) : 1u;
       const uint32_t rows = npt_dxgi_format_subresource_rows(format, mh);
-      uint64_t size64 = 0;
-      if (depth > 1u && d->SysMemSlicePitch)
-         size64 = (uint64_t)d->SysMemSlicePitch * (uint64_t)md;
-      else if (d->SysMemPitch)
-         size64 = (uint64_t)d->SysMemPitch * (uint64_t)rows * (uint64_t)md;
-      else if (d->SysMemSlicePitch)
-         size64 = (uint64_t)d->SysMemSlicePitch * (uint64_t)md;
-      else if (height <= 1u && depth <= 1u)
-         /* A single row: pitch carries no information D3D promises. */
-         size64 = (uint64_t)mw * npt_dxgi_format_bytes_per_pixel(format);
-      else
-         continue;
-      if (size64 == 0 || size64 > (uint64_t)(64u << 20))
+      const uint32_t last_row = npt_dxgi_format_row_bytes(format, mw);
+      const bool tight = last_row &&
+         rows == npt_dxgi_format_block_rows(format, mh);
+      uint64_t full = 0, copy = 0;
+      if (depth > 1u) {
+         if (!d->SysMemSlicePitch)
+            continue;
+         const uint64_t strides =
+            (uint64_t)d->SysMemSlicePitch * (md - 1u);
+         const uint64_t slice = (uint64_t)d->SysMemPitch * rows;
+         full = strides + (slice ? slice : d->SysMemSlicePitch);
+         copy = tight && d->SysMemPitch
+            ? strides + (uint64_t)d->SysMemPitch * (rows - 1u) + last_row
+            : full;
+      } else if (height > 1u) {
+         if (!d->SysMemPitch)
+            continue;
+         full = (uint64_t)d->SysMemPitch * rows;
+         copy = tight
+            ? (uint64_t)d->SysMemPitch * (rows - 1u) + last_row
+            : full;
+      } else {
+         /* A single row: neither pitch carries information D3D
+          * promises. */
+         full = copy = last_row;
+      }
+      if (copy > full)
+         copy = full;
+      if (full == 0 || copy == 0 || full > (uint64_t)(64u << 20))
          continue;
       npt_dispatch_resource_update(npt_device_method_ring(dev), tex_id, sub,
                                    d->SysMemPitch, d->SysMemSlicePitch,
                                    /*box=*/NULL,
-                                   d->pSysMem, (uint32_t)size64);
+                                   d->pSysMem, (uint32_t)full,
+                                   (uint32_t)copy);
    }
 }
 

@@ -167,9 +167,11 @@ bool
 npt_dispatch_resource_update(struct npt_ring *ring, uint64_t resource_host_id,
                              uint32_t subresource, uint32_t row_pitch,
                              uint32_t depth_pitch, const D3D11_BOX *box,
-                             const void *data, uint32_t byte_size)
+                             const void *data, uint32_t byte_size,
+                             uint32_t copy_size)
 {
-   if (!ring || !resource_host_id || !data || !byte_size)
+   if (!ring || !resource_host_id || !data || !byte_size ||
+       !copy_size || copy_size > byte_size)
       return false;
 
    const uint32_t payload_aligned = (byte_size + 7u) & ~7u;
@@ -197,10 +199,12 @@ npt_dispatch_resource_update(struct npt_ring *ring, uint64_t resource_host_id,
       cmd.box_back   = box->back;
    }
 
-   /* Padding bytes between byte_size and payload_aligned are
-    * undefined; the host uses cmd.byte_size. */
+   /* Bytes between copy_size and payload_aligned stay unwritten ring
+    * memory: D3D guarantees `data` readable only up to copy_size,
+    * while the host may consume the full pitch of the final row from
+    * the reserved byte_size region. */
    return npt_ring_submit_raw_with_payload(ring, &cmd, sizeof(cmd),
-                                           data, byte_size, payload_aligned);
+                                           data, copy_size, payload_aligned);
 }
 
 /* ==========================================================================

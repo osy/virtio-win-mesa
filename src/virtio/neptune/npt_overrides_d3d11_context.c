@@ -182,11 +182,12 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
       return hr;
 
    /* Bound Unmap memcpy at host_row_pitch * h * d.  Refuse if the
-    * host's RowPitch implies a region larger than per_slot -- silent
-    * overrun is worse than a clean failure. */
+    * host's RowPitch implies a region larger than per_slot, or one
+    * that cannot be sized at all -- silent overrun is worse than a
+    * clean failure. */
    const uint32_t byte_size =
       npt_d3d11_texture_get_subresource_byte_size(t, Subresource, row_pitch);
-   if (byte_size > per_slot) {
+   if (!byte_size || byte_size > per_slot) {
       npt_log("ctx_Map_texture: row_pitch=%u implies %u-byte mapped "
               "region, exceeds per-slot %u (shmem %u) -- refusing",
               row_pitch, byte_size, per_slot, shmem_total);
@@ -323,17 +324,27 @@ ctx_UpdateSubresource_override(void *self, ID3D11Resource *pDstResource,
    if (!pDstResource || !pSrcData)
       return;
 
+   /* MSDN: an empty box -- top >= bottom, left >= right, or
+    * front >= back -- is a no-op.  Return before the unsigned box
+    * extents below wrap. */
+   if (pDstBox && (pDstBox->left >= pDstBox->right ||
+                   pDstBox->top >= pDstBox->bottom ||
+                   pDstBox->front >= pDstBox->back))
+      return;
+
    struct npt_device *dev = npt_com_self_device(self);
    if (!dev)
       return;
 
    uint64_t resource_id = ((struct npt_com_base *)pDstResource)->base.id;
-   uint32_t byte_size = 0;
+   uint64_t byte_size = 0;   /* ring reservation; what the host may consume */
+   uint64_t copy_size = 0;   /* what D3D guarantees readable at pSrcData */
 
    struct npt_d3d11_buffer *b = npt_d3d11_buffer_cast(pDstResource);
    if (b) {
       byte_size = pDstBox ? (pDstBox->right - pDstBox->left)
                           : npt_d3d11_buffer_get_byte_width(b);
+      copy_size = byte_size;
    } else {
       struct npt_d3d11_texture *t = npt_d3d11_texture_cast(pDstResource);
       if (t) {
@@ -345,27 +356,59 @@ ctx_UpdateSubresource_override(void *self, ID3D11Resource *pDstResource,
             const uint32_t box_w = pDstBox->right  - pDstBox->left;
             const uint32_t box_h = pDstBox->bottom - pDstBox->top;
             const uint32_t box_d = pDstBox->back   - pDstBox->front;
-            if (tex_d > 1) {
-               byte_size = SrcDepthPitch * box_d;
-            } else if (tex_h > 1) {
-               /* Box bounds are texels; SrcRowPitch spans a row of memory,
-                * which under block compression is four texel rows. */
-               byte_size = SrcRowPitch *
-                  npt_dxgi_format_block_rows(
-                     npt_d3d11_texture_get_format(t), box_h);
-            } else {
-               /* 1D: SrcRowPitch is meaningless; size from box_w * bpp. */
-               byte_size = box_w *
-                  npt_d3d11_texture_get_bytes_per_pixel(t);
+            /* Box bounds are texels; SrcRowPitch spans a row of memory,
+             * which under block compression is four texel rows.  The
+             * reservation charges the full pitch for every row, but the
+             * copy stops at the D3D-guaranteed source extent,
+             *   (rows-1)*RowPitch + RowSizeInBytes
+             * per slice (dwm's section bitmaps end exactly at a page
+             * edge -> AV in the ring copy past that extent). */
+            const DXGI_FORMAT fmt = npt_d3d11_texture_get_format(t);
+            uint32_t rows = npt_dxgi_format_block_rows(fmt, box_h);
+            bool planar = false;
+            if (pDstBox->top == 0 && box_h == tex_h) {
+               /* A full-height box covers the chroma plane(s) that the
+                * planar formats store after the luma rows; a partial
+                * box has no documented planar footprint and stays
+                * luma-only. */
+               const uint32_t sub_rows =
+                  npt_dxgi_format_subresource_rows(fmt, box_h);
+               planar = sub_rows != rows;
+               rows = sub_rows;
             }
+            const uint32_t last_row = npt_dxgi_format_row_bytes(fmt, box_w);
+            /* MSDN sizes planar transfers by the full pitch of every
+             * row, chroma included; no final-row discount there. */
+            const bool tight = last_row && !planar;
+            if (tex_d > 1) {
+               const uint64_t strides =
+                  (uint64_t)SrcDepthPitch * (box_d - 1u);
+               byte_size = strides + (uint64_t)SrcRowPitch * rows;
+               copy_size = tight
+                  ? strides + (uint64_t)SrcRowPitch * (rows - 1u) + last_row
+                  : byte_size;
+            } else if (tex_h > 1) {
+               byte_size = (uint64_t)SrcRowPitch * rows;
+               copy_size = tight
+                  ? (uint64_t)SrcRowPitch * (rows - 1u) + last_row
+                  : byte_size;
+            } else {
+               /* 1D: SrcRowPitch is meaningless; one tight row. */
+               byte_size = last_row;
+               copy_size = last_row;
+            }
+            if (copy_size > byte_size)
+               copy_size = byte_size;
          } else {
-            byte_size = npt_d3d11_texture_get_subresource_byte_size(
-               t, DstSubresource, SrcRowPitch);
+            uint32_t copy32 = 0;
+            byte_size = npt_d3d11_texture_get_subresource_update_sizes(
+               t, DstSubresource, SrcRowPitch, SrcDepthPitch, &copy32);
+            copy_size = copy32;
          }
       }
    }
 
-   if (!byte_size) {
+   if (!byte_size || !copy_size || byte_size > 0xffffffffu) {
       npt_log("ctx_UpdateSubresource: unsupported resource type "
               "(resource=%p sub=%u row=%u depth=%u) -- dropping update",
               pDstResource, DstSubresource, SrcRowPitch, SrcDepthPitch);
@@ -375,7 +418,8 @@ ctx_UpdateSubresource_override(void *self, ID3D11Resource *pDstResource,
    (void)npt_dispatch_resource_update(npt_device_method_ring(dev), resource_id,
                                       DstSubresource, SrcRowPitch,
                                       SrcDepthPitch, pDstBox,
-                                      pSrcData, byte_size);
+                                      pSrcData, (uint32_t)byte_size,
+                                      (uint32_t)copy_size);
 }
 
 /*

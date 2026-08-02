@@ -77,6 +77,8 @@ bool npt_dispatch_resource_unmap_seqno(struct npt_ring *ring,
                                        uint32_t access_flags,
                                        uint32_t *out_seqno);
 
+/* byte_size is reserved on the ring and is what the host may consume;
+ * copy_size (<= byte_size) is how much of `data` is actually read. */
 bool npt_dispatch_resource_update(struct npt_ring *ring,
                                   uint64_t resource_host_id,
                                   uint32_t subresource,
@@ -84,7 +86,8 @@ bool npt_dispatch_resource_update(struct npt_ring *ring,
                                   uint32_t depth_pitch,
                                   const D3D11_BOX *box,
                                   const void *data,
-                                  uint32_t byte_size);
+                                  uint32_t byte_size,
+                                  uint32_t copy_size);
 
 /* ==========================================================================
  * SHARED

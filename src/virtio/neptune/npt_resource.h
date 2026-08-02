@@ -242,6 +242,15 @@ uint32_t npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_text
                                                      uint32_t subresource,
                                                      uint32_t row_pitch);
 
+/* Returns the full-pitch footprint of a no-box UpdateSubresource and
+ * stores the D3D-guaranteed readable extent of its source in
+ * *out_copy_size; both 0 when the transfer cannot be sized. */
+uint32_t npt_d3d11_texture_get_subresource_update_sizes(const struct npt_d3d11_texture *t,
+                                                        uint32_t subresource,
+                                                        uint32_t row_pitch,
+                                                        uint32_t depth_pitch,
+                                                        uint32_t *out_copy_size);
+
 void npt_d3d11_texture_get_mip_dimensions(const struct npt_d3d11_texture *t,
                                           uint32_t subresource,
                                           uint32_t *out_height,
@@ -258,6 +267,7 @@ DXGI_FORMAT npt_d3d11_texture_get_format(const struct npt_d3d11_texture *t);
  * one row of memory, and the block-compressed families pack four texel rows
  * into one row of 4x4 blocks.  Valid for a partial (box) region. */
 uint32_t npt_dxgi_format_block_rows(DXGI_FORMAT fmt, uint32_t texel_rows);
+uint32_t npt_dxgi_format_row_bytes(DXGI_FORMAT fmt, uint32_t texel_width);
 
 /* Rows of memory in one whole 2D slice of a mip.  Adds the chroma-plane rows
  * that the planar YUV formats store after the luma plane, so this is valid

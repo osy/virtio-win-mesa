@@ -570,6 +570,58 @@ npt_dxgi_format_block_rows(DXGI_FORMAT fmt, uint32_t texel_rows)
    return (texel_rows + bh - 1u) / bh;
 }
 
+/* Bytes actually occupied by one row of blocks: the tight
+ * RowSizeInBytes of D3D's UpdateSubresource source contract.
+ * Returns 0 when the format's size is unknown (callers keep
+ * their legacy full-pitch sizing in that case). */
+uint32_t
+npt_dxgi_format_row_bytes(DXGI_FORMAT fmt, uint32_t texel_width)
+{
+   switch ((int)fmt) {
+   case DXGI_FORMAT_BC1_TYPELESS:
+   case DXGI_FORMAT_BC1_UNORM:
+   case DXGI_FORMAT_BC1_UNORM_SRGB:
+   case DXGI_FORMAT_BC4_TYPELESS:
+   case DXGI_FORMAT_BC4_UNORM:
+   case DXGI_FORMAT_BC4_SNORM:
+      return ((texel_width + 3u) / 4u) * 8u;
+   case DXGI_FORMAT_BC2_TYPELESS:
+   case DXGI_FORMAT_BC2_UNORM:
+   case DXGI_FORMAT_BC2_UNORM_SRGB:
+   case DXGI_FORMAT_BC3_TYPELESS:
+   case DXGI_FORMAT_BC3_UNORM:
+   case DXGI_FORMAT_BC3_UNORM_SRGB:
+   case DXGI_FORMAT_BC5_TYPELESS:
+   case DXGI_FORMAT_BC5_UNORM:
+   case DXGI_FORMAT_BC5_SNORM:
+   case DXGI_FORMAT_BC6H_TYPELESS:
+   case DXGI_FORMAT_BC6H_UF16:
+   case DXGI_FORMAT_BC6H_SF16:
+   case DXGI_FORMAT_BC7_TYPELESS:
+   case DXGI_FORMAT_BC7_UNORM:
+   case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return ((texel_width + 3u) / 4u) * 16u;
+   case DXGI_FORMAT_R8G8_B8G8_UNORM:
+   case DXGI_FORMAT_G8R8_G8B8_UNORM:
+   case DXGI_FORMAT_YUY2:
+      /* Packed pairs: 32 bits per two texels. */
+      return ((texel_width + 1u) / 2u) * 4u;
+   case DXGI_FORMAT_Y210:
+   case DXGI_FORMAT_Y216:
+      /* Packed pairs: 64 bits per two texels. */
+      return ((texel_width + 1u) / 2u) * 8u;
+   case DXGI_FORMAT_AYUV:
+   case DXGI_FORMAT_Y410:
+      return texel_width * 4u;
+   case DXGI_FORMAT_Y416:
+      return texel_width * 8u;
+   case DXGI_FORMAT_R1_UNORM:
+      return (texel_width + 7u) / 8u;
+   default:
+      return texel_width * npt_dxgi_format_bytes_per_pixel(fmt);
+   }
+}
+
 uint32_t
 npt_dxgi_format_subresource_rows(DXGI_FORMAT fmt, uint32_t height)
 {
@@ -740,6 +792,9 @@ texture_subresource_mip(const struct npt_d3d11_texture_aux *aux, uint32_t subres
    return subresource % mips;
 }
 
+/* Full row_pitch * rows * depth footprint of one subresource: the
+ * region a Map hands out and an Unmap transfers, charging the full
+ * pitch for every row including the last. */
 uint32_t
 npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_texture *t,
                                             uint32_t subresource,
@@ -754,6 +809,49 @@ npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_texture *t,
    const uint64_t size = (uint64_t)row_pitch * rows * d;
    /* 0 also means "cannot size this" to both callers. */
    return size <= 0xffffffffu ? (uint32_t)size : 0;
+}
+
+/* Sizes of a no-box UpdateSubresource transfer.  The return value is
+ * the full-pitch footprint the host's UpdateSubresource may consume
+ * (the ring reservation); *out_copy_size is the extent D3D guarantees
+ * readable in the caller's buffer -- (rows-1)*pitch + RowSizeInBytes
+ * per slice -- which is all the guest may copy.  Planar formats copy
+ * the full footprint: MSDN documents their initial-data and staging
+ * layout as rowPitch * subresource_rows with no final-row discount.
+ * Returns 0 (with *out_copy_size = 0) when the transfer cannot be
+ * sized. */
+uint32_t
+npt_d3d11_texture_get_subresource_update_sizes(const struct npt_d3d11_texture *t,
+                                               uint32_t subresource,
+                                               uint32_t row_pitch,
+                                               uint32_t depth_pitch,
+                                               uint32_t *out_copy_size)
+{
+   *out_copy_size = 0;
+   const struct npt_d3d11_texture_aux *aux = tex_aux(t);
+   if (!aux) return 0;
+   const uint32_t mip = texture_subresource_mip(aux, subresource);
+   const uint32_t mh  = mip_dim(aux->height, mip);
+   const uint32_t d   = mip_dim(aux->depth, mip);
+   const uint32_t rows = npt_dxgi_format_subresource_rows(aux->format, mh);
+   const uint32_t last_row =
+      npt_dxgi_format_row_bytes(aux->format, mip_dim(aux->width, mip));
+   const bool tight = last_row &&
+      rows == npt_dxgi_format_block_rows(aux->format, mh);
+   const uint64_t slice = (uint64_t)row_pitch * rows;
+   const uint64_t strides = (d > 1u && depth_pitch)
+      ? (uint64_t)depth_pitch * (d - 1u)
+      : slice * (d - 1u);
+   const uint64_t full = strides + slice;
+   uint64_t copy = tight
+      ? strides + (uint64_t)row_pitch * (rows - 1u) + last_row
+      : full;
+   if (copy > full)
+      copy = full;
+   if (!full || full > 0xffffffffu)
+      return 0;
+   *out_copy_size = (uint32_t)copy;
+   return (uint32_t)full;
 }
 
 void
