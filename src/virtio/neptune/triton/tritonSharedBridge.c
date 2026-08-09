@@ -27,6 +27,20 @@
 _Static_assert(TRITON_SHARED_MAX_PLANES == NPT_SHARED_TEXTURE_MAX_PLANES,
                "shared texture plane count mismatch");
 
+/* caps_flags crosses this bridge verbatim, and the Triton TUs cannot
+ * include npt headers, so the bit assignment is spelled out twice.  This
+ * TU sees both copies; pin them together here. */
+_Static_assert(TRITON_HOSTCAP_D3D12 == NPT_CAPSET_CAP_D3D12 &&
+               TRITON_HOSTCAP_TBDR == NPT_CAPSET_CAP_TBDR &&
+               TRITON_HOSTCAP_MSAA_RTV_FORCED_SC1 ==
+                  NPT_CAPSET_CAP_MSAA_RTV_FORCED_SC1 &&
+               TRITON_HOSTCAP_EXTENDED_RESOURCE_SHARING ==
+                  NPT_CAPSET_CAP_EXTENDED_RESOURCE_SHARING &&
+               TRITON_HOSTCAP_MAP_DEFAULT_BUFFERS ==
+                  NPT_CAPSET_CAP_MAP_DEFAULT_BUFFERS &&
+               TRITON_HOSTCAP_SHADER_CACHE == NPT_CAPSET_CAP_SHADER_CACHE,
+               "host capset bit assignment mismatch");
+
 void
 tritonSharedBridgeAdapterProbe(struct triton_adapter_probe *out)
 {

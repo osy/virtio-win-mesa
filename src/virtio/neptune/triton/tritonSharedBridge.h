@@ -24,6 +24,17 @@ extern "C" {
 
 #define TRITON_SHARED_MAX_PLANES 4
 
+/* Host capset capability bits carried by triton_adapter_probe.caps_flags
+ * (mirror of npt_common.h NPT_CAPSET_CAP_* -- Triton TUs cannot include
+ * npt headers; tritonSharedBridge.c static_asserts the two copies
+ * together).  A clear bit always means "not supported". */
+#define TRITON_HOSTCAP_D3D12                     (1u << 0)
+#define TRITON_HOSTCAP_TBDR                      (1u << 1)
+#define TRITON_HOSTCAP_MSAA_RTV_FORCED_SC1       (1u << 2)
+#define TRITON_HOSTCAP_EXTENDED_RESOURCE_SHARING (1u << 3)
+#define TRITON_HOSTCAP_MAP_DEFAULT_BUFFERS       (1u << 4)
+#define TRITON_HOSTCAP_SHADER_CACHE              (1u << 5)
+
 /* Adapter-scope capability probe for DDI version selection (mirror of
  * the transport's npt_adapter_probe; caps_flags carries NPT_CAPSET_CAP_*
  * bits).  Runs a one-shot D3DKMT probe on first call and latches the

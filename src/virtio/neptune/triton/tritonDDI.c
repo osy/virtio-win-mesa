@@ -854,8 +854,8 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
 
     /* The runtime encodes the requested pipeline level in pArgs->Flags
      * (per D3D11DDICAPS_3DPIPELINESUPPORT). Accept the full 10.0..11.1
-     * range advertised by GetCaps; the dxvk/Vulkan backend creates a
-     * device clamped to the requested feature level. */
+     * range advertised by GetCaps; the host creates a device clamped to
+     * the requested feature level. */
     const D3D11DDI_3DPIPELINELEVEL level =
         D3D11DDI_EXTRACT_3DPIPELINELEVEL_FROM_FLAGS(pArgs->Flags);
     D3D_FEATURE_LEVEL requested;
@@ -981,16 +981,16 @@ static HRESULT APIENTRY tritonCloseAdapter(D3D10DDI_HADAPTER hAdapter)
  * against the KMD's reported version, satisfied at 2.2).  The runtime
  * picks the highest; NPT_DEBUG=wddm2_0_only clamps for triage.
  *
- * The 2.3 UMD DDI is deliberately offered ABOVE the KMD's 2.2: it adds no
- * device-funcs entry and no kernel-visible feature (same struct as 2.2),
- * but the runtime's per-format requirement tables
+ * The 2.3 UMD DDI is deliberately offered ABOVE the KMD's 2.2.  It adds
+ * no device-funcs entry of its own -- the CREATEDEVICE union skips from
+ * pWDDM2_2DeviceFuncs to pWDDM2_6DeviceFuncs, so 2.3 reuses the 2.2
+ * struct -- but the runtime's per-format requirement tables
  * (CD3D11FormatHelper::TypedUnorderedAccessViewSupport) only consult the
- * driver's typed-UAV format bits at driverVersion >= 7 (= the 2.3 DDI); at
- * 2.2 and below BGRA8 typed UAV is table-blocked outright, which is what
- * killed FFXIV Dawntrail's CreateTexture2D(B8G8R8A8, SR|RT|UAV).  The KMD
- * side must NOT follow (2.3 kernel interface = mandatory MPO3 flip DDI ->
- * bugcheck 0xD1; see viogpu3d driver.cpp).  2.3 reuses the 2.2
- * device-funcs struct wholesale (no pWDDM2_3DeviceFuncs union member). */
+ * driver's typed-UAV format bits at driverVersion >= 7, which is the 2.3
+ * DDI; at 2.2 and below BGRA8 typed UAV is table-blocked outright no
+ * matter what the format mask says.  The KMD side must NOT follow:
+ * registering 2.3 kernel-side routes every flip through the
+ * unimplemented MPO3 flip DDI and bugchecks 0xD1. */
 static UINT32 tritonSelectVersions(UINT64 *pVersions)
 {
     struct triton_adapter_probe probe;
@@ -1057,9 +1057,8 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
         /* The 0x10/0x20/0x40 bits are what back the runtime's OPTIONS2
          * PSSpecifiedStencilRef / TypedUAVLoadAdditionalFormats / ROVs
          * answers (OPTIONS2 at DDI level carries only the conservative-
-         * rasterization tier).  All three are implemented by both host
-         * backends (D3DMetal and DXMT), measured 2026-08-09.  The typed-
-         * UAV-load claim is backed per-format by UAV_READS in
+         * rasterization tier).  All three are backed by the host.  The
+         * typed-UAV-load claim is backed per-format by UAV_READS in
          * tritonTranslateFormatSupport -- keep the two in sync. */
         pCaps->Caps = D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X |
                       D3D11DDICAPS_SHADER_SPECIFIED_STENCIL_REF |
@@ -1075,10 +1074,18 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
     }
     case D3D11_1DDICAPS_ARCHITECTURE_INFO: {
         /* DDI struct (d3d10umddi.h), not the layout-identical KMD
-         * D3DDDICAPS_ARCHITECTURE_INFO. */
+         * D3DDDICAPS_ARCHITECTURE_INFO.
+         *
+         * Deliberately FALSE even when the host capset carries
+         * TRITON_HOSTCAP_TBDR: reporting TRUE switches D2D, DWM and XAML
+         * onto tile-deferred rendering strategies this stack does not
+         * execute correctly end to end, which costs text labels and
+         * title bars in Explorer and the Start menu.  The capset bit
+         * stays as the host-truth record; revisit once those paths are
+         * validated. */
         D3D11_1DDI_ARCHITECTURE_INFO_DATA *pCaps =
             (D3D11_1DDI_ARCHITECTURE_INFO_DATA *)pArgs->pData;
-        pCaps->TileBasedDeferredRenderer = FALSE; /* dxvk over Vulkan, not TBDR */
+        pCaps->TileBasedDeferredRenderer = FALSE;
         break;
     }
     case D3D11_1DDICAPS_SHADER_MIN_PRECISION_SUPPORT: {

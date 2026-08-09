@@ -100,10 +100,20 @@ struct npt_capset {
    uint32_t pad[13];
 };
 
-/* The host D3D12 backend (vkd3d-proton) is present; D3D12CreateDevice
+/* The host has a D3D12 backend; D3D12CreateDevice
  * can succeed.  Clear => fail D3D12 device creation locally (apps fall
  * back to D3D11 themselves). */
 #define NPT_CAPSET_CAP_D3D12 (1u << 0)
+
+/* Backend-capability bits (host: neptune_hw.h, matched by review).  All
+ * five vary by backend; Triton folds them into adapter-scope cap
+ * answers through its own TRITON_HOSTCAP_* mirror.  A clear bit always
+ * means "not supported" (old hosts zero the struct). */
+#define NPT_CAPSET_CAP_TBDR                      (1u << 1)
+#define NPT_CAPSET_CAP_MSAA_RTV_FORCED_SC1       (1u << 2)
+#define NPT_CAPSET_CAP_EXTENDED_RESOURCE_SHARING (1u << 3)
+#define NPT_CAPSET_CAP_MAP_DEFAULT_BUFFERS       (1u << 4)
+#define NPT_CAPSET_CAP_SHADER_CACHE              (1u << 5)
 
 #ifdef __WINE__
 void npt_log_impl(const char *fmt, ...);
