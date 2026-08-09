@@ -136,9 +136,9 @@ tritonSetPredication(D3D10DDI_HDEVICE hDevice, D3D10DDI_HQUERY hPred, BOOL Predi
  * 0x4000). It reports the optional, format-dependent caps the runtime
  * can't infer from the feature level, and it merges what the API splits
  * across FORMAT_SUPPORT and FORMAT_SUPPORT2, so it must be translated
- * bit-by-bit rather than forwarded. Unmapped DDI bits (CAPTURE,
- * MULTIPLANE_OVERLAY, TILED, DISPLAYABLE) have no CheckFormatSupport API
- * equivalent and stay 0. */
+ * bit-by-bit rather than forwarded. Unmapped DDI bits with no
+ * CheckFormatSupport API equivalent (CAPTURE, MULTIPLANE_OVERLAY, TILED,
+ * DISPLAYABLE, video decode/encode) stay 0. */
 /* tritonMsaaQuality is the single source of truth for multisample support,
  * shared by CheckMultisampleQualityLevels AND the CheckFormatSupport
  * MULTISAMPLE_RENDERTARGET bit.  The D3D11 runtime validates both during
@@ -403,19 +403,27 @@ static UINT tritonTranslateFormatSupport(UINT s1, UINT s2)
 {
     UINT caps = 0;
     /*
-     * Report only the minimal DDI bit set the D3D11 runtime accepts.  The
+     * Report the DDI bits the host actually backs -- but NOT verbatim.  The
      * API-level bits are not a 1:1 mapping of the DDI ones: for depth and
      * typeless formats the API MULTISAMPLE/RENDER_TARGET bits denote depth
      * targets while the DDI bits denote COLOR render targets, and forwarding
      * them verbatim yields combinations the runtime rejects at
      * D3D11CreateDevice with DXGI_ERROR_DRIVER_INTERNAL_ERROR (0x887a0020).
-     * The runtime infers the omitted capabilities (gather, typed UAV
-     * load/store, buffer views) from the feature level + D3D11_OPTIONS caps.
+     * The bits below are orthogonal to that depth/colour rule.
      */
     if (s1 & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)             caps |= D3D10_DDI_FORMAT_SUPPORT_SHADER_SAMPLE;
     if (s1 & D3D11_FORMAT_SUPPORT_RENDER_TARGET)            caps |= D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET;
     if (s1 & D3D11_FORMAT_SUPPORT_BLENDABLE)                caps |= D3D10_DDI_FORMAT_SUPPORT_BLENDABLE;
     if (s1 & D3D11_FORMAT_SUPPORT_IA_VERTEX_BUFFER)         caps |= D3D11_1DDI_FORMAT_SUPPORT_VERTEX_BUFFER;
+    if (s1 & D3D11_FORMAT_SUPPORT_SHADER_GATHER)            caps |= D3D11_1DDI_FORMAT_SUPPORT_SHADER_GATHER;
+    if (s1 & D3D11_FORMAT_SUPPORT_BUFFER)                   caps |= D3D11_1DDI_FORMAT_SUPPORT_BUFFER;
+    /* FORMAT_SUPPORT2, straight from the host's own per-format claims.
+     * UAV_READS is what backs the SHADER caps word's
+     * TYPED_UAV_LOAD_ADDITIONAL_FORMATS claim (tritonGetCaps) -- the two
+     * must stay in sync or the runtime's cross-validation objects. */
+    if (s2 & D3D11_FORMAT_SUPPORT2_UAV_TYPED_LOAD)          caps |= D3DWDDM2_0DDI_FORMAT_SUPPORT_UAV_READS;
+    if (s2 & D3D11_FORMAT_SUPPORT2_UAV_TYPED_STORE)         caps |= D3D11_1DDI_FORMAT_SUPPORT_UAV_WRITES;
+    if (s2 & D3D11_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP)  caps |= D3D11_1DDI_FORMAT_SUPPORT_OUTPUT_MERGER_LOGIC_OP;
     /* MULTISAMPLE_RENDERTARGET is intentionally NOT mapped here -- the caller
      * (tritonCheckFormatSupport) sets it from tritonMsaaQuality() so it stays
      * exactly consistent with CheckMultisampleQualityLevels. */
@@ -424,7 +432,6 @@ static UINT tritonTranslateFormatSupport(UINT s1, UINT s2)
      * is absent. */
     if (!(caps & D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET))
         caps &= ~(UINT)D3D10_DDI_FORMAT_SUPPORT_BLENDABLE;
-    (void)s2;
     return caps;
 }
 
@@ -447,8 +454,8 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
                (UINT)Format, (unsigned long)cfsHr);
         return;
     }
-    /* FORMAT_SUPPORT2 (typed UAV load/store, OM logic op) has no DDI bit in
-     * the minimal set below, so it is queried but not currently translated. */
+    /* FORMAT_SUPPORT2 carries the typed UAV load/store and OM logic-op
+     * per-format claims, translated above. */
     UINT s2 = 0;
     D3D11_FEATURE_DATA_FORMAT_SUPPORT2 fs2 = { Format, 0 };
     if (SUCCEEDED(ID3D11Device1_CheckFeatureSupport(pD->pDev1,

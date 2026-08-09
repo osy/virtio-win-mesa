@@ -1054,7 +1054,17 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
     }
     case D3D11DDICAPS_SHADER: {
         D3D11DDI_SHADER_CAPS *pCaps = (D3D11DDI_SHADER_CAPS *)pArgs->pData;
-        pCaps->Caps = D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X;
+        /* The 0x10/0x20/0x40 bits are what back the runtime's OPTIONS2
+         * PSSpecifiedStencilRef / TypedUAVLoadAdditionalFormats / ROVs
+         * answers (OPTIONS2 at DDI level carries only the conservative-
+         * rasterization tier).  All three are implemented by both host
+         * backends (D3DMetal and DXMT), measured 2026-08-09.  The typed-
+         * UAV-load claim is backed per-format by UAV_READS in
+         * tritonTranslateFormatSupport -- keep the two in sync. */
+        pCaps->Caps = D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X |
+                      D3D11DDICAPS_SHADER_SPECIFIED_STENCIL_REF |
+                      D3D11DDICAPS_SHADER_TYPED_UAV_LOAD_ADDITIONAL_FORMATS |
+                      D3D11DDICAPS_SHADER_ROVS;
         break;
     }
     case D3D11_1DDICAPS_D3D11_OPTIONS: {
@@ -1074,12 +1084,14 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
     case D3D11_1DDICAPS_SHADER_MIN_PRECISION_SUPPORT: {
         /* DDI struct (d3d10umddi.h), not the KMD
          * D3DDDICAPS_SHADER_MIN_PRECISION_SUPPORT — same 8 bytes but
-         * different fields. 0 = no reduced-precision support (dxvk over
-         * Vulkan does not advertise 10/16-bit min precision). */
+         * different fields.  Both host backends report 16-bit minimum
+         * precision for every stage (half is ~2x on Apple GPUs); without
+         * this the runtime promotes min16float to fp32 before the DXBC
+         * ever reaches the host. */
         D3D11_DDI_SHADER_MIN_PRECISION_SUPPORT_DATA *pCaps =
             (D3D11_DDI_SHADER_MIN_PRECISION_SUPPORT_DATA *)pArgs->pData;
-        pCaps->PixelShaderMinPrecision    = 0;
-        pCaps->AllOtherStagesMinPrecision = 0;
+        pCaps->PixelShaderMinPrecision    = D3D11_DDI_SHADER_MIN_PRECISION_16_BIT;
+        pCaps->AllOtherStagesMinPrecision = D3D11_DDI_SHADER_MIN_PRECISION_16_BIT;
         break;
     }
     case D3D11DDICAPS_3DPIPELINESUPPORT: {
@@ -1117,6 +1129,15 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
         pCaps->MaxGPUVirtualAddressBitsPerResource = 48;
         break;
     }
+    case D3DWDDM2_0DDICAPS_D3D11_OPTIONS3: {
+        /* Both host backends route SV_ViewportArrayIndex /
+         * SV_RenderTargetArrayIndex written by any pre-rasterizer stage
+         * (no geometry-shader round trip needed). */
+        D3DWDDM2_0DDI_D3D11_OPTIONS3_DATA *pCaps =
+            (D3DWDDM2_0DDI_D3D11_OPTIONS3_DATA *)pArgs->pData;
+        pCaps->VPAndRTArrayIndexFromAnyShaderFeedingRasterizer = TRUE;
+        break;
+    }
     case D3DWDDM2_2DDICAPS_SHADERCACHE: {
         /* Queried by the runtime once the 2.2 DDI is advertised; the case
          * must exist (an unhandled type at a new tier is the historical
@@ -1133,12 +1154,11 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
     default:
         /* Unhandled cap types keep the zero-filled pData set above, i.e.
          * "feature off". That covers the WDDM-tier caps an app may query on
-         * the 2.0/2.1 interfaces — D3DWDDM1_3DDICAPS_D3D11_OPTIONS1 (136) /
+         * the 2.x interfaces — D3DWDDM1_3DDICAPS_D3D11_OPTIONS1 (136) /
          * _MARKER (137), D3DWDDM2_0DDICAPS_D3D11_OPTIONS2 (143, tier 0) /
-         * _D3D11_OPTIONS3 (152, FALSE) / _TEXTURE_LAYOUT (149/154, row-
-         * major only). The host backend's support for these optional
-         * features cannot be probed at adapter scope (no device exists
-         * yet), so zero is the only answer we can back. */
+         * _TEXTURE_LAYOUT (149/154, row-major only). Host-conditional
+         * caps that DO have adapter-scope backing come from the capset
+         * caps_flags carried by the adapter probe, not from a device. */
         break;
     }
     return S_OK;
