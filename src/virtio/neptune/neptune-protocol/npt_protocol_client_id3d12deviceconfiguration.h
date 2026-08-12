@@ -45,7 +45,7 @@ struct npt_id3d12deviceconfiguration_client_vtbl {
     ULONG   (NPT_STDMETHODCALLTYPE *AddRef)(void *self);
     ULONG   (NPT_STDMETHODCALLTYPE *Release)(void *self);
     /* slot 3: ID3D12DeviceConfiguration::GetDesc */
-    D3D12_DEVICE_CONFIGURATION_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_DEVICE_CONFIGURATION_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_DEVICE_CONFIGURATION_DESC *_ret_out);
     /* slot 4: ID3D12DeviceConfiguration::GetEnabledExperimentalFeatures */
     HRESULT (NPT_STDMETHODCALLTYPE *GetEnabledExperimentalFeatures)(void *self, GUID * pGuids, UINT NumGuids);
     /* slot 5: ID3D12DeviceConfiguration::SerializeVersionedRootSignature */
@@ -60,8 +60,8 @@ struct npt_id3d12deviceconfiguration_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_DEVICE_CONFIGURATION_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12deviceconfiguration_default_GetDesc(void *self);
+extern D3D12_DEVICE_CONFIGURATION_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12deviceconfiguration_default_GetDesc(void *self, D3D12_DEVICE_CONFIGURATION_DESC *_ret_out);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12deviceconfiguration_default_GetEnabledExperimentalFeatures(void *self, GUID * pGuids, UINT NumGuids);
 extern HRESULT NPT_STDMETHODCALLTYPE
@@ -115,7 +115,7 @@ struct npt_id3d12deviceconfiguration1_client_vtbl {
     ULONG   (NPT_STDMETHODCALLTYPE *AddRef)(void *self);
     ULONG   (NPT_STDMETHODCALLTYPE *Release)(void *self);
     /* slot 3: ID3D12DeviceConfiguration::GetDesc */
-    D3D12_DEVICE_CONFIGURATION_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_DEVICE_CONFIGURATION_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_DEVICE_CONFIGURATION_DESC *_ret_out);
     /* slot 4: ID3D12DeviceConfiguration::GetEnabledExperimentalFeatures */
     HRESULT (NPT_STDMETHODCALLTYPE *GetEnabledExperimentalFeatures)(void *self, GUID * pGuids, UINT NumGuids);
     /* slot 5: ID3D12DeviceConfiguration::SerializeVersionedRootSignature */

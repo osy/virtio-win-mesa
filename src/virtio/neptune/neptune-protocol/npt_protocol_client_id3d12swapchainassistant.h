@@ -45,7 +45,7 @@ struct npt_id3d12swapchainassistant_client_vtbl {
     ULONG   (NPT_STDMETHODCALLTYPE *AddRef)(void *self);
     ULONG   (NPT_STDMETHODCALLTYPE *Release)(void *self);
     /* slot 3: ID3D12SwapChainAssistant::GetLUID */
-    LUID (NPT_STDMETHODCALLTYPE *GetLUID)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetLUID)(void *self, LUID *_ret_out);
     /* slot 4: ID3D12SwapChainAssistant::GetSwapChainObject */
     HRESULT (NPT_STDMETHODCALLTYPE *GetSwapChainObject)(void *self, const IID * riid, void ** ppv);
     /* slot 5: ID3D12SwapChainAssistant::GetCurrentResourceAndCommandQueue */
@@ -60,8 +60,8 @@ struct npt_id3d12swapchainassistant_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern LUID NPT_STDMETHODCALLTYPE
-npt_id3d12swapchainassistant_default_GetLUID(void *self);
+extern LUID * NPT_STDMETHODCALLTYPE
+npt_id3d12swapchainassistant_default_GetLUID(void *self, LUID *_ret_out);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12swapchainassistant_default_GetSwapChainObject(void *self, const IID * riid, void ** ppv);
 extern HRESULT NPT_STDMETHODCALLTYPE

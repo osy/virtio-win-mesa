@@ -45,7 +45,7 @@ struct npt_id3d12rootsignaturedeserializer_client_vtbl {
     ULONG   (NPT_STDMETHODCALLTYPE *AddRef)(void *self);
     ULONG   (NPT_STDMETHODCALLTYPE *Release)(void *self);
     /* slot 3: ID3D12RootSignatureDeserializer::GetRootSignatureDesc */
-    D3D12_ROOT_SIGNATURE_DESC (NPT_STDMETHODCALLTYPE *GetRootSignatureDesc)(void *self);
+    D3D12_ROOT_SIGNATURE_DESC * (NPT_STDMETHODCALLTYPE *GetRootSignatureDesc)(void *self, D3D12_ROOT_SIGNATURE_DESC *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -54,8 +54,8 @@ struct npt_id3d12rootsignaturedeserializer_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_ROOT_SIGNATURE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12rootsignaturedeserializer_default_GetRootSignatureDesc(void *self);
+extern D3D12_ROOT_SIGNATURE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12rootsignaturedeserializer_default_GetRootSignatureDesc(void *self, D3D12_ROOT_SIGNATURE_DESC *_ret_out);
 
 /* Default IUnknown thunks for ID3D12RootSignatureDeserializer.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

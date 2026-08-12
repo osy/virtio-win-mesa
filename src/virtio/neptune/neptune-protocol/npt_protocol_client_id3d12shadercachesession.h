@@ -62,7 +62,7 @@ struct npt_id3d12shadercachesession_client_vtbl {
     /* slot 10: ID3D12ShaderCacheSession::SetDeleteOnDestroy */
     void (NPT_STDMETHODCALLTYPE *SetDeleteOnDestroy)(void *self);
     /* slot 11: ID3D12ShaderCacheSession::GetDesc */
-    D3D12_SHADER_CACHE_SESSION_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_SHADER_CACHE_SESSION_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_SHADER_CACHE_SESSION_DESC *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -77,8 +77,8 @@ extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12shadercachesession_default_StoreValue(void *self, const void * pKey, UINT KeySize, const void * pValue, UINT ValueSize);
 extern void NPT_STDMETHODCALLTYPE
 npt_id3d12shadercachesession_default_SetDeleteOnDestroy(void *self);
-extern D3D12_SHADER_CACHE_SESSION_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12shadercachesession_default_GetDesc(void *self);
+extern D3D12_SHADER_CACHE_SESSION_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12shadercachesession_default_GetDesc(void *self, D3D12_SHADER_CACHE_SESSION_DESC *_ret_out);
 
 /* Default IUnknown thunks for ID3D12ShaderCacheSession.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

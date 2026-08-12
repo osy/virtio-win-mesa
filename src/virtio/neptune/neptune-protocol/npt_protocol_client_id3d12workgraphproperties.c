@@ -117,11 +117,14 @@ npt_id3d12workgraphproperties_default_GetNumNodes(void *self, UINT WorkGraphInde
     return _ret;
 }
 
-D3D12_NODE_ID NPT_STDMETHODCALLTYPE
-npt_id3d12workgraphproperties_default_GetNodeID(void *self, UINT WorkGraphIndex, UINT NodeIndex)
+D3D12_NODE_ID * NPT_STDMETHODCALLTYPE
+npt_id3d12workgraphproperties_default_GetNodeID(void *self, D3D12_NODE_ID *_ret_out, UINT WorkGraphIndex, UINT NodeIndex)
 {
     D3D12_NODE_ID _ret = npt_call_ID3D12WorkGraphProperties_GetNodeID(npt_com_self_ring(self),npt_com_self_id(self),WorkGraphIndex,NodeIndex);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 UINT NPT_STDMETHODCALLTYPE
@@ -145,11 +148,14 @@ npt_id3d12workgraphproperties_default_GetNumEntrypoints(void *self, UINT WorkGra
     return _ret;
 }
 
-D3D12_NODE_ID NPT_STDMETHODCALLTYPE
-npt_id3d12workgraphproperties_default_GetEntrypointID(void *self, UINT WorkGraphIndex, UINT EntrypointIndex)
+D3D12_NODE_ID * NPT_STDMETHODCALLTYPE
+npt_id3d12workgraphproperties_default_GetEntrypointID(void *self, D3D12_NODE_ID *_ret_out, UINT WorkGraphIndex, UINT EntrypointIndex)
 {
     D3D12_NODE_ID _ret = npt_call_ID3D12WorkGraphProperties_GetEntrypointID(npt_com_self_ring(self),npt_com_self_id(self),WorkGraphIndex,EntrypointIndex);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 UINT NPT_STDMETHODCALLTYPE

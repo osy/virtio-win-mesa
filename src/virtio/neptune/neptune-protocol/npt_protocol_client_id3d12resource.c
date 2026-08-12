@@ -92,24 +92,40 @@ npt_id3d12resource_default_Release(void *self)
     return npt_com_default_release(self);
 }
 
+/* skip_default: ID3D12Resource::Map -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_Map(void *self, UINT Subresource, const D3D12_RANGE * pReadRange, void ** ppData)
 {
-    HRESULT _ret = npt_call_ID3D12Resource_Map(npt_com_self_ring(self),npt_com_self_id(self),Subresource,pReadRange,ppData);
-    return _ret;
+    (void)self;
+    (void)Subresource;
+    (void)pReadRange;
+    (void)ppData;
+    npt_com_assert_overridden("ID3D12Resource", "Map");
+    return (HRESULT)0x80004005 /* E_FAIL */;
 }
 
+/* skip_default: ID3D12Resource::Unmap -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 void NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_Unmap(void *self, UINT Subresource, const D3D12_RANGE * pWrittenRange)
 {
-    npt_async_ID3D12Resource_Unmap(npt_com_self_ring(self),npt_com_self_id(self),Subresource,pWrittenRange);
+    (void)self;
+    (void)Subresource;
+    (void)pWrittenRange;
+    npt_com_assert_overridden("ID3D12Resource", "Unmap");
 }
 
-D3D12_RESOURCE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12resource_default_GetDesc(void *self)
+D3D12_RESOURCE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12resource_default_GetDesc(void *self, D3D12_RESOURCE_DESC *_ret_out)
 {
     D3D12_RESOURCE_DESC _ret = npt_call_ID3D12Resource_GetDesc(npt_com_self_ring(self),npt_com_self_id(self));
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS NPT_STDMETHODCALLTYPE
@@ -119,22 +135,36 @@ npt_id3d12resource_default_GetGPUVirtualAddress(void *self)
     return _ret;
 }
 
+/* skip_default: ID3D12Resource::WriteToSubresource -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_WriteToSubresource(void *self, UINT DstSubresource, const D3D12_BOX * pDstBox, const void * pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch)
 {
-    npt_async_ID3D12Resource_WriteToSubresource(npt_com_self_ring(self),npt_com_self_id(self),DstSubresource,pDstBox,pSrcData,SrcRowPitch,SrcDepthPitch);
-    /* Async under the deferred-fatal model: assume success.  Host-side
-     * failures (OOM, bad arg) leave the guest_id unregistered, so the
-     * first method call against the wrapper trips decoder_fatal and
-     * unwinds the context cleanly. */
-    return (HRESULT)0 /* S_OK */;
+    (void)self;
+    (void)DstSubresource;
+    (void)pDstBox;
+    (void)pSrcData;
+    (void)SrcRowPitch;
+    (void)SrcDepthPitch;
+    npt_com_assert_overridden("ID3D12Resource", "WriteToSubresource");
+    return (HRESULT)0x80004005 /* E_FAIL */;
 }
 
+/* skip_default: ID3D12Resource::ReadFromSubresource -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_ReadFromSubresource(void *self, void * pDstData, UINT DstRowPitch, UINT DstDepthPitch, UINT SrcSubresource, const D3D12_BOX * pSrcBox)
 {
-    HRESULT _ret = npt_call_ID3D12Resource_ReadFromSubresource(npt_com_self_ring(self),npt_com_self_id(self),pDstData,DstRowPitch,DstDepthPitch,SrcSubresource,pSrcBox);
-    return _ret;
+    (void)self;
+    (void)pDstData;
+    (void)DstRowPitch;
+    (void)DstDepthPitch;
+    (void)SrcSubresource;
+    (void)pSrcBox;
+    npt_com_assert_overridden("ID3D12Resource", "ReadFromSubresource");
+    return (HRESULT)0x80004005 /* E_FAIL */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -430,11 +460,14 @@ npt_id3d12resource2_default_Release(void *self)
     return npt_com_default_release(self);
 }
 
-D3D12_RESOURCE_DESC1 NPT_STDMETHODCALLTYPE
-npt_id3d12resource2_default_GetDesc1(void *self)
+D3D12_RESOURCE_DESC1 * NPT_STDMETHODCALLTYPE
+npt_id3d12resource2_default_GetDesc1(void *self, D3D12_RESOURCE_DESC1 *_ret_out)
 {
     D3D12_RESOURCE_DESC1 _ret = npt_call_ID3D12Resource2_GetDesc1(npt_com_self_ring(self),npt_com_self_id(self));
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 

@@ -8706,7 +8706,7 @@ HRESULT NPT_STDMETHODCALLTYPE D3D11On12CreateDevice(IUnknown *pDevice, UINT Flag
 HRESULT NPT_STDMETHODCALLTYPE D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel, const IID *riid, void **ppDevice);
 HRESULT NPT_STDMETHODCALLTYPE D3D12CreateRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
 HRESULT NPT_STDMETHODCALLTYPE D3D12CreateVersionedRootSignatureDeserializer(const VOID *pSrcData, SIZE_T SrcDataSizeInBytes, const IID *pRootSignatureDeserializerInterface, void **ppRootSignatureDeserializer);
-HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *pRootSignature, D3D_ROOT_SIGNATURE_VERSION Version, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
-HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pRootSignature, ID3DBlob **ppBlob, ID3DBlob **ppErrorBlob);
+HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *pRootSignature, D3D_ROOT_SIGNATURE_VERSION Version, UINT *pBlobSize, void *pBlobData, UINT *pErrorBlobSize, void *pErrorBlobData);
+HRESULT NPT_STDMETHODCALLTYPE D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pRootSignature, UINT *pBlobSize, void *pBlobData, UINT *pErrorBlobSize, void *pErrorBlobData);
 
 #endif /* NPT_PROTOCOL_DIRECTX_H */

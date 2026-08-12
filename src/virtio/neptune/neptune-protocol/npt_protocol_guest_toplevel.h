@@ -1720,17 +1720,15 @@ npt_call_D3D12CreateVersionedRootSignatureDeserializer(struct npt_ring *ring,
 struct npt_command_D3D12SerializeRootSignature {
     const D3D12_ROOT_SIGNATURE_DESC * pRootSignature;
     D3D_ROOT_SIGNATURE_VERSION Version;
-    ID3DBlob ** ppBlob;
-    ID3DBlob ** ppErrorBlob;
-    /* Shadow: guest-allocated id for ppBlob. */
-    uint64_t _guest_id_ppBlob;
-    /* Shadow: guest-allocated id for ppErrorBlob. */
-    uint64_t _guest_id_ppErrorBlob;
+    UINT * pBlobSize;
+    void * pBlobData;
+    UINT * pErrorBlobSize;
+    void * pErrorBlobData;
     HRESULT ret;
 };
 
 static inline size_t
-npt_sizeof_D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,const D3D_ROOT_SIGNATURE_VERSION Version,ID3DBlob ** ppBlob,ID3DBlob ** ppErrorBlob)
+npt_sizeof_D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,const D3D_ROOT_SIGNATURE_VERSION Version,const UINT * pBlobSize,const void * pBlobData,const UINT * pErrorBlobSize,const void * pErrorBlobData)
 {
     const int max_mode = 0;
     (void)max_mode;
@@ -1739,8 +1737,14 @@ npt_sizeof_D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC * pRootSi
     if (pRootSignature)
         cmd_size += npt_sizeof_D3D12_ROOT_SIGNATURE_DESC(pRootSignature, max_mode);
     cmd_size += npt_sizeof_D3D_ROOT_SIGNATURE_VERSION(&Version, max_mode);
-cmd_size += sizeof(uint64_t);  /* ppBlob: guest id */
-cmd_size += sizeof(uint64_t);  /* ppErrorBlob: guest id */
+    cmd_size += npt_sizeof_simple_pointer(pBlobSize);
+    if (pBlobSize)
+        cmd_size += npt_sizeof_UINT(pBlobSize, max_mode);
+/* skip pBlobData (output only) */
+    cmd_size += npt_sizeof_simple_pointer(pErrorBlobSize);
+    if (pErrorBlobSize)
+        cmd_size += npt_sizeof_UINT(pErrorBlobSize, max_mode);
+/* skip pErrorBlobData (output only) */
     return cmd_size;
 }
 
@@ -1749,10 +1753,12 @@ npt_encode_D3D12SerializeRootSignature(struct npt_cs_encoder *enc,
                                        uint32_t cmd_flags,
                                        const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,
                                        D3D_ROOT_SIGNATURE_VERSION Version,
-                                       ID3DBlob ** ppBlob,
-                                       ID3DBlob ** ppErrorBlob)
+                                       UINT * pBlobSize,
+                                       void * pBlobData,
+                                       UINT * pErrorBlobSize,
+                                       void * pErrorBlobData)
 {
-    const uint32_t _cmd_size = (uint32_t)npt_sizeof_D3D12SerializeRootSignature(pRootSignature,Version,ppBlob,ppErrorBlob);
+    const uint32_t _cmd_size = (uint32_t)npt_sizeof_D3D12SerializeRootSignature(pRootSignature,Version,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData);
     struct npt_command_header _hdr = {
         .cmd_type = NPT_CMD_TYPE_TOPLEVEL(3, 3),
         .cmd_flags = cmd_flags,
@@ -1763,41 +1769,47 @@ npt_encode_D3D12SerializeRootSignature(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pRootSignature))
         npt_encode_D3D12_ROOT_SIGNATURE_DESC(enc, pRootSignature);
     npt_encode_D3D_ROOT_SIGNATURE_VERSION(enc, &Version);
-{
-    uint64_t _gid_ppBlob = 0;
-    if (ppBlob) {
-        _gid_ppBlob = npt_com_allocate_next_id();
-        *ppBlob = (ID3DBlob *)(uintptr_t)_gid_ppBlob;
-    }
-    npt_encode_uint64_t(enc, &_gid_ppBlob);
-}
-{
-    uint64_t _gid_ppErrorBlob = 0;
-    if (ppErrorBlob) {
-        _gid_ppErrorBlob = npt_com_allocate_next_id();
-        *ppErrorBlob = (ID3DBlob *)(uintptr_t)_gid_ppErrorBlob;
-    }
-    npt_encode_uint64_t(enc, &_gid_ppErrorBlob);
-}
+    if (npt_encode_simple_pointer(enc, pBlobSize))
+        npt_encode_UINT(enc, pBlobSize);
+/* skip pBlobData (output only) */
+    if (npt_encode_simple_pointer(enc, pErrorBlobSize))
+        npt_encode_UINT(enc, pErrorBlobSize);
+/* skip pErrorBlobData (output only) */
 }
 
 static inline size_t
-npt_sizeof_D3D12SerializeRootSignature_reply(const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,const D3D_ROOT_SIGNATURE_VERSION Version,ID3DBlob ** ppBlob,ID3DBlob ** ppErrorBlob)
+npt_sizeof_D3D12SerializeRootSignature_reply(const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,const D3D_ROOT_SIGNATURE_VERSION Version,const UINT * pBlobSize,const void * pBlobData,const UINT * pErrorBlobSize,const void * pErrorBlobData)
 {
     const int max_mode = 1;
     (void)max_mode;
     size_t cmd_size = sizeof(struct npt_reply_header);
 /* skip pRootSignature (input only) */
 /* skip Version (input only) */
-/* skip ppBlob (guest-allocated id, registered host-side; not in reply) */
-/* skip ppErrorBlob (guest-allocated id, registered host-side; not in reply) */
+    cmd_size += npt_sizeof_simple_pointer((const void *)1);
+    cmd_size += npt_sizeof_UINT(&(const UINT){0}, 1);
+    if (pBlobData) {
+        cmd_size += npt_sizeof_array_count(*pBlobSize);
+        cmd_size += npt_sizeof_blob_array(pBlobData, *pBlobSize);
+    } else {
+        cmd_size += npt_sizeof_array_count(0);
+    }
+    cmd_size += npt_sizeof_simple_pointer((const void *)1);
+    cmd_size += npt_sizeof_UINT(&(const UINT){0}, 1);
+    if (pErrorBlobData) {
+        cmd_size += npt_sizeof_array_count(*pErrorBlobSize);
+        cmd_size += npt_sizeof_blob_array(pErrorBlobData, *pErrorBlobSize);
+    } else {
+        cmd_size += npt_sizeof_array_count(0);
+    }
     return cmd_size;
 }
 
 static inline void
 npt_decode_D3D12SerializeRootSignature_reply(struct npt_cs_decoder *dec,
-                                             ID3DBlob ** ppBlob,
-                                             ID3DBlob ** ppErrorBlob,
+                                             UINT * pBlobSize,
+                                             void * pBlobData,
+                                             UINT * pErrorBlobSize,
+                                             void * pErrorBlobData,
                                              HRESULT *ret)
 {
     struct npt_reply_header _reply;
@@ -1812,8 +1824,28 @@ npt_decode_D3D12SerializeRootSignature_reply(struct npt_cs_decoder *dec,
         return;
     }
     if (ret) *ret = (HRESULT)_reply.cmd_return;
-/* skip ppBlob (guest-allocated id, wrapper built on client thunk; not in reply) */
-/* skip ppErrorBlob (guest-allocated id, wrapper built on client thunk; not in reply) */
+    if (npt_decode_simple_pointer(dec)) {
+        if (pBlobSize)
+            npt_decode_UINT(dec, (UINT *)pBlobSize);
+    }
+    {
+        const uint64_t _blob_size = npt_decode_array_count_unchecked(dec);
+        if (_blob_size && pBlobData)
+            npt_decode_blob_array(dec, (void *)pBlobData, _blob_size);
+        else if (_blob_size)
+            npt_cs_decoder_read(dec, ((_blob_size + 3) & ~3), NULL, 0);
+    }
+    if (npt_decode_simple_pointer(dec)) {
+        if (pErrorBlobSize)
+            npt_decode_UINT(dec, (UINT *)pErrorBlobSize);
+    }
+    {
+        const uint64_t _blob_size = npt_decode_array_count_unchecked(dec);
+        if (_blob_size && pErrorBlobData)
+            npt_decode_blob_array(dec, (void *)pErrorBlobData, _blob_size);
+        else if (_blob_size)
+            npt_cs_decoder_read(dec, ((_blob_size + 3) & ~3), NULL, 0);
+    }
 }
 
 static inline void
@@ -1821,25 +1853,27 @@ npt_submit_D3D12SerializeRootSignature(struct npt_ring *ring,
                                        uint32_t cmd_flags,
                                        const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,
                                        D3D_ROOT_SIGNATURE_VERSION Version,
-                                       ID3DBlob ** ppBlob,
-                                       ID3DBlob ** ppErrorBlob,
+                                       UINT * pBlobSize,
+                                       void * pBlobData,
+                                       UINT * pErrorBlobSize,
+                                       void * pErrorBlobData,
                                        struct npt_ring_submit_command *submit)
 {
     uint8_t local_cmd_data[NPT_SUBMIT_LOCAL_CMD_SIZE];
     void *cmd_data = local_cmd_data;
-    size_t cmd_size = npt_sizeof_D3D12SerializeRootSignature(pRootSignature,Version,ppBlob,ppErrorBlob);
+    size_t cmd_size = npt_sizeof_D3D12SerializeRootSignature(pRootSignature,Version,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData);
     if (cmd_size > sizeof(local_cmd_data)) {
         cmd_data = malloc(cmd_size);
         if (!cmd_data)
             cmd_size = 0;
     }
     const size_t reply_size = (cmd_flags & NPT_CMD_FLAG_REPLY)
-        ? npt_sizeof_D3D12SerializeRootSignature_reply(pRootSignature,Version,ppBlob,ppErrorBlob)
+        ? npt_sizeof_D3D12SerializeRootSignature_reply(pRootSignature,Version,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData)
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
     if (cmd_size) {
-        npt_encode_D3D12SerializeRootSignature(enc, cmd_flags, pRootSignature, Version, ppBlob, ppErrorBlob);
+        npt_encode_D3D12SerializeRootSignature(enc, cmd_flags, pRootSignature, Version, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData);
         npt_ring_submit_command(ring, submit);
         if (cmd_data != local_cmd_data)
             free(cmd_data);
@@ -1850,26 +1884,30 @@ static inline void
 npt_async_D3D12SerializeRootSignature(struct npt_ring *ring,
                                       const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,
                                       D3D_ROOT_SIGNATURE_VERSION Version,
-                                      ID3DBlob ** ppBlob,
-                                      ID3DBlob ** ppErrorBlob)
+                                      UINT * pBlobSize,
+                                      void * pBlobData,
+                                      UINT * pErrorBlobSize,
+                                      void * pErrorBlobData)
 {
     struct npt_ring_submit_command submit;
-    npt_submit_D3D12SerializeRootSignature(ring, 0, pRootSignature, Version, ppBlob, ppErrorBlob, &submit);
+    npt_submit_D3D12SerializeRootSignature(ring, 0, pRootSignature, Version, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &submit);
 }
 
 static inline HRESULT
 npt_call_D3D12SerializeRootSignature(struct npt_ring *ring,
                                      const D3D12_ROOT_SIGNATURE_DESC * pRootSignature,
                                      D3D_ROOT_SIGNATURE_VERSION Version,
-                                     ID3DBlob ** ppBlob,
-                                     ID3DBlob ** ppErrorBlob)
+                                     UINT * pBlobSize,
+                                     void * pBlobData,
+                                     UINT * pErrorBlobSize,
+                                     void * pErrorBlobData)
 {
     struct npt_ring_submit_command submit;
-    npt_submit_D3D12SerializeRootSignature(ring, NPT_CMD_FLAG_REPLY, pRootSignature, Version, ppBlob, ppErrorBlob, &submit);
+    npt_submit_D3D12SerializeRootSignature(ring, NPT_CMD_FLAG_REPLY, pRootSignature, Version, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &submit);
     struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
     if (dec) {
         HRESULT _ret;
-        npt_decode_D3D12SerializeRootSignature_reply(dec, ppBlob, ppErrorBlob, &_ret);
+        npt_decode_D3D12SerializeRootSignature_reply(dec, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &_ret);
         npt_ring_free_command_reply(ring, &submit);
         return _ret;
     } else {
@@ -1883,17 +1921,15 @@ npt_call_D3D12SerializeRootSignature(struct npt_ring *ring,
 
 struct npt_command_D3D12SerializeVersionedRootSignature {
     const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature;
-    ID3DBlob ** ppBlob;
-    ID3DBlob ** ppErrorBlob;
-    /* Shadow: guest-allocated id for ppBlob. */
-    uint64_t _guest_id_ppBlob;
-    /* Shadow: guest-allocated id for ppErrorBlob. */
-    uint64_t _guest_id_ppErrorBlob;
+    UINT * pBlobSize;
+    void * pBlobData;
+    UINT * pErrorBlobSize;
+    void * pErrorBlobData;
     HRESULT ret;
 };
 
 static inline size_t
-npt_sizeof_D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,ID3DBlob ** ppBlob,ID3DBlob ** ppErrorBlob)
+npt_sizeof_D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,const UINT * pBlobSize,const void * pBlobData,const UINT * pErrorBlobSize,const void * pErrorBlobData)
 {
     const int max_mode = 0;
     (void)max_mode;
@@ -1901,8 +1937,14 @@ npt_sizeof_D3D12SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNA
     cmd_size += npt_sizeof_simple_pointer(pRootSignature);
     if (pRootSignature)
         cmd_size += npt_sizeof_D3D12_VERSIONED_ROOT_SIGNATURE_DESC(pRootSignature, max_mode);
-cmd_size += sizeof(uint64_t);  /* ppBlob: guest id */
-cmd_size += sizeof(uint64_t);  /* ppErrorBlob: guest id */
+    cmd_size += npt_sizeof_simple_pointer(pBlobSize);
+    if (pBlobSize)
+        cmd_size += npt_sizeof_UINT(pBlobSize, max_mode);
+/* skip pBlobData (output only) */
+    cmd_size += npt_sizeof_simple_pointer(pErrorBlobSize);
+    if (pErrorBlobSize)
+        cmd_size += npt_sizeof_UINT(pErrorBlobSize, max_mode);
+/* skip pErrorBlobData (output only) */
     return cmd_size;
 }
 
@@ -1910,10 +1952,12 @@ static inline void
 npt_encode_D3D12SerializeVersionedRootSignature(struct npt_cs_encoder *enc,
                                                 uint32_t cmd_flags,
                                                 const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,
-                                                ID3DBlob ** ppBlob,
-                                                ID3DBlob ** ppErrorBlob)
+                                                UINT * pBlobSize,
+                                                void * pBlobData,
+                                                UINT * pErrorBlobSize,
+                                                void * pErrorBlobData)
 {
-    const uint32_t _cmd_size = (uint32_t)npt_sizeof_D3D12SerializeVersionedRootSignature(pRootSignature,ppBlob,ppErrorBlob);
+    const uint32_t _cmd_size = (uint32_t)npt_sizeof_D3D12SerializeVersionedRootSignature(pRootSignature,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData);
     struct npt_command_header _hdr = {
         .cmd_type = NPT_CMD_TYPE_TOPLEVEL(3, 4),
         .cmd_flags = cmd_flags,
@@ -1923,40 +1967,46 @@ npt_encode_D3D12SerializeVersionedRootSignature(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     if (npt_encode_simple_pointer(enc, pRootSignature))
         npt_encode_D3D12_VERSIONED_ROOT_SIGNATURE_DESC(enc, pRootSignature);
-{
-    uint64_t _gid_ppBlob = 0;
-    if (ppBlob) {
-        _gid_ppBlob = npt_com_allocate_next_id();
-        *ppBlob = (ID3DBlob *)(uintptr_t)_gid_ppBlob;
-    }
-    npt_encode_uint64_t(enc, &_gid_ppBlob);
-}
-{
-    uint64_t _gid_ppErrorBlob = 0;
-    if (ppErrorBlob) {
-        _gid_ppErrorBlob = npt_com_allocate_next_id();
-        *ppErrorBlob = (ID3DBlob *)(uintptr_t)_gid_ppErrorBlob;
-    }
-    npt_encode_uint64_t(enc, &_gid_ppErrorBlob);
-}
+    if (npt_encode_simple_pointer(enc, pBlobSize))
+        npt_encode_UINT(enc, pBlobSize);
+/* skip pBlobData (output only) */
+    if (npt_encode_simple_pointer(enc, pErrorBlobSize))
+        npt_encode_UINT(enc, pErrorBlobSize);
+/* skip pErrorBlobData (output only) */
 }
 
 static inline size_t
-npt_sizeof_D3D12SerializeVersionedRootSignature_reply(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,ID3DBlob ** ppBlob,ID3DBlob ** ppErrorBlob)
+npt_sizeof_D3D12SerializeVersionedRootSignature_reply(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,const UINT * pBlobSize,const void * pBlobData,const UINT * pErrorBlobSize,const void * pErrorBlobData)
 {
     const int max_mode = 1;
     (void)max_mode;
     size_t cmd_size = sizeof(struct npt_reply_header);
 /* skip pRootSignature (input only) */
-/* skip ppBlob (guest-allocated id, registered host-side; not in reply) */
-/* skip ppErrorBlob (guest-allocated id, registered host-side; not in reply) */
+    cmd_size += npt_sizeof_simple_pointer((const void *)1);
+    cmd_size += npt_sizeof_UINT(&(const UINT){0}, 1);
+    if (pBlobData) {
+        cmd_size += npt_sizeof_array_count(*pBlobSize);
+        cmd_size += npt_sizeof_blob_array(pBlobData, *pBlobSize);
+    } else {
+        cmd_size += npt_sizeof_array_count(0);
+    }
+    cmd_size += npt_sizeof_simple_pointer((const void *)1);
+    cmd_size += npt_sizeof_UINT(&(const UINT){0}, 1);
+    if (pErrorBlobData) {
+        cmd_size += npt_sizeof_array_count(*pErrorBlobSize);
+        cmd_size += npt_sizeof_blob_array(pErrorBlobData, *pErrorBlobSize);
+    } else {
+        cmd_size += npt_sizeof_array_count(0);
+    }
     return cmd_size;
 }
 
 static inline void
 npt_decode_D3D12SerializeVersionedRootSignature_reply(struct npt_cs_decoder *dec,
-                                                      ID3DBlob ** ppBlob,
-                                                      ID3DBlob ** ppErrorBlob,
+                                                      UINT * pBlobSize,
+                                                      void * pBlobData,
+                                                      UINT * pErrorBlobSize,
+                                                      void * pErrorBlobData,
                                                       HRESULT *ret)
 {
     struct npt_reply_header _reply;
@@ -1971,33 +2021,55 @@ npt_decode_D3D12SerializeVersionedRootSignature_reply(struct npt_cs_decoder *dec
         return;
     }
     if (ret) *ret = (HRESULT)_reply.cmd_return;
-/* skip ppBlob (guest-allocated id, wrapper built on client thunk; not in reply) */
-/* skip ppErrorBlob (guest-allocated id, wrapper built on client thunk; not in reply) */
+    if (npt_decode_simple_pointer(dec)) {
+        if (pBlobSize)
+            npt_decode_UINT(dec, (UINT *)pBlobSize);
+    }
+    {
+        const uint64_t _blob_size = npt_decode_array_count_unchecked(dec);
+        if (_blob_size && pBlobData)
+            npt_decode_blob_array(dec, (void *)pBlobData, _blob_size);
+        else if (_blob_size)
+            npt_cs_decoder_read(dec, ((_blob_size + 3) & ~3), NULL, 0);
+    }
+    if (npt_decode_simple_pointer(dec)) {
+        if (pErrorBlobSize)
+            npt_decode_UINT(dec, (UINT *)pErrorBlobSize);
+    }
+    {
+        const uint64_t _blob_size = npt_decode_array_count_unchecked(dec);
+        if (_blob_size && pErrorBlobData)
+            npt_decode_blob_array(dec, (void *)pErrorBlobData, _blob_size);
+        else if (_blob_size)
+            npt_cs_decoder_read(dec, ((_blob_size + 3) & ~3), NULL, 0);
+    }
 }
 
 static inline void
 npt_submit_D3D12SerializeVersionedRootSignature(struct npt_ring *ring,
                                                 uint32_t cmd_flags,
                                                 const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,
-                                                ID3DBlob ** ppBlob,
-                                                ID3DBlob ** ppErrorBlob,
+                                                UINT * pBlobSize,
+                                                void * pBlobData,
+                                                UINT * pErrorBlobSize,
+                                                void * pErrorBlobData,
                                                 struct npt_ring_submit_command *submit)
 {
     uint8_t local_cmd_data[NPT_SUBMIT_LOCAL_CMD_SIZE];
     void *cmd_data = local_cmd_data;
-    size_t cmd_size = npt_sizeof_D3D12SerializeVersionedRootSignature(pRootSignature,ppBlob,ppErrorBlob);
+    size_t cmd_size = npt_sizeof_D3D12SerializeVersionedRootSignature(pRootSignature,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData);
     if (cmd_size > sizeof(local_cmd_data)) {
         cmd_data = malloc(cmd_size);
         if (!cmd_data)
             cmd_size = 0;
     }
     const size_t reply_size = (cmd_flags & NPT_CMD_FLAG_REPLY)
-        ? npt_sizeof_D3D12SerializeVersionedRootSignature_reply(pRootSignature,ppBlob,ppErrorBlob)
+        ? npt_sizeof_D3D12SerializeVersionedRootSignature_reply(pRootSignature,pBlobSize,pBlobData,pErrorBlobSize,pErrorBlobData)
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
     if (cmd_size) {
-        npt_encode_D3D12SerializeVersionedRootSignature(enc, cmd_flags, pRootSignature, ppBlob, ppErrorBlob);
+        npt_encode_D3D12SerializeVersionedRootSignature(enc, cmd_flags, pRootSignature, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData);
         npt_ring_submit_command(ring, submit);
         if (cmd_data != local_cmd_data)
             free(cmd_data);
@@ -2007,25 +2079,29 @@ npt_submit_D3D12SerializeVersionedRootSignature(struct npt_ring *ring,
 static inline void
 npt_async_D3D12SerializeVersionedRootSignature(struct npt_ring *ring,
                                                const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,
-                                               ID3DBlob ** ppBlob,
-                                               ID3DBlob ** ppErrorBlob)
+                                               UINT * pBlobSize,
+                                               void * pBlobData,
+                                               UINT * pErrorBlobSize,
+                                               void * pErrorBlobData)
 {
     struct npt_ring_submit_command submit;
-    npt_submit_D3D12SerializeVersionedRootSignature(ring, 0, pRootSignature, ppBlob, ppErrorBlob, &submit);
+    npt_submit_D3D12SerializeVersionedRootSignature(ring, 0, pRootSignature, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &submit);
 }
 
 static inline HRESULT
 npt_call_D3D12SerializeVersionedRootSignature(struct npt_ring *ring,
                                               const D3D12_VERSIONED_ROOT_SIGNATURE_DESC * pRootSignature,
-                                              ID3DBlob ** ppBlob,
-                                              ID3DBlob ** ppErrorBlob)
+                                              UINT * pBlobSize,
+                                              void * pBlobData,
+                                              UINT * pErrorBlobSize,
+                                              void * pErrorBlobData)
 {
     struct npt_ring_submit_command submit;
-    npt_submit_D3D12SerializeVersionedRootSignature(ring, NPT_CMD_FLAG_REPLY, pRootSignature, ppBlob, ppErrorBlob, &submit);
+    npt_submit_D3D12SerializeVersionedRootSignature(ring, NPT_CMD_FLAG_REPLY, pRootSignature, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &submit);
     struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
     if (dec) {
         HRESULT _ret;
-        npt_decode_D3D12SerializeVersionedRootSignature_reply(dec, ppBlob, ppErrorBlob, &_ret);
+        npt_decode_D3D12SerializeVersionedRootSignature_reply(dec, pBlobSize, pBlobData, pErrorBlobSize, pErrorBlobData, &_ret);
         npt_ring_free_command_reply(ring, &submit);
         return _ret;
     } else {

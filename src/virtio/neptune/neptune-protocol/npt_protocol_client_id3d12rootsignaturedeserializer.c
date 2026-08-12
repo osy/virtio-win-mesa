@@ -89,11 +89,14 @@ npt_id3d12rootsignaturedeserializer_default_Release(void *self)
     return npt_com_default_release(self);
 }
 
-D3D12_ROOT_SIGNATURE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12rootsignaturedeserializer_default_GetRootSignatureDesc(void *self)
+D3D12_ROOT_SIGNATURE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12rootsignaturedeserializer_default_GetRootSignatureDesc(void *self, D3D12_ROOT_SIGNATURE_DESC *_ret_out)
 {
     D3D12_ROOT_SIGNATURE_DESC _ret = npt_call_ID3D12RootSignatureDeserializer_GetRootSignatureDesc(npt_com_self_ring(self),npt_com_self_id(self));
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 

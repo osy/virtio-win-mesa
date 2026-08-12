@@ -123,7 +123,7 @@ struct npt_id3d12stateobjectproperties1_client_vtbl {
     /* slot 6: ID3D12StateObjectProperties::SetPipelineStackSize */
     void (NPT_STDMETHODCALLTYPE *SetPipelineStackSize)(void *self, UINT64 PipelineStackSizeInBytes);
     /* slot 7: ID3D12StateObjectProperties1::GetProgramIdentifier */
-    D3D12_PROGRAM_IDENTIFIER (NPT_STDMETHODCALLTYPE *GetProgramIdentifier)(void *self, const WCHAR * pProgramName);
+    D3D12_PROGRAM_IDENTIFIER * (NPT_STDMETHODCALLTYPE *GetProgramIdentifier)(void *self, D3D12_PROGRAM_IDENTIFIER *_ret_out, const WCHAR * pProgramName);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -132,8 +132,8 @@ struct npt_id3d12stateobjectproperties1_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_PROGRAM_IDENTIFIER NPT_STDMETHODCALLTYPE
-npt_id3d12stateobjectproperties1_default_GetProgramIdentifier(void *self, const WCHAR * pProgramName);
+extern D3D12_PROGRAM_IDENTIFIER * NPT_STDMETHODCALLTYPE
+npt_id3d12stateobjectproperties1_default_GetProgramIdentifier(void *self, D3D12_PROGRAM_IDENTIFIER *_ret_out, const WCHAR * pProgramName);
 
 /* Default IUnknown thunks for ID3D12StateObjectProperties1.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

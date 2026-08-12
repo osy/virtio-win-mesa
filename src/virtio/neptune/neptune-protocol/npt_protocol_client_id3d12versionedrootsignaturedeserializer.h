@@ -47,7 +47,7 @@ struct npt_id3d12versionedrootsignaturedeserializer_client_vtbl {
     /* slot 3: ID3D12VersionedRootSignatureDeserializer::GetRootSignatureDescAtVersion */
     HRESULT (NPT_STDMETHODCALLTYPE *GetRootSignatureDescAtVersion)(void *self, D3D_ROOT_SIGNATURE_VERSION convertToVersion, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC ** ppDesc);
     /* slot 4: ID3D12VersionedRootSignatureDeserializer::GetUnconvertedRootSignatureDesc */
-    D3D12_VERSIONED_ROOT_SIGNATURE_DESC (NPT_STDMETHODCALLTYPE *GetUnconvertedRootSignatureDesc)(void *self);
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC * (NPT_STDMETHODCALLTYPE *GetUnconvertedRootSignatureDesc)(void *self, D3D12_VERSIONED_ROOT_SIGNATURE_DESC *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -58,8 +58,8 @@ struct npt_id3d12versionedrootsignaturedeserializer_client_vtbl {
  * with a real implementation before the method is called. */
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12versionedrootsignaturedeserializer_default_GetRootSignatureDescAtVersion(void *self, D3D_ROOT_SIGNATURE_VERSION convertToVersion, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC ** ppDesc);
-extern D3D12_VERSIONED_ROOT_SIGNATURE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12versionedrootsignaturedeserializer_default_GetUnconvertedRootSignatureDesc(void *self);
+extern D3D12_VERSIONED_ROOT_SIGNATURE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12versionedrootsignaturedeserializer_default_GetUnconvertedRootSignatureDesc(void *self, D3D12_VERSIONED_ROOT_SIGNATURE_DESC *_ret_out);
 
 /* Default IUnknown thunks for ID3D12VersionedRootSignatureDeserializer.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

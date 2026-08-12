@@ -90,9 +90,9 @@ struct npt_id3d12device_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -126,7 +126,7 @@ struct npt_id3d12device_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -171,10 +171,10 @@ extern void NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_CopyDescriptors(void *self, UINT NumDestDescriptorRanges, const D3D12_CPU_DESCRIPTOR_HANDLE * pDestDescriptorRangeStarts, const UINT * pDestDescriptorRangeSizes, UINT NumSrcDescriptorRanges, const D3D12_CPU_DESCRIPTOR_HANDLE * pSrcDescriptorRangeStarts, const UINT * pSrcDescriptorRangeSizes, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
 extern void NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_CopyDescriptorsSimple(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
-extern D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetResourceAllocationInfo(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
-extern D3D12_HEAP_PROPERTIES NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetCustomHeapProperties(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+extern D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetResourceAllocationInfo(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+extern D3D12_HEAP_PROPERTIES * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetCustomHeapProperties(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_CreateCommittedResource(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
 extern HRESULT NPT_STDMETHODCALLTYPE
@@ -207,8 +207,8 @@ extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_CreateCommandSignature(void *self, const D3D12_COMMAND_SIGNATURE_DESC * pDesc, ID3D12RootSignature * pRootSignature, const IID * riid, void ** ppvCommandSignature);
 extern void NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_GetResourceTiling(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
-extern LUID NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetAdapterLuid(void *self);
+extern LUID * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetAdapterLuid(void *self, LUID *_ret_out);
 
 /* Default IUnknown thunks for ID3D12Device.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID
@@ -300,9 +300,9 @@ struct npt_id3d12device1_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -336,7 +336,7 @@ struct npt_id3d12device1_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -448,9 +448,9 @@ struct npt_id3d12device2_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -484,7 +484,7 @@ struct npt_id3d12device2_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -594,9 +594,9 @@ struct npt_id3d12device3_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -630,7 +630,7 @@ struct npt_id3d12device3_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -750,9 +750,9 @@ struct npt_id3d12device4_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -786,7 +786,7 @@ struct npt_id3d12device4_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -812,7 +812,7 @@ struct npt_id3d12device4_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -831,8 +831,8 @@ extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device4_default_CreateHeap1(void *self, const D3D12_HEAP_DESC * pDesc, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvHeap);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device4_default_CreateReservedResource1(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
-extern D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device4_default_GetResourceAllocationInfo1(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+extern D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device4_default_GetResourceAllocationInfo1(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
 
 /* Default IUnknown thunks for ID3D12Device4.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID
@@ -924,9 +924,9 @@ struct npt_id3d12device5_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -960,7 +960,7 @@ struct npt_id3d12device5_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -986,7 +986,7 @@ struct npt_id3d12device5_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1118,9 +1118,9 @@ struct npt_id3d12device6_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -1154,7 +1154,7 @@ struct npt_id3d12device6_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -1180,7 +1180,7 @@ struct npt_id3d12device6_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1300,9 +1300,9 @@ struct npt_id3d12device7_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -1336,7 +1336,7 @@ struct npt_id3d12device7_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -1362,7 +1362,7 @@ struct npt_id3d12device7_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1488,9 +1488,9 @@ struct npt_id3d12device8_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -1524,7 +1524,7 @@ struct npt_id3d12device8_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -1550,7 +1550,7 @@ struct npt_id3d12device8_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1574,7 +1574,7 @@ struct npt_id3d12device8_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -1591,8 +1591,8 @@ struct npt_id3d12device8_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device8_default_GetResourceAllocationInfo2(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+extern D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device8_default_GetResourceAllocationInfo2(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device8_default_CreateCommittedResource2(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
 extern HRESULT NPT_STDMETHODCALLTYPE
@@ -1692,9 +1692,9 @@ struct npt_id3d12device9_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -1728,7 +1728,7 @@ struct npt_id3d12device9_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -1754,7 +1754,7 @@ struct npt_id3d12device9_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1778,7 +1778,7 @@ struct npt_id3d12device9_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -1898,9 +1898,9 @@ struct npt_id3d12device10_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -1934,7 +1934,7 @@ struct npt_id3d12device10_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -1960,7 +1960,7 @@ struct npt_id3d12device10_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -1984,7 +1984,7 @@ struct npt_id3d12device10_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -2110,9 +2110,9 @@ struct npt_id3d12device11_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -2146,7 +2146,7 @@ struct npt_id3d12device11_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -2172,7 +2172,7 @@ struct npt_id3d12device11_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -2196,7 +2196,7 @@ struct npt_id3d12device11_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -2320,9 +2320,9 @@ struct npt_id3d12device12_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -2356,7 +2356,7 @@ struct npt_id3d12device12_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -2382,7 +2382,7 @@ struct npt_id3d12device12_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -2406,7 +2406,7 @@ struct npt_id3d12device12_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -2430,7 +2430,7 @@ struct npt_id3d12device12_client_vtbl {
     /* slot 79: ID3D12Device11::CreateSampler2 */
     void (NPT_STDMETHODCALLTYPE *CreateSampler2)(void *self, const D3D12_SAMPLER_DESC2 * pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
     /* slot 80: ID3D12Device12::GetResourceAllocationInfo3 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -2439,8 +2439,8 @@ struct npt_id3d12device12_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device12_default_GetResourceAllocationInfo3(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+extern D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device12_default_GetResourceAllocationInfo3(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
 
 /* Default IUnknown thunks for ID3D12Device12.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID
@@ -2532,9 +2532,9 @@ struct npt_id3d12device13_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -2568,7 +2568,7 @@ struct npt_id3d12device13_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -2594,7 +2594,7 @@ struct npt_id3d12device13_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -2618,7 +2618,7 @@ struct npt_id3d12device13_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -2642,7 +2642,7 @@ struct npt_id3d12device13_client_vtbl {
     /* slot 79: ID3D12Device11::CreateSampler2 */
     void (NPT_STDMETHODCALLTYPE *CreateSampler2)(void *self, const D3D12_SAMPLER_DESC2 * pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
     /* slot 80: ID3D12Device12::GetResourceAllocationInfo3 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 81: ID3D12Device13::OpenExistingHeapFromAddress1 */
     HRESULT (NPT_STDMETHODCALLTYPE *OpenExistingHeapFromAddress1)(void *self, const void * pAddress, SIZE_T size, const IID * riid, void ** ppvHeap);
 };
@@ -2746,9 +2746,9 @@ struct npt_id3d12device14_client_vtbl {
     /* slot 24: ID3D12Device::CopyDescriptorsSimple */
     void (NPT_STDMETHODCALLTYPE *CopyDescriptorsSimple)(void *self, UINT NumDescriptors, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart, D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart, D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType);
     /* slot 25: ID3D12Device::GetResourceAllocationInfo */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs);
     /* slot 26: ID3D12Device::GetCustomHeapProperties */
-    D3D12_HEAP_PROPERTIES (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType);
+    D3D12_HEAP_PROPERTIES * (NPT_STDMETHODCALLTYPE *GetCustomHeapProperties)(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType);
     /* slot 27: ID3D12Device::CreateCommittedResource */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, const IID * riidResource, void ** ppvResource);
     /* slot 28: ID3D12Device::CreateHeap */
@@ -2782,7 +2782,7 @@ struct npt_id3d12device14_client_vtbl {
     /* slot 42: ID3D12Device::GetResourceTiling */
     void (NPT_STDMETHODCALLTYPE *GetResourceTiling)(void *self, ID3D12Resource * pTiledResource, UINT * pNumTilesForEntireResource, D3D12_PACKED_MIP_INFO * pPackedMipDesc, D3D12_TILE_SHAPE * pStandardTileShapeForNonPackedMips, UINT * pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D12_SUBRESOURCE_TILING * pSubresourceTilingsForNonPackedMips);
     /* slot 43: ID3D12Device::GetAdapterLuid */
-    LUID (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self);
+    LUID * (NPT_STDMETHODCALLTYPE *GetAdapterLuid)(void *self, LUID *_ret_out);
     /* slot 44: ID3D12Device1::CreatePipelineLibrary */
     HRESULT (NPT_STDMETHODCALLTYPE *CreatePipelineLibrary)(void *self, const void * pLibraryBlob, SIZE_T BlobLength, const IID * riid, void ** ppPipelineLibrary);
     /* slot 45: ID3D12Device1::SetEventOnMultipleFenceCompletion */
@@ -2808,7 +2808,7 @@ struct npt_id3d12device14_client_vtbl {
     /* slot 55: ID3D12Device4::CreateReservedResource1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateReservedResource1)(void *self, const D3D12_RESOURCE_DESC * pDesc, D3D12_RESOURCE_STATES InitialState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riid, void ** ppvResource);
     /* slot 56: ID3D12Device4::GetResourceAllocationInfo1 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo1)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 57: ID3D12Device5::CreateLifetimeTracker */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateLifetimeTracker)(void *self, ID3D12LifetimeOwner * pOwner, const IID * riid, void ** ppvTracker);
     /* slot 58: ID3D12Device5::RemoveDevice */
@@ -2832,7 +2832,7 @@ struct npt_id3d12device14_client_vtbl {
     /* slot 67: ID3D12Device7::CreateProtectedResourceSession1 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateProtectedResourceSession1)(void *self, const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * pDesc, const IID * riid, void ** ppSession);
     /* slot 68: ID3D12Device8::GetResourceAllocationInfo2 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo2)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 69: ID3D12Device8::CreateCommittedResource2 */
     HRESULT (NPT_STDMETHODCALLTYPE *CreateCommittedResource2)(void *self, const D3D12_HEAP_PROPERTIES * pHeapProperties, D3D12_HEAP_FLAGS HeapFlags, const D3D12_RESOURCE_DESC1 * pDesc, D3D12_RESOURCE_STATES InitialResourceState, const D3D12_CLEAR_VALUE * pOptimizedClearValue, ID3D12ProtectedResourceSession * pProtectedSession, const IID * riidResource, void ** ppvResource);
     /* slot 70: ID3D12Device8::CreatePlacedResource1 */
@@ -2856,7 +2856,7 @@ struct npt_id3d12device14_client_vtbl {
     /* slot 79: ID3D12Device11::CreateSampler2 */
     void (NPT_STDMETHODCALLTYPE *CreateSampler2)(void *self, const D3D12_SAMPLER_DESC2 * pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
     /* slot 80: ID3D12Device12::GetResourceAllocationInfo3 */
-    D3D12_RESOURCE_ALLOCATION_INFO (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
+    D3D12_RESOURCE_ALLOCATION_INFO * (NPT_STDMETHODCALLTYPE *GetResourceAllocationInfo3)(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1);
     /* slot 81: ID3D12Device13::OpenExistingHeapFromAddress1 */
     HRESULT (NPT_STDMETHODCALLTYPE *OpenExistingHeapFromAddress1)(void *self, const void * pAddress, SIZE_T size, const IID * riid, void ** ppvHeap);
     /* slot 82: ID3D12Device14::CreateRootSignatureFromSubobjectInLibrary */

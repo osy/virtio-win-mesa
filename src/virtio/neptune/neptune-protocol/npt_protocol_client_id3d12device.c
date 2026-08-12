@@ -297,11 +297,18 @@ npt_id3d12device_default_CreateCommandList(void *self, UINT nodeMask, D3D12_COMM
     return _ret;
 }
 
+/* skip_default: ID3D12Device::CheckFeatureSupport -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12device_default_CheckFeatureSupport(void *self, D3D12_FEATURE Feature, void * pFeatureSupportData, UINT FeatureSupportDataSize)
 {
-    HRESULT _ret = npt_call_ID3D12Device_CheckFeatureSupport(npt_com_self_ring(self),npt_com_self_id(self),Feature,pFeatureSupportData,FeatureSupportDataSize);
-    return _ret;
+    (void)self;
+    (void)Feature;
+    (void)pFeatureSupportData;
+    (void)FeatureSupportDataSize;
+    npt_com_assert_overridden("ID3D12Device", "CheckFeatureSupport");
+    return (HRESULT)0x80004005 /* E_FAIL */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -439,18 +446,24 @@ npt_id3d12device_default_CopyDescriptorsSimple(void *self, UINT NumDescriptors, 
     npt_async_ID3D12Device_CopyDescriptorsSimple(npt_com_self_ring(self),npt_com_self_id(self),NumDescriptors,DestDescriptorRangeStart,SrcDescriptorRangeStart,DescriptorHeapsType);
 }
 
-D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetResourceAllocationInfo(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs)
+D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetResourceAllocationInfo(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs)
 {
     D3D12_RESOURCE_ALLOCATION_INFO _ret = npt_call_ID3D12Device_GetResourceAllocationInfo(npt_com_self_ring(self),npt_com_self_id(self),visibleMask,numResourceDescs,pResourceDescs);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
-D3D12_HEAP_PROPERTIES NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetCustomHeapProperties(void *self, UINT nodeMask, D3D12_HEAP_TYPE heapType)
+D3D12_HEAP_PROPERTIES * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetCustomHeapProperties(void *self, D3D12_HEAP_PROPERTIES *_ret_out, UINT nodeMask, D3D12_HEAP_TYPE heapType)
 {
     D3D12_HEAP_PROPERTIES _ret = npt_call_ID3D12Device_GetCustomHeapProperties(npt_com_self_ring(self),npt_com_self_id(self),nodeMask,heapType);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -843,11 +856,14 @@ npt_id3d12device_default_GetResourceTiling(void *self, ID3D12Resource * pTiledRe
     npt_call_ID3D12Device_GetResourceTiling(npt_com_self_ring(self),npt_com_self_id(self),pTiledResource,pNumTilesForEntireResource,pPackedMipDesc,pStandardTileShapeForNonPackedMips,pNumSubresourceTilings,FirstSubresourceTilingToGet,pSubresourceTilingsForNonPackedMips);
 }
 
-LUID NPT_STDMETHODCALLTYPE
-npt_id3d12device_default_GetAdapterLuid(void *self)
+LUID * NPT_STDMETHODCALLTYPE
+npt_id3d12device_default_GetAdapterLuid(void *self, LUID *_ret_out)
 {
     LUID _ret = npt_call_ID3D12Device_GetAdapterLuid(npt_com_self_ring(self),npt_com_self_id(self));
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 
@@ -1859,11 +1875,14 @@ npt_id3d12device4_default_CreateReservedResource1(void *self, const D3D12_RESOUR
     return _ret;
 }
 
-D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device4_default_GetResourceAllocationInfo1(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
+D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device4_default_GetResourceAllocationInfo1(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
 {
     D3D12_RESOURCE_ALLOCATION_INFO _ret = npt_call_ID3D12Device4_GetResourceAllocationInfo1(npt_com_self_ring(self),npt_com_self_id(self),visibleMask,numResourceDescs,pResourceDescs,pResourceAllocationInfo1);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 
@@ -2804,11 +2823,14 @@ npt_id3d12device8_default_Release(void *self)
     return npt_com_default_release(self);
 }
 
-D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device8_default_GetResourceAllocationInfo2(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
+D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device8_default_GetResourceAllocationInfo2(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
 {
     D3D12_RESOURCE_ALLOCATION_INFO _ret = npt_call_ID3D12Device8_GetResourceAllocationInfo2(npt_com_self_ring(self),npt_com_self_id(self),visibleMask,numResourceDescs,pResourceDescs,pResourceAllocationInfo1);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -3886,11 +3908,14 @@ npt_id3d12device12_default_Release(void *self)
     return npt_com_default_release(self);
 }
 
-D3D12_RESOURCE_ALLOCATION_INFO NPT_STDMETHODCALLTYPE
-npt_id3d12device12_default_GetResourceAllocationInfo3(void *self, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
+D3D12_RESOURCE_ALLOCATION_INFO * NPT_STDMETHODCALLTYPE
+npt_id3d12device12_default_GetResourceAllocationInfo3(void *self, D3D12_RESOURCE_ALLOCATION_INFO *_ret_out, UINT visibleMask, UINT numResourceDescs, const D3D12_RESOURCE_DESC1 * pResourceDescs, const UINT32 * pNumCastableFormats, const DXGI_FORMAT ** ppCastableFormats, D3D12_RESOURCE_ALLOCATION_INFO1 * pResourceAllocationInfo1)
 {
     D3D12_RESOURCE_ALLOCATION_INFO _ret = npt_call_ID3D12Device12_GetResourceAllocationInfo3(npt_com_self_ring(self),npt_com_self_id(self),visibleMask,numResourceDescs,pResourceDescs,pNumCastableFormats,ppCastableFormats,pResourceAllocationInfo1);
-    return _ret;
+    /* COM x64 aggregate-return ABI: copy into the caller's hidden
+     * return slot and hand the pointer back. */
+    if (_ret_out) *_ret_out = _ret;
+    return _ret_out;
 }
 
 

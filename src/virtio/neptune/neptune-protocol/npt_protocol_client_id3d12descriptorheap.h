@@ -56,11 +56,11 @@ struct npt_id3d12descriptorheap_client_vtbl {
     /* slot 7: ID3D12DeviceChild::GetDevice */
     HRESULT (NPT_STDMETHODCALLTYPE *GetDevice)(void *self, const IID * riid, void ** ppvDevice);
     /* slot 8: ID3D12DescriptorHeap::GetDesc */
-    D3D12_DESCRIPTOR_HEAP_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_DESCRIPTOR_HEAP_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_DESCRIPTOR_HEAP_DESC *_ret_out);
     /* slot 9: ID3D12DescriptorHeap::GetCPUDescriptorHandleForHeapStart */
-    D3D12_CPU_DESCRIPTOR_HANDLE (NPT_STDMETHODCALLTYPE *GetCPUDescriptorHandleForHeapStart)(void *self);
+    D3D12_CPU_DESCRIPTOR_HANDLE * (NPT_STDMETHODCALLTYPE *GetCPUDescriptorHandleForHeapStart)(void *self, D3D12_CPU_DESCRIPTOR_HANDLE *_ret_out);
     /* slot 10: ID3D12DescriptorHeap::GetGPUDescriptorHandleForHeapStart */
-    D3D12_GPU_DESCRIPTOR_HANDLE (NPT_STDMETHODCALLTYPE *GetGPUDescriptorHandleForHeapStart)(void *self);
+    D3D12_GPU_DESCRIPTOR_HANDLE * (NPT_STDMETHODCALLTYPE *GetGPUDescriptorHandleForHeapStart)(void *self, D3D12_GPU_DESCRIPTOR_HANDLE *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -69,12 +69,12 @@ struct npt_id3d12descriptorheap_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_DESCRIPTOR_HEAP_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12descriptorheap_default_GetDesc(void *self);
-extern D3D12_CPU_DESCRIPTOR_HANDLE NPT_STDMETHODCALLTYPE
-npt_id3d12descriptorheap_default_GetCPUDescriptorHandleForHeapStart(void *self);
-extern D3D12_GPU_DESCRIPTOR_HANDLE NPT_STDMETHODCALLTYPE
-npt_id3d12descriptorheap_default_GetGPUDescriptorHandleForHeapStart(void *self);
+extern D3D12_DESCRIPTOR_HEAP_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12descriptorheap_default_GetDesc(void *self, D3D12_DESCRIPTOR_HEAP_DESC *_ret_out);
+extern D3D12_CPU_DESCRIPTOR_HANDLE * NPT_STDMETHODCALLTYPE
+npt_id3d12descriptorheap_default_GetCPUDescriptorHandleForHeapStart(void *self, D3D12_CPU_DESCRIPTOR_HANDLE *_ret_out);
+extern D3D12_GPU_DESCRIPTOR_HANDLE * NPT_STDMETHODCALLTYPE
+npt_id3d12descriptorheap_default_GetGPUDescriptorHandleForHeapStart(void *self, D3D12_GPU_DESCRIPTOR_HANDLE *_ret_out);
 
 /* Default IUnknown thunks for ID3D12DescriptorHeap.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

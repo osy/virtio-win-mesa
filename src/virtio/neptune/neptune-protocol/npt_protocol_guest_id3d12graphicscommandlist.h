@@ -4400,9 +4400,9 @@ npt_sizeof_ID3D12GraphicsCommandList_OMSetRenderTargets(const UINT NumRenderTarg
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumRenderTargetDescriptors, max_mode);
-    cmd_size += npt_sizeof_simple_pointer(pRenderTargetDescriptors);
-    if (pRenderTargetDescriptors)
-        cmd_size += npt_sizeof_D3D12_CPU_DESCRIPTOR_HANDLE(pRenderTargetDescriptors, max_mode);
+    cmd_size += npt_sizeof_array_count(pRenderTargetDescriptors ? RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors : 0);
+    for (uint32_t _i = 0; _i < (pRenderTargetDescriptors ? RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors : 0); _i++)
+        cmd_size += npt_sizeof_D3D12_CPU_DESCRIPTOR_HANDLE(&pRenderTargetDescriptors[_i], max_mode);
     cmd_size += npt_sizeof_BOOL(&RTsSingleHandleToDescriptorRange, max_mode);
     cmd_size += npt_sizeof_simple_pointer(pDepthStencilDescriptor);
     if (pDepthStencilDescriptor)
@@ -4429,8 +4429,13 @@ npt_encode_ID3D12GraphicsCommandList_OMSetRenderTargets(struct npt_cs_encoder *e
     };
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumRenderTargetDescriptors);
-    if (npt_encode_simple_pointer(enc, pRenderTargetDescriptors))
-        npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, pRenderTargetDescriptors);
+    if (pRenderTargetDescriptors) {
+        npt_encode_array_count(enc, RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors);
+        for (uint32_t _i = 0; _i < (uint32_t)(RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors); _i++)
+            npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, &pRenderTargetDescriptors[_i]);
+    } else {
+        npt_encode_array_count(enc, 0);
+    }
     npt_encode_BOOL(enc, &RTsSingleHandleToDescriptorRange);
     if (npt_encode_simple_pointer(enc, pDepthStencilDescriptor))
         npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, pDepthStencilDescriptor);

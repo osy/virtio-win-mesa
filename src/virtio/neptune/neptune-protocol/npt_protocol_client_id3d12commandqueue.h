@@ -76,7 +76,7 @@ struct npt_id3d12commandqueue_client_vtbl {
     /* slot 17: ID3D12CommandQueue::GetClockCalibration */
     HRESULT (NPT_STDMETHODCALLTYPE *GetClockCalibration)(void *self, UINT64 * pGpuTimestamp, UINT64 * pCpuTimestamp);
     /* slot 18: ID3D12CommandQueue::GetDesc */
-    D3D12_COMMAND_QUEUE_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_COMMAND_QUEUE_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_COMMAND_QUEUE_DESC *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -105,8 +105,8 @@ extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12commandqueue_default_GetTimestampFrequency(void *self, UINT64 * pFrequency);
 extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12commandqueue_default_GetClockCalibration(void *self, UINT64 * pGpuTimestamp, UINT64 * pCpuTimestamp);
-extern D3D12_COMMAND_QUEUE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12commandqueue_default_GetDesc(void *self);
+extern D3D12_COMMAND_QUEUE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12commandqueue_default_GetDesc(void *self, D3D12_COMMAND_QUEUE_DESC *_ret_out);
 
 /* Default IUnknown thunks for ID3D12CommandQueue.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

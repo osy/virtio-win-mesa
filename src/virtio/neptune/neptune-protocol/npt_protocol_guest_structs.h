@@ -17506,297 +17506,297 @@ npt_sizeof_D3D12_STATE_SUBOBJECT(const D3D12_STATE_SUBOBJECT *val, int max_mode)
             return 0;
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pStateObjectConfig);
-            if (val->pStateObjectConfig)
-                _arm += npt_sizeof_D3D12_STATE_OBJECT_CONFIG(val->pStateObjectConfig, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig)
+                _arm += npt_sizeof_D3D12_STATE_OBJECT_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pGlobalRootSignature);
-            if (val->pGlobalRootSignature)
-                _arm += npt_sizeof_D3D12_GLOBAL_ROOT_SIGNATURE(val->pGlobalRootSignature, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature)
+                _arm += npt_sizeof_D3D12_GLOBAL_ROOT_SIGNATURE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pLocalRootSignature);
-            if (val->pLocalRootSignature)
-                _arm += npt_sizeof_D3D12_LOCAL_ROOT_SIGNATURE(val->pLocalRootSignature, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature)
+                _arm += npt_sizeof_D3D12_LOCAL_ROOT_SIGNATURE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pNodeMask);
-            if (val->pNodeMask)
-                _arm += npt_sizeof_D3D12_NODE_MASK(val->pNodeMask, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask)
+                _arm += npt_sizeof_D3D12_NODE_MASK(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDxilLibrary);
-            if (val->pDxilLibrary)
-                _arm += npt_sizeof_D3D12_DXIL_LIBRARY_DESC(val->pDxilLibrary, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary)
+                _arm += npt_sizeof_D3D12_DXIL_LIBRARY_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pExistingCollection);
-            if (val->pExistingCollection)
-                _arm += npt_sizeof_D3D12_EXISTING_COLLECTION_DESC(val->pExistingCollection, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection)
+                _arm += npt_sizeof_D3D12_EXISTING_COLLECTION_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pSubobjectToExportsAssociation);
-            if (val->pSubobjectToExportsAssociation)
-                _arm += npt_sizeof_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(val->pSubobjectToExportsAssociation, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation)
+                _arm += npt_sizeof_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDxilSubobjectToExportsAssociation);
-            if (val->pDxilSubobjectToExportsAssociation)
-                _arm += npt_sizeof_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(val->pDxilSubobjectToExportsAssociation, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation)
+                _arm += npt_sizeof_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pRaytracingShaderConfig);
-            if (val->pRaytracingShaderConfig)
-                _arm += npt_sizeof_D3D12_RAYTRACING_SHADER_CONFIG(val->pRaytracingShaderConfig, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig)
+                _arm += npt_sizeof_D3D12_RAYTRACING_SHADER_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pRaytracingPipelineConfig);
-            if (val->pRaytracingPipelineConfig)
-                _arm += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG(val->pRaytracingPipelineConfig, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig)
+                _arm += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pHitGroup);
-            if (val->pHitGroup)
-                _arm += npt_sizeof_D3D12_HIT_GROUP_DESC(val->pHitGroup, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup)
+                _arm += npt_sizeof_D3D12_HIT_GROUP_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pRaytracingPipelineConfig1);
-            if (val->pRaytracingPipelineConfig1)
-                _arm += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG1(val->pRaytracingPipelineConfig1, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1)
+                _arm += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG1(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pWorkGraph);
-            if (val->pWorkGraph)
-                _arm += npt_sizeof_D3D12_WORK_GRAPH_DESC(val->pWorkGraph, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph)
+                _arm += npt_sizeof_D3D12_WORK_GRAPH_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pStreamOutput);
-            if (val->pStreamOutput)
-                _arm += npt_sizeof_D3D12_STREAM_OUTPUT_DESC(val->pStreamOutput, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput)
+                _arm += npt_sizeof_D3D12_STREAM_OUTPUT_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pBlend);
-            if (val->pBlend)
-                _arm += npt_sizeof_D3D12_BLEND_DESC(val->pBlend, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend)
+                _arm += npt_sizeof_D3D12_BLEND_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pSampleMask);
-            if (val->pSampleMask)
-                _arm += npt_sizeof_UINT(val->pSampleMask, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask)
+                _arm += npt_sizeof_UINT(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pRasterizer);
-            if (val->pRasterizer)
-                _arm += npt_sizeof_D3D12_RASTERIZER_DESC(val->pRasterizer, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer)
+                _arm += npt_sizeof_D3D12_RASTERIZER_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDepthStencil);
-            if (val->pDepthStencil)
-                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC(val->pDepthStencil, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil)
+                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pInputLayout);
-            if (val->pInputLayout)
-                _arm += npt_sizeof_D3D12_INPUT_LAYOUT_DESC(val->pInputLayout, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout)
+                _arm += npt_sizeof_D3D12_INPUT_LAYOUT_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pIBStripCutValue);
-            if (val->pIBStripCutValue)
-                _arm += npt_sizeof_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(val->pIBStripCutValue, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue)
+                _arm += npt_sizeof_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pPrimitiveTopology);
-            if (val->pPrimitiveTopology)
-                _arm += npt_sizeof_D3D12_PRIMITIVE_TOPOLOGY_TYPE(val->pPrimitiveTopology, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology)
+                _arm += npt_sizeof_D3D12_PRIMITIVE_TOPOLOGY_TYPE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pRenderTargetFormats);
-            if (val->pRenderTargetFormats)
-                _arm += npt_sizeof_D3D12_RT_FORMAT_ARRAY(val->pRenderTargetFormats, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats)
+                _arm += npt_sizeof_D3D12_RT_FORMAT_ARRAY(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDepthStencilFormat);
-            if (val->pDepthStencilFormat)
-                _arm += npt_sizeof_DXGI_FORMAT(val->pDepthStencilFormat, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat)
+                _arm += npt_sizeof_DXGI_FORMAT(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pSampleDesc);
-            if (val->pSampleDesc)
-                _arm += npt_sizeof_DXGI_SAMPLE_DESC(val->pSampleDesc, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc)
+                _arm += npt_sizeof_DXGI_SAMPLE_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pFlags);
-            if (val->pFlags)
-                _arm += npt_sizeof_D3D12_PIPELINE_STATE_FLAGS(val->pFlags, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags)
+                _arm += npt_sizeof_D3D12_PIPELINE_STATE_FLAGS(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDepthStencil1);
-            if (val->pDepthStencil1)
-                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC1(val->pDepthStencil1, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1)
+                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC1(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pViewInstancing);
-            if (val->pViewInstancing)
-                _arm += npt_sizeof_D3D12_VIEW_INSTANCING_DESC(val->pViewInstancing, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing)
+                _arm += npt_sizeof_D3D12_VIEW_INSTANCING_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pGenericProgram);
-            if (val->pGenericProgram)
-                _arm += npt_sizeof_D3D12_GENERIC_PROGRAM_DESC(val->pGenericProgram, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram)
+                _arm += npt_sizeof_D3D12_GENERIC_PROGRAM_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         { size_t _arm = 0;
-            _arm += npt_sizeof_simple_pointer(val->pDepthStencil2);
-            if (val->pDepthStencil2)
-                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC2(val->pDepthStencil2, max_mode);
+            _arm += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2);
+            if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2)
+                _arm += npt_sizeof_D3D12_DEPTH_STENCIL_DESC2(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2, max_mode);
             if (_arm > _arm_max) _arm_max = _arm; }
         size += _arm_max;
     } else {
         /* pDesc: condition=false, always skip */
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG) {
-        size += npt_sizeof_simple_pointer(val->pStateObjectConfig);
-        if (val->pStateObjectConfig)
-            size += npt_sizeof_D3D12_STATE_OBJECT_CONFIG(val->pStateObjectConfig, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig)
+            size += npt_sizeof_D3D12_STATE_OBJECT_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE) {
-        size += npt_sizeof_simple_pointer(val->pGlobalRootSignature);
-        if (val->pGlobalRootSignature)
-            size += npt_sizeof_D3D12_GLOBAL_ROOT_SIGNATURE(val->pGlobalRootSignature, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature)
+            size += npt_sizeof_D3D12_GLOBAL_ROOT_SIGNATURE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE) {
-        size += npt_sizeof_simple_pointer(val->pLocalRootSignature);
-        if (val->pLocalRootSignature)
-            size += npt_sizeof_D3D12_LOCAL_ROOT_SIGNATURE(val->pLocalRootSignature, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature)
+            size += npt_sizeof_D3D12_LOCAL_ROOT_SIGNATURE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK) {
-        size += npt_sizeof_simple_pointer(val->pNodeMask);
-        if (val->pNodeMask)
-            size += npt_sizeof_D3D12_NODE_MASK(val->pNodeMask, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask)
+            size += npt_sizeof_D3D12_NODE_MASK(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
-        size += npt_sizeof_simple_pointer(val->pDxilLibrary);
-        if (val->pDxilLibrary)
-            size += npt_sizeof_D3D12_DXIL_LIBRARY_DESC(val->pDxilLibrary, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary)
+            size += npt_sizeof_D3D12_DXIL_LIBRARY_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION) {
-        size += npt_sizeof_simple_pointer(val->pExistingCollection);
-        if (val->pExistingCollection)
-            size += npt_sizeof_D3D12_EXISTING_COLLECTION_DESC(val->pExistingCollection, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection)
+            size += npt_sizeof_D3D12_EXISTING_COLLECTION_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
-        size += npt_sizeof_simple_pointer(val->pSubobjectToExportsAssociation);
-        if (val->pSubobjectToExportsAssociation)
-            size += npt_sizeof_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(val->pSubobjectToExportsAssociation, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation)
+            size += npt_sizeof_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
-        size += npt_sizeof_simple_pointer(val->pDxilSubobjectToExportsAssociation);
-        if (val->pDxilSubobjectToExportsAssociation)
-            size += npt_sizeof_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(val->pDxilSubobjectToExportsAssociation, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation)
+            size += npt_sizeof_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG) {
-        size += npt_sizeof_simple_pointer(val->pRaytracingShaderConfig);
-        if (val->pRaytracingShaderConfig)
-            size += npt_sizeof_D3D12_RAYTRACING_SHADER_CONFIG(val->pRaytracingShaderConfig, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig)
+            size += npt_sizeof_D3D12_RAYTRACING_SHADER_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG) {
-        size += npt_sizeof_simple_pointer(val->pRaytracingPipelineConfig);
-        if (val->pRaytracingPipelineConfig)
-            size += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG(val->pRaytracingPipelineConfig, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig)
+            size += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
-        size += npt_sizeof_simple_pointer(val->pHitGroup);
-        if (val->pHitGroup)
-            size += npt_sizeof_D3D12_HIT_GROUP_DESC(val->pHitGroup, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup)
+            size += npt_sizeof_D3D12_HIT_GROUP_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1) {
-        size += npt_sizeof_simple_pointer(val->pRaytracingPipelineConfig1);
-        if (val->pRaytracingPipelineConfig1)
-            size += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG1(val->pRaytracingPipelineConfig1, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1)
+            size += npt_sizeof_D3D12_RAYTRACING_PIPELINE_CONFIG1(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH) {
-        size += npt_sizeof_simple_pointer(val->pWorkGraph);
-        if (val->pWorkGraph)
-            size += npt_sizeof_D3D12_WORK_GRAPH_DESC(val->pWorkGraph, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph)
+            size += npt_sizeof_D3D12_WORK_GRAPH_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT) {
-        size += npt_sizeof_simple_pointer(val->pStreamOutput);
-        if (val->pStreamOutput)
-            size += npt_sizeof_D3D12_STREAM_OUTPUT_DESC(val->pStreamOutput, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput)
+            size += npt_sizeof_D3D12_STREAM_OUTPUT_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_BLEND) {
-        size += npt_sizeof_simple_pointer(val->pBlend);
-        if (val->pBlend)
-            size += npt_sizeof_D3D12_BLEND_DESC(val->pBlend, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend)
+            size += npt_sizeof_D3D12_BLEND_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_MASK) {
-        size += npt_sizeof_simple_pointer(val->pSampleMask);
-        if (val->pSampleMask)
-            size += npt_sizeof_UINT(val->pSampleMask, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask)
+            size += npt_sizeof_UINT(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RASTERIZER) {
-        size += npt_sizeof_simple_pointer(val->pRasterizer);
-        if (val->pRasterizer)
-            size += npt_sizeof_D3D12_RASTERIZER_DESC(val->pRasterizer, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer)
+            size += npt_sizeof_D3D12_RASTERIZER_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL) {
-        size += npt_sizeof_simple_pointer(val->pDepthStencil);
-        if (val->pDepthStencil)
-            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC(val->pDepthStencil, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil)
+            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT) {
-        size += npt_sizeof_simple_pointer(val->pInputLayout);
-        if (val->pInputLayout)
-            size += npt_sizeof_D3D12_INPUT_LAYOUT_DESC(val->pInputLayout, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout)
+            size += npt_sizeof_D3D12_INPUT_LAYOUT_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE) {
-        size += npt_sizeof_simple_pointer(val->pIBStripCutValue);
-        if (val->pIBStripCutValue)
-            size += npt_sizeof_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(val->pIBStripCutValue, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue)
+            size += npt_sizeof_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY) {
-        size += npt_sizeof_simple_pointer(val->pPrimitiveTopology);
-        if (val->pPrimitiveTopology)
-            size += npt_sizeof_D3D12_PRIMITIVE_TOPOLOGY_TYPE(val->pPrimitiveTopology, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology)
+            size += npt_sizeof_D3D12_PRIMITIVE_TOPOLOGY_TYPE(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS) {
-        size += npt_sizeof_simple_pointer(val->pRenderTargetFormats);
-        if (val->pRenderTargetFormats)
-            size += npt_sizeof_D3D12_RT_FORMAT_ARRAY(val->pRenderTargetFormats, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats)
+            size += npt_sizeof_D3D12_RT_FORMAT_ARRAY(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT) {
-        size += npt_sizeof_simple_pointer(val->pDepthStencilFormat);
-        if (val->pDepthStencilFormat)
-            size += npt_sizeof_DXGI_FORMAT(val->pDepthStencilFormat, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat)
+            size += npt_sizeof_DXGI_FORMAT(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_DESC) {
-        size += npt_sizeof_simple_pointer(val->pSampleDesc);
-        if (val->pSampleDesc)
-            size += npt_sizeof_DXGI_SAMPLE_DESC(val->pSampleDesc, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc)
+            size += npt_sizeof_DXGI_SAMPLE_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_FLAGS) {
-        size += npt_sizeof_simple_pointer(val->pFlags);
-        if (val->pFlags)
-            size += npt_sizeof_D3D12_PIPELINE_STATE_FLAGS(val->pFlags, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags)
+            size += npt_sizeof_D3D12_PIPELINE_STATE_FLAGS(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1) {
-        size += npt_sizeof_simple_pointer(val->pDepthStencil1);
-        if (val->pDepthStencil1)
-            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC1(val->pDepthStencil1, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1)
+            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC1(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING) {
-        size += npt_sizeof_simple_pointer(val->pViewInstancing);
-        if (val->pViewInstancing)
-            size += npt_sizeof_D3D12_VIEW_INSTANCING_DESC(val->pViewInstancing, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing)
+            size += npt_sizeof_D3D12_VIEW_INSTANCING_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GENERIC_PROGRAM) {
-        size += npt_sizeof_simple_pointer(val->pGenericProgram);
-        if (val->pGenericProgram)
-            size += npt_sizeof_D3D12_GENERIC_PROGRAM_DESC(val->pGenericProgram, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram)
+            size += npt_sizeof_D3D12_GENERIC_PROGRAM_DESC(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram, max_mode);
         }
         if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2) {
-        size += npt_sizeof_simple_pointer(val->pDepthStencil2);
-        if (val->pDepthStencil2)
-            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC2(val->pDepthStencil2, max_mode);
+        size += npt_sizeof_simple_pointer(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2);
+        if (((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2)
+            size += npt_sizeof_D3D12_DEPTH_STENCIL_DESC2(((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2, max_mode);
         }
     }
     return size;
@@ -17808,120 +17808,120 @@ npt_encode_D3D12_STATE_SUBOBJECT(struct npt_cs_encoder *enc, const D3D12_STATE_S
     npt_encode_D3D12_STATE_SUBOBJECT_TYPE(enc, &val->Type);
     /* pDesc: condition=false, always skip */
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG) {
-    if (npt_encode_simple_pointer(enc, val->pStateObjectConfig))
-        npt_encode_D3D12_STATE_OBJECT_CONFIG(enc, val->pStateObjectConfig);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig))
+        npt_encode_D3D12_STATE_OBJECT_CONFIG(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE) {
-    if (npt_encode_simple_pointer(enc, val->pGlobalRootSignature))
-        npt_encode_D3D12_GLOBAL_ROOT_SIGNATURE(enc, val->pGlobalRootSignature);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature))
+        npt_encode_D3D12_GLOBAL_ROOT_SIGNATURE(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE) {
-    if (npt_encode_simple_pointer(enc, val->pLocalRootSignature))
-        npt_encode_D3D12_LOCAL_ROOT_SIGNATURE(enc, val->pLocalRootSignature);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature))
+        npt_encode_D3D12_LOCAL_ROOT_SIGNATURE(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK) {
-    if (npt_encode_simple_pointer(enc, val->pNodeMask))
-        npt_encode_D3D12_NODE_MASK(enc, val->pNodeMask);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask))
+        npt_encode_D3D12_NODE_MASK(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
-    if (npt_encode_simple_pointer(enc, val->pDxilLibrary))
-        npt_encode_D3D12_DXIL_LIBRARY_DESC(enc, val->pDxilLibrary);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary))
+        npt_encode_D3D12_DXIL_LIBRARY_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION) {
-    if (npt_encode_simple_pointer(enc, val->pExistingCollection))
-        npt_encode_D3D12_EXISTING_COLLECTION_DESC(enc, val->pExistingCollection);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection))
+        npt_encode_D3D12_EXISTING_COLLECTION_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
-    if (npt_encode_simple_pointer(enc, val->pSubobjectToExportsAssociation))
-        npt_encode_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(enc, val->pSubobjectToExportsAssociation);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation))
+        npt_encode_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
-    if (npt_encode_simple_pointer(enc, val->pDxilSubobjectToExportsAssociation))
-        npt_encode_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(enc, val->pDxilSubobjectToExportsAssociation);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation))
+        npt_encode_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG) {
-    if (npt_encode_simple_pointer(enc, val->pRaytracingShaderConfig))
-        npt_encode_D3D12_RAYTRACING_SHADER_CONFIG(enc, val->pRaytracingShaderConfig);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig))
+        npt_encode_D3D12_RAYTRACING_SHADER_CONFIG(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG) {
-    if (npt_encode_simple_pointer(enc, val->pRaytracingPipelineConfig))
-        npt_encode_D3D12_RAYTRACING_PIPELINE_CONFIG(enc, val->pRaytracingPipelineConfig);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig))
+        npt_encode_D3D12_RAYTRACING_PIPELINE_CONFIG(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
-    if (npt_encode_simple_pointer(enc, val->pHitGroup))
-        npt_encode_D3D12_HIT_GROUP_DESC(enc, val->pHitGroup);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup))
+        npt_encode_D3D12_HIT_GROUP_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1) {
-    if (npt_encode_simple_pointer(enc, val->pRaytracingPipelineConfig1))
-        npt_encode_D3D12_RAYTRACING_PIPELINE_CONFIG1(enc, val->pRaytracingPipelineConfig1);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1))
+        npt_encode_D3D12_RAYTRACING_PIPELINE_CONFIG1(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH) {
-    if (npt_encode_simple_pointer(enc, val->pWorkGraph))
-        npt_encode_D3D12_WORK_GRAPH_DESC(enc, val->pWorkGraph);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph))
+        npt_encode_D3D12_WORK_GRAPH_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT) {
-    if (npt_encode_simple_pointer(enc, val->pStreamOutput))
-        npt_encode_D3D12_STREAM_OUTPUT_DESC(enc, val->pStreamOutput);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput))
+        npt_encode_D3D12_STREAM_OUTPUT_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_BLEND) {
-    if (npt_encode_simple_pointer(enc, val->pBlend))
-        npt_encode_D3D12_BLEND_DESC(enc, val->pBlend);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend))
+        npt_encode_D3D12_BLEND_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_MASK) {
-    if (npt_encode_simple_pointer(enc, val->pSampleMask))
-        npt_encode_UINT(enc, val->pSampleMask);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask))
+        npt_encode_UINT(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RASTERIZER) {
-    if (npt_encode_simple_pointer(enc, val->pRasterizer))
-        npt_encode_D3D12_RASTERIZER_DESC(enc, val->pRasterizer);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer))
+        npt_encode_D3D12_RASTERIZER_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL) {
-    if (npt_encode_simple_pointer(enc, val->pDepthStencil))
-        npt_encode_D3D12_DEPTH_STENCIL_DESC(enc, val->pDepthStencil);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil))
+        npt_encode_D3D12_DEPTH_STENCIL_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT) {
-    if (npt_encode_simple_pointer(enc, val->pInputLayout))
-        npt_encode_D3D12_INPUT_LAYOUT_DESC(enc, val->pInputLayout);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout))
+        npt_encode_D3D12_INPUT_LAYOUT_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE) {
-    if (npt_encode_simple_pointer(enc, val->pIBStripCutValue))
-        npt_encode_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(enc, val->pIBStripCutValue);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue))
+        npt_encode_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY) {
-    if (npt_encode_simple_pointer(enc, val->pPrimitiveTopology))
-        npt_encode_D3D12_PRIMITIVE_TOPOLOGY_TYPE(enc, val->pPrimitiveTopology);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology))
+        npt_encode_D3D12_PRIMITIVE_TOPOLOGY_TYPE(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS) {
-    if (npt_encode_simple_pointer(enc, val->pRenderTargetFormats))
-        npt_encode_D3D12_RT_FORMAT_ARRAY(enc, val->pRenderTargetFormats);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats))
+        npt_encode_D3D12_RT_FORMAT_ARRAY(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT) {
-    if (npt_encode_simple_pointer(enc, val->pDepthStencilFormat))
-        npt_encode_DXGI_FORMAT(enc, val->pDepthStencilFormat);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat))
+        npt_encode_DXGI_FORMAT(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_DESC) {
-    if (npt_encode_simple_pointer(enc, val->pSampleDesc))
-        npt_encode_DXGI_SAMPLE_DESC(enc, val->pSampleDesc);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc))
+        npt_encode_DXGI_SAMPLE_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_FLAGS) {
-    if (npt_encode_simple_pointer(enc, val->pFlags))
-        npt_encode_D3D12_PIPELINE_STATE_FLAGS(enc, val->pFlags);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags))
+        npt_encode_D3D12_PIPELINE_STATE_FLAGS(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1) {
-    if (npt_encode_simple_pointer(enc, val->pDepthStencil1))
-        npt_encode_D3D12_DEPTH_STENCIL_DESC1(enc, val->pDepthStencil1);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1))
+        npt_encode_D3D12_DEPTH_STENCIL_DESC1(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING) {
-    if (npt_encode_simple_pointer(enc, val->pViewInstancing))
-        npt_encode_D3D12_VIEW_INSTANCING_DESC(enc, val->pViewInstancing);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing))
+        npt_encode_D3D12_VIEW_INSTANCING_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GENERIC_PROGRAM) {
-    if (npt_encode_simple_pointer(enc, val->pGenericProgram))
-        npt_encode_D3D12_GENERIC_PROGRAM_DESC(enc, val->pGenericProgram);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram))
+        npt_encode_D3D12_GENERIC_PROGRAM_DESC(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram);
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2) {
-    if (npt_encode_simple_pointer(enc, val->pDepthStencil2))
-        npt_encode_D3D12_DEPTH_STENCIL_DESC2(enc, val->pDepthStencil2);
+    if (npt_encode_simple_pointer(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2))
+        npt_encode_D3D12_DEPTH_STENCIL_DESC2(enc, ((const D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2);
     }
 }
 
@@ -17932,291 +17932,291 @@ npt_decode_D3D12_STATE_SUBOBJECT(struct npt_cs_decoder *dec, D3D12_STATE_SUBOBJE
     /* pDesc: condition=false, always skip */
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pStateObjectConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_STATE_OBJECT_CONFIG));
-        if (!val->pStateObjectConfig) return;
-        npt_decode_D3D12_STATE_OBJECT_CONFIG(dec, (D3D12_STATE_OBJECT_CONFIG *)val->pStateObjectConfig);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_STATE_OBJECT_CONFIG));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig) return;
+        npt_decode_D3D12_STATE_OBJECT_CONFIG(dec, (D3D12_STATE_OBJECT_CONFIG *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig);
     } else {
-        val->pStateObjectConfig = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStateObjectConfig = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pGlobalRootSignature = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_GLOBAL_ROOT_SIGNATURE));
-        if (!val->pGlobalRootSignature) return;
-        npt_decode_D3D12_GLOBAL_ROOT_SIGNATURE(dec, (D3D12_GLOBAL_ROOT_SIGNATURE *)val->pGlobalRootSignature);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_GLOBAL_ROOT_SIGNATURE));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature) return;
+        npt_decode_D3D12_GLOBAL_ROOT_SIGNATURE(dec, (D3D12_GLOBAL_ROOT_SIGNATURE *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature);
     } else {
-        val->pGlobalRootSignature = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGlobalRootSignature = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pLocalRootSignature = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_LOCAL_ROOT_SIGNATURE));
-        if (!val->pLocalRootSignature) return;
-        npt_decode_D3D12_LOCAL_ROOT_SIGNATURE(dec, (D3D12_LOCAL_ROOT_SIGNATURE *)val->pLocalRootSignature);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_LOCAL_ROOT_SIGNATURE));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature) return;
+        npt_decode_D3D12_LOCAL_ROOT_SIGNATURE(dec, (D3D12_LOCAL_ROOT_SIGNATURE *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature);
     } else {
-        val->pLocalRootSignature = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pLocalRootSignature = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pNodeMask = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_NODE_MASK));
-        if (!val->pNodeMask) return;
-        npt_decode_D3D12_NODE_MASK(dec, (D3D12_NODE_MASK *)val->pNodeMask);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_NODE_MASK));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask) return;
+        npt_decode_D3D12_NODE_MASK(dec, (D3D12_NODE_MASK *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask);
     } else {
-        val->pNodeMask = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pNodeMask = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDxilLibrary = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DXIL_LIBRARY_DESC));
-        if (!val->pDxilLibrary) return;
-        npt_decode_D3D12_DXIL_LIBRARY_DESC(dec, (D3D12_DXIL_LIBRARY_DESC *)val->pDxilLibrary);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DXIL_LIBRARY_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary) return;
+        npt_decode_D3D12_DXIL_LIBRARY_DESC(dec, (D3D12_DXIL_LIBRARY_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary);
     } else {
-        val->pDxilLibrary = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilLibrary = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pExistingCollection = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_EXISTING_COLLECTION_DESC));
-        if (!val->pExistingCollection) return;
-        npt_decode_D3D12_EXISTING_COLLECTION_DESC(dec, (D3D12_EXISTING_COLLECTION_DESC *)val->pExistingCollection);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_EXISTING_COLLECTION_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection) return;
+        npt_decode_D3D12_EXISTING_COLLECTION_DESC(dec, (D3D12_EXISTING_COLLECTION_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection);
     } else {
-        val->pExistingCollection = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pExistingCollection = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pSubobjectToExportsAssociation = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION));
-        if (!val->pSubobjectToExportsAssociation) return;
-        npt_decode_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(dec, (D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)val->pSubobjectToExportsAssociation);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation) return;
+        npt_decode_D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION(dec, (D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation);
     } else {
-        val->pSubobjectToExportsAssociation = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSubobjectToExportsAssociation = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDxilSubobjectToExportsAssociation = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION));
-        if (!val->pDxilSubobjectToExportsAssociation) return;
-        npt_decode_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(dec, (D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)val->pDxilSubobjectToExportsAssociation);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation) return;
+        npt_decode_D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION(dec, (D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation);
     } else {
-        val->pDxilSubobjectToExportsAssociation = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDxilSubobjectToExportsAssociation = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pRaytracingShaderConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_SHADER_CONFIG));
-        if (!val->pRaytracingShaderConfig) return;
-        npt_decode_D3D12_RAYTRACING_SHADER_CONFIG(dec, (D3D12_RAYTRACING_SHADER_CONFIG *)val->pRaytracingShaderConfig);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_SHADER_CONFIG));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig) return;
+        npt_decode_D3D12_RAYTRACING_SHADER_CONFIG(dec, (D3D12_RAYTRACING_SHADER_CONFIG *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig);
     } else {
-        val->pRaytracingShaderConfig = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingShaderConfig = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pRaytracingPipelineConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG));
-        if (!val->pRaytracingPipelineConfig) return;
-        npt_decode_D3D12_RAYTRACING_PIPELINE_CONFIG(dec, (D3D12_RAYTRACING_PIPELINE_CONFIG *)val->pRaytracingPipelineConfig);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig) return;
+        npt_decode_D3D12_RAYTRACING_PIPELINE_CONFIG(dec, (D3D12_RAYTRACING_PIPELINE_CONFIG *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig);
     } else {
-        val->pRaytracingPipelineConfig = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pHitGroup = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_HIT_GROUP_DESC));
-        if (!val->pHitGroup) return;
-        npt_decode_D3D12_HIT_GROUP_DESC(dec, (D3D12_HIT_GROUP_DESC *)val->pHitGroup);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_HIT_GROUP_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup) return;
+        npt_decode_D3D12_HIT_GROUP_DESC(dec, (D3D12_HIT_GROUP_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup);
     } else {
-        val->pHitGroup = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pHitGroup = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pRaytracingPipelineConfig1 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG1));
-        if (!val->pRaytracingPipelineConfig1) return;
-        npt_decode_D3D12_RAYTRACING_PIPELINE_CONFIG1(dec, (D3D12_RAYTRACING_PIPELINE_CONFIG1 *)val->pRaytracingPipelineConfig1);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG1));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1) return;
+        npt_decode_D3D12_RAYTRACING_PIPELINE_CONFIG1(dec, (D3D12_RAYTRACING_PIPELINE_CONFIG1 *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1);
     } else {
-        val->pRaytracingPipelineConfig1 = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRaytracingPipelineConfig1 = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pWorkGraph = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_WORK_GRAPH_DESC));
-        if (!val->pWorkGraph) return;
-        npt_decode_D3D12_WORK_GRAPH_DESC(dec, (D3D12_WORK_GRAPH_DESC *)val->pWorkGraph);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_WORK_GRAPH_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph) return;
+        npt_decode_D3D12_WORK_GRAPH_DESC(dec, (D3D12_WORK_GRAPH_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph);
     } else {
-        val->pWorkGraph = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pWorkGraph = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pStreamOutput = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_STREAM_OUTPUT_DESC));
-        if (!val->pStreamOutput) return;
-        npt_decode_D3D12_STREAM_OUTPUT_DESC(dec, (D3D12_STREAM_OUTPUT_DESC *)val->pStreamOutput);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_STREAM_OUTPUT_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput) return;
+        npt_decode_D3D12_STREAM_OUTPUT_DESC(dec, (D3D12_STREAM_OUTPUT_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput);
     } else {
-        val->pStreamOutput = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pStreamOutput = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_BLEND) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pBlend = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_BLEND_DESC));
-        if (!val->pBlend) return;
-        npt_decode_D3D12_BLEND_DESC(dec, (D3D12_BLEND_DESC *)val->pBlend);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_BLEND_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend) return;
+        npt_decode_D3D12_BLEND_DESC(dec, (D3D12_BLEND_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend);
     } else {
-        val->pBlend = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pBlend = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_MASK) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pSampleMask = npt_cs_decoder_alloc_temp(dec, sizeof(UINT));
-        if (!val->pSampleMask) return;
-        npt_decode_UINT(dec, (UINT *)val->pSampleMask);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask = npt_cs_decoder_alloc_temp(dec, sizeof(UINT));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask) return;
+        npt_decode_UINT(dec, (UINT *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask);
     } else {
-        val->pSampleMask = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleMask = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RASTERIZER) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pRasterizer = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RASTERIZER_DESC));
-        if (!val->pRasterizer) return;
-        npt_decode_D3D12_RASTERIZER_DESC(dec, (D3D12_RASTERIZER_DESC *)val->pRasterizer);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RASTERIZER_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer) return;
+        npt_decode_D3D12_RASTERIZER_DESC(dec, (D3D12_RASTERIZER_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer);
     } else {
-        val->pRasterizer = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRasterizer = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDepthStencil = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC));
-        if (!val->pDepthStencil) return;
-        npt_decode_D3D12_DEPTH_STENCIL_DESC(dec, (D3D12_DEPTH_STENCIL_DESC *)val->pDepthStencil);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil) return;
+        npt_decode_D3D12_DEPTH_STENCIL_DESC(dec, (D3D12_DEPTH_STENCIL_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil);
     } else {
-        val->pDepthStencil = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pInputLayout = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_INPUT_LAYOUT_DESC));
-        if (!val->pInputLayout) return;
-        npt_decode_D3D12_INPUT_LAYOUT_DESC(dec, (D3D12_INPUT_LAYOUT_DESC *)val->pInputLayout);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_INPUT_LAYOUT_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout) return;
+        npt_decode_D3D12_INPUT_LAYOUT_DESC(dec, (D3D12_INPUT_LAYOUT_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout);
     } else {
-        val->pInputLayout = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pInputLayout = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pIBStripCutValue = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE));
-        if (!val->pIBStripCutValue) return;
-        npt_decode_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(dec, (D3D12_INDEX_BUFFER_STRIP_CUT_VALUE *)val->pIBStripCutValue);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue) return;
+        npt_decode_D3D12_INDEX_BUFFER_STRIP_CUT_VALUE(dec, (D3D12_INDEX_BUFFER_STRIP_CUT_VALUE *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue);
     } else {
-        val->pIBStripCutValue = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pIBStripCutValue = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pPrimitiveTopology = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_PRIMITIVE_TOPOLOGY_TYPE));
-        if (!val->pPrimitiveTopology) return;
-        npt_decode_D3D12_PRIMITIVE_TOPOLOGY_TYPE(dec, (D3D12_PRIMITIVE_TOPOLOGY_TYPE *)val->pPrimitiveTopology);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_PRIMITIVE_TOPOLOGY_TYPE));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology) return;
+        npt_decode_D3D12_PRIMITIVE_TOPOLOGY_TYPE(dec, (D3D12_PRIMITIVE_TOPOLOGY_TYPE *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology);
     } else {
-        val->pPrimitiveTopology = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pPrimitiveTopology = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pRenderTargetFormats = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RT_FORMAT_ARRAY));
-        if (!val->pRenderTargetFormats) return;
-        npt_decode_D3D12_RT_FORMAT_ARRAY(dec, (D3D12_RT_FORMAT_ARRAY *)val->pRenderTargetFormats);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_RT_FORMAT_ARRAY));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats) return;
+        npt_decode_D3D12_RT_FORMAT_ARRAY(dec, (D3D12_RT_FORMAT_ARRAY *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats);
     } else {
-        val->pRenderTargetFormats = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pRenderTargetFormats = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDepthStencilFormat = npt_cs_decoder_alloc_temp(dec, sizeof(DXGI_FORMAT));
-        if (!val->pDepthStencilFormat) return;
-        npt_decode_DXGI_FORMAT(dec, (DXGI_FORMAT *)val->pDepthStencilFormat);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat = npt_cs_decoder_alloc_temp(dec, sizeof(DXGI_FORMAT));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat) return;
+        npt_decode_DXGI_FORMAT(dec, (DXGI_FORMAT *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat);
     } else {
-        val->pDepthStencilFormat = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencilFormat = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_DESC) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pSampleDesc = npt_cs_decoder_alloc_temp(dec, sizeof(DXGI_SAMPLE_DESC));
-        if (!val->pSampleDesc) return;
-        npt_decode_DXGI_SAMPLE_DESC(dec, (DXGI_SAMPLE_DESC *)val->pSampleDesc);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc = npt_cs_decoder_alloc_temp(dec, sizeof(DXGI_SAMPLE_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc) return;
+        npt_decode_DXGI_SAMPLE_DESC(dec, (DXGI_SAMPLE_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc);
     } else {
-        val->pSampleDesc = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pSampleDesc = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_FLAGS) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pFlags = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_PIPELINE_STATE_FLAGS));
-        if (!val->pFlags) return;
-        npt_decode_D3D12_PIPELINE_STATE_FLAGS(dec, (D3D12_PIPELINE_STATE_FLAGS *)val->pFlags);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_PIPELINE_STATE_FLAGS));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags) return;
+        npt_decode_D3D12_PIPELINE_STATE_FLAGS(dec, (D3D12_PIPELINE_STATE_FLAGS *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags);
     } else {
-        val->pFlags = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pFlags = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDepthStencil1 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC1));
-        if (!val->pDepthStencil1) return;
-        npt_decode_D3D12_DEPTH_STENCIL_DESC1(dec, (D3D12_DEPTH_STENCIL_DESC1 *)val->pDepthStencil1);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC1));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1) return;
+        npt_decode_D3D12_DEPTH_STENCIL_DESC1(dec, (D3D12_DEPTH_STENCIL_DESC1 *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1);
     } else {
-        val->pDepthStencil1 = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil1 = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pViewInstancing = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_VIEW_INSTANCING_DESC));
-        if (!val->pViewInstancing) return;
-        npt_decode_D3D12_VIEW_INSTANCING_DESC(dec, (D3D12_VIEW_INSTANCING_DESC *)val->pViewInstancing);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_VIEW_INSTANCING_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing) return;
+        npt_decode_D3D12_VIEW_INSTANCING_DESC(dec, (D3D12_VIEW_INSTANCING_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing);
     } else {
-        val->pViewInstancing = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pViewInstancing = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_GENERIC_PROGRAM) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pGenericProgram = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_GENERIC_PROGRAM_DESC));
-        if (!val->pGenericProgram) return;
-        npt_decode_D3D12_GENERIC_PROGRAM_DESC(dec, (D3D12_GENERIC_PROGRAM_DESC *)val->pGenericProgram);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_GENERIC_PROGRAM_DESC));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram) return;
+        npt_decode_D3D12_GENERIC_PROGRAM_DESC(dec, (D3D12_GENERIC_PROGRAM_DESC *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram);
     } else {
-        val->pGenericProgram = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pGenericProgram = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }
     if (val->Type == D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2) {
     if (npt_decode_simple_pointer(dec)) {
-        val->pDepthStencil2 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC2));
-        if (!val->pDepthStencil2) return;
-        npt_decode_D3D12_DEPTH_STENCIL_DESC2(dec, (D3D12_DEPTH_STENCIL_DESC2 *)val->pDepthStencil2);
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2 = npt_cs_decoder_alloc_temp(dec, sizeof(D3D12_DEPTH_STENCIL_DESC2));
+        if (!((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2) return;
+        npt_decode_D3D12_DEPTH_STENCIL_DESC2(dec, (D3D12_DEPTH_STENCIL_DESC2 *)((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2);
     } else {
-        val->pDepthStencil2 = NULL;
+        ((D3D12_STATE_SUBOBJECT__anon_1 *)&val->pDesc)->pDepthStencil2 = NULL;
         npt_cs_decoder_set_fatal(dec); /* non-optional pointer is NULL */
     }
     }

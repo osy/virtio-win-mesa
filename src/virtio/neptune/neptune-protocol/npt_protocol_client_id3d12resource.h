@@ -60,7 +60,7 @@ struct npt_id3d12resource_client_vtbl {
     /* slot 9: ID3D12Resource::Unmap */
     void (NPT_STDMETHODCALLTYPE *Unmap)(void *self, UINT Subresource, const D3D12_RANGE * pWrittenRange);
     /* slot 10: ID3D12Resource::GetDesc */
-    D3D12_RESOURCE_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_RESOURCE_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_RESOURCE_DESC *_ret_out);
     /* slot 11: ID3D12Resource::GetGPUVirtualAddress */
     D3D12_GPU_VIRTUAL_ADDRESS (NPT_STDMETHODCALLTYPE *GetGPUVirtualAddress)(void *self);
     /* slot 12: ID3D12Resource::WriteToSubresource */
@@ -81,8 +81,8 @@ extern HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_Map(void *self, UINT Subresource, const D3D12_RANGE * pReadRange, void ** ppData);
 extern void NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_Unmap(void *self, UINT Subresource, const D3D12_RANGE * pWrittenRange);
-extern D3D12_RESOURCE_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12resource_default_GetDesc(void *self);
+extern D3D12_RESOURCE_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12resource_default_GetDesc(void *self, D3D12_RESOURCE_DESC *_ret_out);
 extern D3D12_GPU_VIRTUAL_ADDRESS NPT_STDMETHODCALLTYPE
 npt_id3d12resource_default_GetGPUVirtualAddress(void *self);
 extern HRESULT NPT_STDMETHODCALLTYPE
@@ -152,7 +152,7 @@ struct npt_id3d12resource1_client_vtbl {
     /* slot 9: ID3D12Resource::Unmap */
     void (NPT_STDMETHODCALLTYPE *Unmap)(void *self, UINT Subresource, const D3D12_RANGE * pWrittenRange);
     /* slot 10: ID3D12Resource::GetDesc */
-    D3D12_RESOURCE_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_RESOURCE_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_RESOURCE_DESC *_ret_out);
     /* slot 11: ID3D12Resource::GetGPUVirtualAddress */
     D3D12_GPU_VIRTUAL_ADDRESS (NPT_STDMETHODCALLTYPE *GetGPUVirtualAddress)(void *self);
     /* slot 12: ID3D12Resource::WriteToSubresource */
@@ -234,7 +234,7 @@ struct npt_id3d12resource2_client_vtbl {
     /* slot 9: ID3D12Resource::Unmap */
     void (NPT_STDMETHODCALLTYPE *Unmap)(void *self, UINT Subresource, const D3D12_RANGE * pWrittenRange);
     /* slot 10: ID3D12Resource::GetDesc */
-    D3D12_RESOURCE_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_RESOURCE_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_RESOURCE_DESC *_ret_out);
     /* slot 11: ID3D12Resource::GetGPUVirtualAddress */
     D3D12_GPU_VIRTUAL_ADDRESS (NPT_STDMETHODCALLTYPE *GetGPUVirtualAddress)(void *self);
     /* slot 12: ID3D12Resource::WriteToSubresource */
@@ -246,7 +246,7 @@ struct npt_id3d12resource2_client_vtbl {
     /* slot 15: ID3D12Resource1::GetProtectedResourceSession */
     HRESULT (NPT_STDMETHODCALLTYPE *GetProtectedResourceSession)(void *self, const IID * riid, void ** ppProtectedSession);
     /* slot 16: ID3D12Resource2::GetDesc1 */
-    D3D12_RESOURCE_DESC1 (NPT_STDMETHODCALLTYPE *GetDesc1)(void *self);
+    D3D12_RESOURCE_DESC1 * (NPT_STDMETHODCALLTYPE *GetDesc1)(void *self, D3D12_RESOURCE_DESC1 *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -255,8 +255,8 @@ struct npt_id3d12resource2_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_RESOURCE_DESC1 NPT_STDMETHODCALLTYPE
-npt_id3d12resource2_default_GetDesc1(void *self);
+extern D3D12_RESOURCE_DESC1 * NPT_STDMETHODCALLTYPE
+npt_id3d12resource2_default_GetDesc1(void *self, D3D12_RESOURCE_DESC1 *_ret_out);
 
 /* Default IUnknown thunks for ID3D12Resource2.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

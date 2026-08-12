@@ -95,12 +95,8 @@ npt_id3d12graphicscommandlist_default_Release(void *self)
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12graphicscommandlist_default_Close(void *self)
 {
-    npt_async_ID3D12GraphicsCommandList_Close(npt_com_self_ring(self),npt_com_self_id(self));
-    /* Async under the deferred-fatal model: assume success.  Host-side
-     * failures (OOM, bad arg) leave the guest_id unregistered, so the
-     * first method call against the wrapper trips decoder_fatal and
-     * unwinds the context cleanly. */
-    return (HRESULT)0 /* S_OK */;
+    HRESULT _ret = npt_call_ID3D12GraphicsCommandList_Close(npt_com_self_ring(self),npt_com_self_id(self));
+    return _ret;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE

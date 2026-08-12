@@ -60,7 +60,7 @@ struct npt_id3d12protectedresourcesession_client_vtbl {
     /* slot 9: ID3D12ProtectedSession::GetSessionStatus */
     D3D12_PROTECTED_SESSION_STATUS (NPT_STDMETHODCALLTYPE *GetSessionStatus)(void *self);
     /* slot 10: ID3D12ProtectedResourceSession::GetDesc */
-    D3D12_PROTECTED_RESOURCE_SESSION_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_PROTECTED_RESOURCE_SESSION_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_PROTECTED_RESOURCE_SESSION_DESC *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -69,8 +69,8 @@ struct npt_id3d12protectedresourcesession_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_PROTECTED_RESOURCE_SESSION_DESC NPT_STDMETHODCALLTYPE
-npt_id3d12protectedresourcesession_default_GetDesc(void *self);
+extern D3D12_PROTECTED_RESOURCE_SESSION_DESC * NPT_STDMETHODCALLTYPE
+npt_id3d12protectedresourcesession_default_GetDesc(void *self, D3D12_PROTECTED_RESOURCE_SESSION_DESC *_ret_out);
 
 /* Default IUnknown thunks for ID3D12ProtectedResourceSession.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID
@@ -132,9 +132,9 @@ struct npt_id3d12protectedresourcesession1_client_vtbl {
     /* slot 9: ID3D12ProtectedSession::GetSessionStatus */
     D3D12_PROTECTED_SESSION_STATUS (NPT_STDMETHODCALLTYPE *GetSessionStatus)(void *self);
     /* slot 10: ID3D12ProtectedResourceSession::GetDesc */
-    D3D12_PROTECTED_RESOURCE_SESSION_DESC (NPT_STDMETHODCALLTYPE *GetDesc)(void *self);
+    D3D12_PROTECTED_RESOURCE_SESSION_DESC * (NPT_STDMETHODCALLTYPE *GetDesc)(void *self, D3D12_PROTECTED_RESOURCE_SESSION_DESC *_ret_out);
     /* slot 11: ID3D12ProtectedResourceSession1::GetDesc1 */
-    D3D12_PROTECTED_RESOURCE_SESSION_DESC1 (NPT_STDMETHODCALLTYPE *GetDesc1)(void *self);
+    D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * (NPT_STDMETHODCALLTYPE *GetDesc1)(void *self, D3D12_PROTECTED_RESOURCE_SESSION_DESC1 *_ret_out);
 };
 
 /* Default thunk prototypes for the methods OWNED by this interface
@@ -143,8 +143,8 @@ struct npt_id3d12protectedresourcesession1_client_vtbl {
  * marked skip_default get a generated stub that aborts at runtime via
  * npt_com_assert_overridden; the consumer must patch the vtable slot
  * with a real implementation before the method is called. */
-extern D3D12_PROTECTED_RESOURCE_SESSION_DESC1 NPT_STDMETHODCALLTYPE
-npt_id3d12protectedresourcesession1_default_GetDesc1(void *self);
+extern D3D12_PROTECTED_RESOURCE_SESSION_DESC1 * NPT_STDMETHODCALLTYPE
+npt_id3d12protectedresourcesession1_default_GetDesc1(void *self, D3D12_PROTECTED_RESOURCE_SESSION_DESC1 *_ret_out);
 
 /* Default IUnknown thunks for ID3D12ProtectedResourceSession1.  AddRef/Release route through
  * the runtime helpers; QueryInterface walks this interface's parent IID

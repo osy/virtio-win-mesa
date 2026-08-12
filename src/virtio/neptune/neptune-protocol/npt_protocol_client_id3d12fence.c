@@ -99,15 +99,17 @@ npt_id3d12fence_default_GetCompletedValue(void *self)
     return _ret;
 }
 
+/* skip_default: ID3D12Fence::SetEventOnCompletion -- override required.
+ * The default body aborts loudly so a missing override is a runtime
+ * failure rather than a silent data drop. */
 HRESULT NPT_STDMETHODCALLTYPE
 npt_id3d12fence_default_SetEventOnCompletion(void *self, UINT64 Value, HANDLE hEvent)
 {
-    npt_async_ID3D12Fence_SetEventOnCompletion(npt_com_self_ring(self),npt_com_self_id(self),Value,hEvent);
-    /* Async under the deferred-fatal model: assume success.  Host-side
-     * failures (OOM, bad arg) leave the guest_id unregistered, so the
-     * first method call against the wrapper trips decoder_fatal and
-     * unwinds the context cleanly. */
-    return (HRESULT)0 /* S_OK */;
+    (void)self;
+    (void)Value;
+    (void)hEvent;
+    npt_com_assert_overridden("ID3D12Fence", "SetEventOnCompletion");
+    return (HRESULT)0x80004005 /* E_FAIL */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
