@@ -111,7 +111,19 @@ npt_com_self_ring(void *self)
    struct npt_com_base *com = self;
    if (com->base.instance_ring)
       return com->base.instance_ring;
-   return npt_tls_get_ring(com->base.device);
+   struct npt_ring *ring = npt_tls_get_ring(com->base.device);
+   /* Per-object cross-ring ordering (see npt_object.h ring_ordered):
+    * when a flagged object's traffic moves to a new ring, drain the
+    * previous ring before the first submission here so the host decodes
+    * this object's commands in call order.  Sequential-use-by-contract
+    * objects only; the exchange is uncontended in valid API use. */
+   if (com->base.ring_ordered && ring) {
+      uint64_t prev = atomic_exchange_explicit(
+         &com->base.order_ring_id, ring->id, memory_order_acq_rel);
+      if (prev && prev != ring->id)
+         npt_tls_drain_ring_id(com->base.device, prev);
+   }
+   return ring;
 }
 
 static inline struct npt_device *
@@ -218,6 +230,29 @@ void
 npt_com_register_family(const GUID *const *tier_iids,
                         size_t aux_size,
                         npt_com_aux_init_fn aux_init);
+
+/* Resolve a wrapper's per-family aux, tolerating tier aliases.  A
+ * QI-minted higher-tier wrapper (e.g. ID3D12Resource1 from an
+ * ID3D12Resource) shares its primary's aux with aux_destroy cleared to
+ * avoid a double free; a plain `aux_destroy == fn` test would reject
+ * it.  Returns com->aux when self carries aux_destroy == fn, or when
+ * self is such an alias whose same-family ancestor owns it; NULL
+ * otherwise. */
+void *
+npt_com_family_aux(void *self, void (*aux_destroy)(void *aux));
+
+/* Pin a D3D12 command-queue wrapper onto its host decode ring.  DIRECT
+ * queues share the DC/SC ring so their submissions serialize with the
+ * swapchain's present copies; non-DIRECT (compute/copy) queues get a
+ * private ring (own host decode thread) because their submissions have
+ * no ordering contract with Present, and decoding them behind the gfx
+ * queue's ECL stream on the shared ring serializes async compute
+ * against graphics.  Cross-queue ordering is carried by fence values
+ * (Signal/Wait), which are decode-order independent.  Both are no-ops
+ * when multi-ring is off or on allocation failure (the wrapper then
+ * falls back to the caller's TLS ring). */
+void
+npt_com_pin_queue_ring(void *self, bool direct);
 
 /* Typed-field assignment gives compile-time signature checking and
  * catches method-name typos. */

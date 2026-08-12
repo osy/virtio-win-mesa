@@ -94,8 +94,16 @@ static inline void npt_relax_sleep_us(unsigned us) {
 
 struct npt_capset {
    uint32_t wire_format_version;
-   uint32_t pad[14];
+   /* NPT_CAPSET_CAP_* bits.  Hosts predating the field zero the whole
+    * struct, so a clear bit always means "not supported". */
+   uint32_t caps_flags;
+   uint32_t pad[13];
 };
+
+/* The host D3D12 backend (vkd3d-proton) is present; D3D12CreateDevice
+ * can succeed.  Clear => fail D3D12 device creation locally (apps fall
+ * back to D3D11 themselves). */
+#define NPT_CAPSET_CAP_D3D12 (1u << 0)
 
 #ifdef __WINE__
 void npt_log_impl(const char *fmt, ...);

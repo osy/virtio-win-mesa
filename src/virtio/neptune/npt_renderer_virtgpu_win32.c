@@ -560,6 +560,27 @@ npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
    return (int)(intptr_t)hWait;
 }
 
+/* Monitored-fence gate arm: same empty fenced SUBMIT_3D on an event ring,
+ * but retirement fires the returned KMD token (no UM event) so a
+ * VIOGPU_CMD_GATE DMA packet on a D3D12 queue's kernel context can hold
+ * its completion until the GPU truly drained. */
+static uint64_t
+npt_vgw32_arm_gate_fence(struct npt_renderer *r, uint32_t ring_idx)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   VIOGPU_ESCAPE esc = {
+      .Type = VIOGPU_ARM_GATE,
+      .DataLength = sizeof(esc.GateArm),
+      .GateArm = { .RingIdx = ring_idx, .Token = 0 },
+   };
+   NTSTATUS status = virtgpu_escape(gpu, &esc);
+   if (!NT_SUCCESS(status)) {
+      npt_log("virtgpu: ARM_GATE failed 0x%lx ring=%u", status, ring_idx);
+      return 0;
+   }
+   return esc.GateArm.Token;
+}
+
 static void
 npt_vgw32_destroy(struct npt_renderer *r)
 {
@@ -758,6 +779,8 @@ npt_renderer_create_virtgpu(void)
    if (!virtgpu_create_context(gpu))
       goto fail;
 
+   gpu->base.info.wire_format_version = capset.wire_format_version;
+   gpu->base.info.caps_flags = capset.caps_flags;
    gpu->base.info.max_timeline_count = 64;
    /* The KMD targets this context by id when another device's flip
     * present submits this transport's WSI_PRESENT bytes. */
@@ -767,6 +790,7 @@ npt_renderer_create_virtgpu(void)
    gpu->base.ops.submit_cmd = npt_vgw32_submit_cmd;
    gpu->base.ops.submit_cmd_sync = npt_vgw32_submit_cmd_sync;
    gpu->base.ops.submit_present_fence = npt_vgw32_submit_present_fence;
+   gpu->base.ops.arm_gate_fence = npt_vgw32_arm_gate_fence;
    gpu->base.ops.import_res = npt_vgw32_import_res;
    gpu->base.ops.release_import_res = npt_vgw32_release_import_res;
    /* create_host_blob and wsi_* are wired alongside the DXGI swapchain
@@ -775,8 +799,9 @@ npt_renderer_create_virtgpu(void)
    gpu->base.shmem_ops.create = npt_vgw32_shmem_create;
    gpu->base.shmem_ops.destroy = npt_vgw32_shmem_destroy;
 
-   npt_log("virtgpu: renderer ready (wire=0x%08x, max_timeline=%u)",
-           capset.wire_format_version, gpu->base.info.max_timeline_count);
+   npt_log("virtgpu: renderer ready (wire=0x%08x, caps=0x%08x, max_timeline=%u)",
+           capset.wire_format_version, capset.caps_flags,
+           gpu->base.info.max_timeline_count);
    return &gpu->base;
 
 fail:

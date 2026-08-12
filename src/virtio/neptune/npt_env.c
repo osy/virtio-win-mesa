@@ -28,6 +28,7 @@ static const struct debug_control npt_debug_options[] = {
    { "present_timing",           NPT_DEBUG_PRESENT_TIMING },
    { "present_order",            NPT_DEBUG_PRESENT_ORDER },
    { "expose_all_modes",         NPT_DEBUG_EXPOSE_ALL_MODES },
+   { "d3d12_list_migration",     NPT_DEBUG_D3D12_LIST_MIGRATION },
    { NULL, 0 },
 };
 
@@ -82,4 +83,11 @@ void
 npt_env_init(void)
 {
    NPT_CALL_ONCE(g_npt_env_init_state, npt_env_init_impl());
+}
+
+void
+npt_env_force_perf(uint64_t perf_bits)
+{
+   npt_env_init();
+   npt_env.perf |= perf_bits;
 }

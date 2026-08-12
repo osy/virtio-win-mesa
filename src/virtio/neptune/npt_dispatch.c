@@ -163,6 +163,199 @@ npt_dispatch_resource_unmap_seqno(struct npt_ring *ring, uint64_t context_id,
    return npt_ring_submit_raw_seqno(ring, &cmd, sizeof(cmd), out_seqno);
 }
 
+/* D3D12 flavors: context_id = 0 routes the host to
+ * ID3D12Resource::Map/Unmap; the read/written ranges ride the wire
+ * (NPT_MAP_RANGE_NULL encodes a NULL range pointer). */
+HRESULT
+npt_dispatch_resource_map12(struct npt_ring *ring, uint64_t resource_id,
+                            uint32_t subresource, uint32_t access_flags,
+                            uint32_t shmem_res_id, uint64_t byte_size,
+                            uint32_t shmem_offset,
+                            uint64_t read_range_begin,
+                            uint64_t read_range_end)
+{
+   struct npt_cmd_map_resource cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_RESOURCE,
+                             NPT_TRANSPORT_RESOURCE_MAP);
+   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.context_id = 0;
+   cmd.resource_id = resource_id;
+   cmd.subresource = subresource;
+   cmd.access_flags = access_flags;
+   cmd.shmem_res_id = shmem_res_id;
+   cmd.read_range_begin = read_range_begin;
+   cmd.read_range_end = read_range_end;
+   cmd.byte_size = byte_size;
+   cmd.shmem_offset = shmem_offset;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, &cmd, sizeof(cmd),
+      sizeof(struct npt_cmd_map_resource_reply));
+   if (enc)
+      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_map_resource_reply)) {
+      const struct npt_cmd_map_resource_reply *reply =
+         (const struct npt_cmd_map_resource_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+
+   return hr;
+}
+
+HRESULT
+npt_dispatch_resource_unmap12(struct npt_ring *ring, uint64_t resource_id,
+                              uint32_t subresource, uint32_t shmem_res_id,
+                              uint64_t byte_size, uint32_t shmem_offset,
+                              uint64_t written_range_begin,
+                              uint64_t written_range_end)
+{
+   struct npt_cmd_unmap_resource cmd;
+   fill_unmap_cmd(&cmd, /*context_id=*/0, resource_id, subresource,
+                  shmem_res_id, byte_size, shmem_offset,
+                  /*access_flags=*/0);
+   cmd.written_range_begin = written_range_begin;
+   cmd.written_range_end = written_range_end;
+   /* Synchronous: the app may hand this resource to
+    * ExecuteCommandLists on a different ring the moment Unmap
+    * returns; the reply guarantees the host memcpy completed. */
+   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, &cmd, sizeof(cmd),
+      sizeof(struct npt_cmd_unmap_resource_reply));
+   if (enc)
+      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_unmap_resource_reply)) {
+      const struct npt_cmd_unmap_resource_reply *reply =
+         (const struct npt_cmd_unmap_resource_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+
+   return hr;
+}
+
+/* Fire-and-forget flavors for the pre-ExecuteCommandLists sync-map
+ * flush (npt_d3d12_sync_maps_flush).  No NPT_CMD_FLAG_REPLY: the host
+ * skips the reply entirely, and ordering against the subsequent
+ * ExecuteCommandLists is guaranteed by submitting on the SAME ring the
+ * Execute rides (ring FIFO), not by waiting.  The host logs any
+ * failure itself; there is nothing useful the guest could do with the
+ * HRESULT at this point anyway. */
+void
+npt_dispatch_resource_unmap12_async(struct npt_ring *ring,
+                                    uint64_t resource_id,
+                                    uint32_t subresource,
+                                    uint32_t shmem_res_id,
+                                    uint64_t byte_size,
+                                    uint32_t shmem_offset)
+{
+   struct npt_cmd_unmap_resource cmd;
+   fill_unmap_cmd(&cmd, /*context_id=*/0, resource_id, subresource,
+                  shmem_res_id, byte_size, shmem_offset,
+                  /*access_flags=*/0);
+   cmd.written_range_begin = NPT_MAP_RANGE_NULL;
+   cmd.written_range_end = NPT_MAP_RANGE_NULL;
+   npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
+}
+
+void
+npt_dispatch_resource_map12_async_write(struct npt_ring *ring,
+                                        uint64_t resource_id,
+                                        uint32_t subresource,
+                                        uint32_t shmem_res_id,
+                                        uint64_t byte_size,
+                                        uint32_t shmem_offset)
+{
+   struct npt_cmd_map_resource cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_RESOURCE,
+                             NPT_TRANSPORT_RESOURCE_MAP);
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.context_id = 0;
+   cmd.resource_id = resource_id;
+   cmd.subresource = subresource;
+   cmd.access_flags = NPT_MAP_ACCESS_WRITE;
+   cmd.shmem_res_id = shmem_res_id;
+   cmd.read_range_begin = NPT_MAP_RANGE_NULL;
+   cmd.read_range_end = NPT_MAP_RANGE_NULL;
+   cmd.byte_size = byte_size;
+   cmd.shmem_offset = shmem_offset;
+   npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
+}
+
+HRESULT
+npt_dispatch_create_heap_from_shmem(struct npt_ring *ring, uint64_t device_id,
+                                    uint64_t mint_heap_id,
+                                    uint32_t shmem_res_id,
+                                    uint32_t shmem_offset, uint64_t size,
+                                    uint32_t heap_type, uint32_t heap_flags)
+{
+   if (!ring || !device_id || !mint_heap_id || !shmem_res_id || !size)
+      return NPT_E_INVALIDARG;
+
+   struct npt_cmd_create_heap_from_shmem cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_RESOURCE,
+                             NPT_TRANSPORT_RESOURCE_CREATE_HEAP_FROM_SHMEM);
+   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.header.object_id = device_id;
+   cmd.mint_heap_id = mint_heap_id;
+   cmd.shmem_res_id = shmem_res_id;
+   cmd.shmem_offset = shmem_offset;
+   cmd.size = size;
+   cmd.heap_type = heap_type;
+   cmd.heap_flags = heap_flags;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, &cmd, sizeof(cmd),
+      sizeof(struct npt_cmd_create_heap_from_shmem_reply));
+   if (enc)
+      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_create_heap_from_shmem_reply)) {
+      const struct npt_cmd_create_heap_from_shmem_reply *reply =
+         (const struct npt_cmd_create_heap_from_shmem_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+
+   return hr;
+}
+
 bool
 npt_dispatch_resource_update(struct npt_ring *ring, uint64_t resource_host_id,
                              uint32_t subresource, uint32_t row_pitch,
@@ -306,9 +499,9 @@ npt_dispatch_event_register(struct npt_renderer *renderer, uint64_t event_token)
 }
 
 /* Same command as npt_dispatch_event_register, but submitted fire-and-forget on
- * the method ring instead of the renderer command stream; the synchronous
- * ARM_EVENT_FENCE that follows on the same ring flushes it.  See the header for
- * the ordering this buys. */
+ * the method ring instead of the renderer command stream, so it stays ordered
+ * (ring FIFO) ahead of the ARM_EVENT_FENCE and the async SetEventOnCompletion
+ * that reference the token.  See the header for the ordering this buys. */
 bool
 npt_dispatch_event_register_ring(struct npt_ring *ring, uint64_t event_token)
 {
@@ -322,6 +515,15 @@ npt_dispatch_event_register_ring(struct npt_ring *ring, uint64_t event_token)
    return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
 }
 
+/* Fire-and-forget: ARM_FENCE used to be a sync round trip, but nothing
+ * in the reply is consumed and every ordering it guaranteed holds
+ * without it: the async SetEventOnCompletion that references the token
+ * rides the SAME ring (FIFO orders it after the ARM decode), and the
+ * virtio fence submitted right after can legally reach the host before
+ * the ARM decodes -- the host parks it and npt_event_arm pairs it when
+ * the ARM lands (npt_event_pop_arm_or_park_fence, either-order by
+ * design).  Waiting for the reply costs milliseconds per arm on the
+ * submitting thread, head-of-line behind ECL decode. */
 bool
 npt_dispatch_event_arm_fence(struct npt_ring *ring, uint64_t event_token,
                              uint32_t ring_idx)
@@ -331,32 +533,11 @@ npt_dispatch_event_arm_fence(struct npt_ring *ring, uint64_t event_token,
    cmd.header.cmd_type =
       NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_EVENT,
                              NPT_TRANSPORT_EVENT_ARM_FENCE);
-   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
    cmd.header.cmd_size = sizeof(cmd);
    cmd.event_token = event_token;
    cmd.ring_idx = ring_idx;
 
-   struct npt_ring_submit_command submit;
-   memset(&submit, 0, sizeof(submit));
-   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
-      ring, &submit, &cmd, sizeof(cmd),
-      sizeof(struct npt_cmd_arm_event_fence_reply));
-   if (enc)
-      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
-   npt_ring_submit_command(ring, &submit);
-
-   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
-   bool ok = false;
-   if (dec && dec->cur && dec->end &&
-       (size_t)(dec->end - dec->cur) >=
-          sizeof(struct npt_cmd_arm_event_fence_reply)) {
-      const struct npt_cmd_arm_event_fence_reply *r =
-         (const struct npt_cmd_arm_event_fence_reply *)dec->cur;
-      ok = (r->header.cmd_return == 0);
-   }
-   if (dec)
-      npt_ring_free_command_reply(ring, &submit);
-   return ok;
+   return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
 }
 
 bool
@@ -374,6 +555,44 @@ npt_dispatch_event_release(struct npt_renderer *renderer, uint64_t event_token)
 
 /* Ring-borne RELEASE_EVENT -- counterpart to npt_dispatch_event_register_ring.
  * See the header for why RELEASE must share the method ring with REGISTER. */
+bool
+npt_dispatch_event_gate_wait(struct npt_ring *ring, uint64_t fence_id,
+                             uint64_t value, uint32_t ring_idx)
+{
+   struct npt_cmd_gate_wait cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_EVENT,
+                             NPT_TRANSPORT_EVENT_GATE_WAIT);
+   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.fence_id = fence_id;
+   cmd.value = value;
+   cmd.ring_idx = ring_idx;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, &cmd, sizeof(cmd),
+      sizeof(struct npt_cmd_gate_wait_reply));
+   if (enc)
+      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   bool ok = false;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_gate_wait_reply)) {
+      const struct npt_cmd_gate_wait_reply *r =
+         (const struct npt_cmd_gate_wait_reply *)dec->cur;
+      ok = (r->header.cmd_return == 0);
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+   return ok;
+}
+
 bool
 npt_dispatch_event_release_ring(struct npt_ring *ring, uint64_t event_token)
 {
@@ -424,7 +643,8 @@ npt_dispatch_feedback_unregister_query(struct npt_ring *ring, uint64_t query_id)
 
 bool
 npt_dispatch_feedback_register_fence(struct npt_ring *ring, uint64_t fence_id,
-                                     uint32_t fb_res_id, uint32_t fb_offset)
+                                     uint32_t fb_res_id, uint32_t fb_offset,
+                                     uint32_t fence_api)
 {
    struct npt_cmd_register_fence_feedback cmd;
    memset(&cmd, 0, sizeof(cmd));
@@ -435,5 +655,6 @@ npt_dispatch_feedback_register_fence(struct npt_ring *ring, uint64_t fence_id,
    cmd.header.object_id = fence_id;
    cmd.fb_res_id = fb_res_id;
    cmd.fb_offset = fb_offset;
+   cmd.fence_api = fence_api;
    return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
 }

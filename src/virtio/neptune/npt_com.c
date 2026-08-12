@@ -219,9 +219,17 @@ npt_com_destroy(struct npt_com_base *com)
    npt_com_send_release(com->base.device, com->base.id);
    /* Pinned to primary: instance_ring == dev->ring, no refcount taken. */
    if (com->base.device && com->base.instance_ring) {
-      if (com->base.instance_ring != com->base.device->ring)
+      if (com->base.private_instance_ring) {
+         struct npt_device *dev = com->base.device;
+         mtx_lock(&dev->instance_rings_mutex);
+         list_del(&com->base.instance_ring->instance_head);
+         mtx_unlock(&dev->instance_rings_mutex);
+         npt_ring_destroy(com->base.instance_ring);
+      } else if (com->base.instance_ring != com->base.device->ring) {
          npt_com_release_dc_sc_ring(com->base.device);
+      }
       com->base.instance_ring = NULL;
+      com->base.private_instance_ring = false;
    }
    if (com->aux_destroy)
       com->aux_destroy(com->aux);
@@ -257,6 +265,10 @@ npt_com_iid_needs_instance_ring(const struct npt_device *dev,
       &NPT_IID_IDXGISwapChain3,
       &NPT_IID_IDXGISwapChain4,
       &NPT_IID_IDXGISwapChainMedia,
+      /* D3D12 command queues are pinned explicitly by type via
+       * npt_com_pin_queue_ring (the generic path can't see the queue
+       * desc); command lists deliberately stay on TLS rings for
+       * parallel recording. */
    };
    for (size_t i = 0;
         i < sizeof(dc_sc_iids) / sizeof(dc_sc_iids[0]); i++) {
@@ -299,6 +311,64 @@ npt_com_acquire_dc_sc_ring(struct npt_device *dev)
       atomic_fetch_add_explicit(&dev->dc_sc_ring_refs, 1,
                                 memory_order_relaxed);
    return ring;
+}
+
+void *
+npt_com_family_aux(void *self, void (*aux_destroy)(void *aux))
+{
+   struct npt_com_base *com = self;
+   if (!com || !com->aux)
+      return NULL;
+   if (com->aux_destroy == aux_destroy)
+      return com->aux;
+   /* Tier alias: aux_destroy was cleared and aux points at a same-
+    * family ancestor's aux (npt_com_get_or_wrap).  Confirm the shared
+    * aux really belongs to the requested family via that ancestor
+    * before handing it back, so a foreign-family alias never aliases in
+    * as ours. */
+   if (com->aux_destroy == NULL) {
+      for (struct npt_com_base *anc = com->base.parent; anc;
+           anc = anc->base.parent) {
+         if (!anc->aux_destroy)
+            continue;
+         return (anc->aux_destroy == aux_destroy && anc->aux == com->aux)
+                   ? com->aux : NULL;
+      }
+   }
+   return NULL;
+}
+
+static void npt_com_release_dc_sc_ring(struct npt_device *dev);
+
+void
+npt_com_pin_queue_ring(void *self, bool direct)
+{
+   struct npt_com_base *com = self;
+   struct npt_device *dev = com ? com->base.device : NULL;
+   if (!dev || !dev->multi_ring_enabled || com->base.instance_ring)
+      return;
+
+   if (direct) {
+      /* Share the DC/SC ring so submissions serialize with present. */
+      com->base.instance_ring = npt_com_acquire_dc_sc_ring(dev);
+      return;
+   }
+
+   struct npt_ring_layout layout;
+   npt_ring_get_layout(NPT_DC_SC_RING_BUFFER_SIZE, sizeof(uint32_t),
+                       &layout);
+   const uint64_t ring_id = atomic_fetch_add(&dev->next_ring_id, 1);
+   struct npt_ring *ring = npt_ring_create(dev, &layout, ring_id,
+                                           false /* is_tls_ring */);
+   if (!ring)
+      return; /* fall back to the caller's TLS ring */
+
+   mtx_lock(&dev->instance_rings_mutex);
+   list_addtail(&ring->instance_head, &dev->instance_rings);
+   mtx_unlock(&dev->instance_rings_mutex);
+
+   com->base.instance_ring = ring;
+   com->base.private_instance_ring = true;
 }
 
 static void
@@ -525,6 +595,13 @@ npt_com_init_impl(void)
    npt_overrides_dxgi_adapter_init();
    npt_overrides_d3d11_fence_init();
    npt_overrides_d3d11_query_init();
+
+   npt_overrides_d3d12_device_init();
+   npt_overrides_d3d12_resource_init();
+   npt_overrides_d3d12_fence_init();
+   npt_overrides_d3d12_queue_init();
+   npt_overrides_d3d12_list_init();
+   npt_d3d12_heap_overrides_init();
 }
 
 void

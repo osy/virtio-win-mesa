@@ -67,6 +67,46 @@ bool npt_dispatch_resource_unmap(struct npt_ring *ring,
                                  uint32_t shmem_offset,
                                  uint32_t access_flags);
 
+/* D3D12 sync Map/Unmap (context_id = 0 host-side).  Ranges use
+ * NPT_MAP_RANGE_NULL for a NULL D3D12_RANGE pointer.  Both are
+ * synchronous round-trips. */
+HRESULT npt_dispatch_resource_map12(struct npt_ring *ring,
+                                    uint64_t resource_id,
+                                    uint32_t subresource,
+                                    uint32_t access_flags,
+                                    uint32_t shmem_res_id,
+                                    uint64_t byte_size,
+                                    uint32_t shmem_offset,
+                                    uint64_t read_range_begin,
+                                    uint64_t read_range_end);
+
+HRESULT npt_dispatch_resource_unmap12(struct npt_ring *ring,
+                                      uint64_t resource_id,
+                                      uint32_t subresource,
+                                      uint32_t shmem_res_id,
+                                      uint64_t byte_size,
+                                      uint32_t shmem_offset,
+                                      uint64_t written_range_begin,
+                                      uint64_t written_range_end);
+
+/* Fire-and-forget flush pair (npt_d3d12_sync_maps_flush): no reply,
+ * ordering against the following ExecuteCommandLists comes from
+ * submitting on the ring the Execute rides.  unmap: NULL written
+ * range ("wrote everything"); map: WRITE-only, no READ prime. */
+void npt_dispatch_resource_unmap12_async(struct npt_ring *ring,
+                                         uint64_t resource_id,
+                                         uint32_t subresource,
+                                         uint32_t shmem_res_id,
+                                         uint64_t byte_size,
+                                         uint32_t shmem_offset);
+
+void npt_dispatch_resource_map12_async_write(struct npt_ring *ring,
+                                             uint64_t resource_id,
+                                             uint32_t subresource,
+                                             uint32_t shmem_res_id,
+                                             uint64_t byte_size,
+                                             uint32_t shmem_offset);
+
 bool npt_dispatch_resource_unmap_seqno(struct npt_ring *ring,
                                        uint64_t context_id,
                                        uint64_t resource_id,
@@ -76,6 +116,18 @@ bool npt_dispatch_resource_unmap_seqno(struct npt_ring *ring,
                                        uint32_t shmem_offset,
                                        uint32_t access_flags,
                                        uint32_t *out_seqno);
+
+/* Sync: import the guest SHM blob window as an ID3D12Heap on
+ * device_id (VK_EXT_external_memory_host host-side) and register it
+ * under mint_heap_id.  Returns the host HRESULT. */
+HRESULT npt_dispatch_create_heap_from_shmem(struct npt_ring *ring,
+                                            uint64_t device_id,
+                                            uint64_t mint_heap_id,
+                                            uint32_t shmem_res_id,
+                                            uint32_t shmem_offset,
+                                            uint64_t size,
+                                            uint32_t heap_type,
+                                            uint32_t heap_flags);
 
 /* byte_size is reserved on the ring and is what the host may consume;
  * copy_size (<= byte_size) is how much of `data` is actually read. */
@@ -130,9 +182,15 @@ bool npt_dispatch_event_register(struct npt_renderer *renderer,
 bool npt_dispatch_event_register_ring(struct npt_ring *ring,
                                       uint64_t event_token);
 
-bool npt_dispatch_event_arm_fence(struct npt_ring *ring,
-                                  uint64_t event_token,
+bool npt_dispatch_event_arm_fence(struct npt_ring *ring, uint64_t event_token,
                                   uint32_t ring_idx);
+
+/* Synchronous monitored-fence gate wait: host arms
+ * SetEventOnCompletion(fence, value) onto ring_idx's persistent gate
+ * eventfd and installs the pending-arm for the next submit_fence on
+ * that ring (value-checked retirement; see npt_transport_defs.h). */
+bool npt_dispatch_event_gate_wait(struct npt_ring *ring, uint64_t fence_id,
+                                  uint64_t value, uint32_t ring_idx);
 
 bool npt_dispatch_event_release(struct npt_renderer *renderer,
                                 uint64_t event_token);
@@ -160,6 +218,7 @@ bool npt_dispatch_feedback_unregister_query(struct npt_ring *ring,
 bool npt_dispatch_feedback_register_fence(struct npt_ring *ring,
                                           uint64_t fence_id,
                                           uint32_t fb_res_id,
-                                          uint32_t fb_offset);
+                                          uint32_t fb_offset,
+                                          uint32_t fence_api);
 
 #endif /* NPT_DISPATCH_H */

@@ -276,7 +276,10 @@ npt_renderer_create_vtest(void)
       free(v);
       return NULL;
    }
-   npt_debug("wire format: 0x%08x", cs.wire_format_version);
+   v->base.info.wire_format_version = cs.wire_format_version;
+   v->base.info.caps_flags = cs.caps_flags;
+   npt_debug("wire format: 0x%08x caps: 0x%08x",
+             cs.wire_format_version, cs.caps_flags);
 
    npt_vtest_vcmd_context_init(&v->proto, NPT_CAPSET_ID);
 

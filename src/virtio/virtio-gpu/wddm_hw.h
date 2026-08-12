@@ -128,6 +128,16 @@ typedef struct _VIOGPU_ADAPTERINFO
 // -- the async present-completion wait the UMD blocks on before the flip.
 #define VIOGPU_SUBMIT_PRESENT_FENCE  0x400
 
+// Monitored-fence gate arm (D3D12 DDI path).  Like SUBMIT_PRESENT_FENCE the
+// KMD submits an empty fenced SUBMIT_3D on the requested event ring, but
+// instead of signalling a UM event at retirement it fires the returned Token:
+// a later DMA packet carrying VIOGPU_CMD_GATE{Token} (submitted on the D3D12
+// queue's kernel context) holds its DMA completion until the token fires.
+// dxgkrnl orders the runtime's monitored-fence signal packets behind context
+// DMA, so gating that DMA on real GPU completion makes every app fence
+// (queue::Signal -> SetEventOnCompletion / GetCompletedValue) GPU-true.
+#define VIOGPU_ARM_GATE              0x401
+
 #pragma pack(1)
 typedef struct _VIOGPU_DISP_MODE
 {
@@ -222,6 +232,14 @@ typedef struct _VIOGPU_PRESENT_FENCE_REQ
 #pragma pack()
 
 #pragma pack(1)
+typedef struct _VIOGPU_GATE_ARM_REQ
+{
+    ULONG RingIdx;    // event ring (>= NPT_EVENT_RING_BASE) to carry the fence
+    ULONGLONG Token;  // out: gate token for the matching VIOGPU_CMD_GATE
+} VIOGPU_GATE_ARM_REQ;
+#pragma pack()
+
+#pragma pack(1)
 typedef struct _VIOGPU_ESCAPE
 {
     USHORT Type;
@@ -241,6 +259,8 @@ typedef struct _VIOGPU_ESCAPE
         VIOGPU_BLIT_INIT_REQ BlitInit;
 
         VIOGPU_PRESENT_FENCE_REQ PresentFence;
+
+        VIOGPU_GATE_ARM_REQ GateArm;
     } DUMMYUNIONNAME;
 } VIOGPU_ESCAPE, *PVIOGPU_ESCAPE;
 #pragma pack()
@@ -386,6 +406,26 @@ struct _VIOGPU_BLIT_PRESENT
 #define VIOGPU_CMD_TRANSFER_FROM_HOST 0x3 // Transfer resource to host
 #define VIOGPU_CMD_MAP_BLOB           0x4 // Map blob resource
 #define VIOGPU_CMD_UNMAP_BLOB         0x5 // Unmap blob resource
+
+#define VIOGPU_CMD_GATE               0x9 // Hold DMA completion until the VIOGPU_ARM_GATE
+                                          // token (ULONGLONG body) fires -- KMD-internal,
+                                          // never reaches virtio
+
+// Mirror of the KMD's per-submission private data (viogpu_command.h).  The
+// D3D12 DDI stamps it on SubmitCommandCb submissions for virtual contexts:
+// the KMD executes `body` as a VIOGPU command stream (GPU VAs are not
+// CPU-mappable, so the body travels by value in private data).
+#define VIOGPU_DMA_PRIV_MAGIC 0x56503244u /* 'VP2D' */
+#define VIOGPU_DMA_PRIV_BODY_MAX 1024u
+typedef struct _VIOGPU_DMA_PRIVATE
+{
+    ULONGLONG cmdRaw; /* legacy VioGpuCommand* slot (KMD is x64) -- must stay
+                       * first; ULONGLONG keeps the layout arch-invariant for
+                       * a 32-bit UMD */
+    ULONG magic;
+    ULONG bodySize;
+    UCHAR body[VIOGPU_DMA_PRIV_BODY_MAX];
+} VIOGPU_DMA_PRIVATE;
 
 // #define VIOGPU_EXECBUF_FENCE_FD_IN  0x01
 // #define VIOGPU_EXECBUF_FENCE_FD_OUT 0x02

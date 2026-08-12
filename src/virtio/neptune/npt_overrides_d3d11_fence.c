@@ -111,7 +111,8 @@ npt_d3d11_fence_finalize_create(struct npt_device *dev, void *wrapper,
       npt_ring_force_roundtrip(dev->ring);
 
    if (npt_dispatch_feedback_register_fence(dev->ring, com->base.id,
-                                            shmem->res_id, fb_offset))
+                                            shmem->res_id, fb_offset,
+                                            NPT_FENCE_FEEDBACK_API_D3D11))
       aux->base.registered = true;
 }
 
@@ -155,9 +156,13 @@ fence_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
    struct npt_device *dev = npt_com_self_device(self);
 
    /* Arm before the D3D call so the host's npt_win32_handle_replace
-    * sees the proxy when it decodes hEvent. */
-   if (hEvent && !npt_event_arm(dev, (void *)hEvent))
-      return NPT_E_FAIL;
+    * sees the proxy when it decodes the token. */
+   uint64_t token = 0;
+   if (hEvent) {
+      token = npt_event_arm(dev, (void *)hEvent);
+      if (!token)
+         return NPT_E_FAIL;
+   }
 
    /* Async dispatch, not npt_call_: a synchronous round-trip's reply is
     * serialised behind the submitted draw stream, so under heavy submission
@@ -168,7 +173,8 @@ fence_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
     * ARM_EVENT_FENCE on the same method ring, which async preserves, not
     * awaited. */
    npt_async_ID3D11Fence_SetEventOnCompletion(
-      npt_device_method_ring(dev), npt_com_self_id(self), Value, hEvent);
+      npt_device_method_ring(dev), npt_com_self_id(self), Value,
+      (HANDLE)(uintptr_t)token);
    return S_OK;
 }
 

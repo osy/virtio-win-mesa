@@ -55,6 +55,10 @@ struct npt_renderer_shmem {
 };
 
 struct npt_renderer_info {
+   uint32_t wire_format_version;
+   /* NPT_CAPSET_CAP_* bits from the host capset (vtest: all set --
+    * it's a dev transport talking to a full renderer). */
+   uint32_t caps_flags;
    uint32_t max_timeline_count;
    /* Virtio context id of this transport's context (0 when the
     * backend has no KMD-visible context).  Lets a WDDM device target
@@ -165,6 +169,16 @@ struct npt_renderer_ops {
     */
    int (*submit_present_fence)(struct npt_renderer *renderer,
                                uint32_t ring_idx);
+
+   /*
+    * Monitored-fence gate (Windows KMD only): submit an empty fenced
+    * SUBMIT_3D on ring_idx whose retirement fires a KMD-internal token
+    * instead of a UM event (VIOGPU_ARM_GATE).  Returns the token (the
+    * D3D12 DDI embeds it in a VIOGPU_CMD_GATE DMA packet on the queue's
+    * kernel context), 0 on failure/unsupported.
+    */
+   uint64_t (*arm_gate_fence)(struct npt_renderer *renderer,
+                              uint32_t ring_idx);
 };
 
 struct npt_renderer {
@@ -248,6 +262,15 @@ npt_renderer_shmem_unref(struct npt_renderer *renderer,
    if (npt_refcount_dec(&shmem->refcount))
       npt_renderer_shmem_destroy(renderer, shmem);
 }
+
+/* Drops a reference without waiting for the transport teardown: the last
+ * unref hands the shmem to the reaper thread (npt_resource.c), which
+ * destroys queued shmems in batches.  For shmem whose host-side user is
+ * released asynchronously anyway (D3D12 heaps: COM_RELEASE is queued
+ * first and the host keeps the import alive until it lands). */
+void
+npt_renderer_shmem_unref_async(struct npt_renderer *renderer,
+                               struct npt_renderer_shmem *shmem);
 
 static inline int
 npt_renderer_create_host_blob(struct npt_renderer *renderer,
@@ -337,6 +360,14 @@ npt_renderer_submit_present_fence(struct npt_renderer *renderer,
    if (renderer->ops.submit_present_fence)
       return renderer->ops.submit_present_fence(renderer, ring_idx);
    return -1;
+}
+
+static inline uint64_t
+npt_renderer_arm_gate_fence(struct npt_renderer *renderer, uint32_t ring_idx)
+{
+   if (renderer->ops.arm_gate_fence)
+      return renderer->ops.arm_gate_fence(renderer, ring_idx);
+   return 0;
 }
 
 #endif /* NPT_RENDERER_H */

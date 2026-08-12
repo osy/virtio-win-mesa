@@ -1,0 +1,11 @@
+LIBRARY d3d12.dll
+EXPORTS
+    ; Real d3d12.dll pins these ordinals, and apps import by ordinal.
+    D3D12CreateDevice @101
+    D3D12GetDebugInterface @102
+    D3D12CreateRootSignatureDeserializer
+    D3D12CreateVersionedRootSignatureDeserializer
+    D3D12EnableExperimentalFeatures
+    D3D12GetInterface
+    D3D12SerializeRootSignature = npt_D3D12SerializeRootSignature
+    D3D12SerializeVersionedRootSignature = npt_D3D12SerializeVersionedRootSignature

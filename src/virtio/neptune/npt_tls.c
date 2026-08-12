@@ -8,7 +8,21 @@
 #include "npt_env.h"
 #include "npt_ring.h"
 
-#define NPT_TLS_RING_BUFFER_SIZE (16u * 1024u)
+#include <stdlib.h>
+
+/* Per-thread recording ring.  16 KiB was enough for D3D11, but D3D12
+ * command-list recording writes far more per draw (root descriptor
+ * tables, PSO/state, indirect args) and profiling shows recording
+ * threads spending a third of their driver time in npt_ring_wait_space,
+ * blocked on the host draining this ring.  Bigger rings only absorb
+ * bursts -- the host drain rate is the steady-state limit. */
+#define NPT_TLS_RING_BUFFER_SIZE_DEFAULT (256u * 1024u)
+
+static unsigned
+npt_tls_ring_buffer_size(void)
+{
+   return NPT_TLS_RING_BUFFER_SIZE_DEFAULT;
+}
 
 /* Per-ring extra region. */
 #define NPT_TLS_RING_EXTRA_SIZE sizeof(uint32_t)
@@ -121,7 +135,7 @@ npt_tls_get_ring(struct npt_device *dev)
    tr->device = dev;
 
    struct npt_ring_layout layout;
-   npt_ring_get_layout(NPT_TLS_RING_BUFFER_SIZE, NPT_TLS_RING_EXTRA_SIZE,
+   npt_ring_get_layout(npt_tls_ring_buffer_size(), NPT_TLS_RING_EXTRA_SIZE,
                        &layout);
    const uint64_t ring_id = atomic_fetch_add(&dev->next_ring_id, 1);
 
@@ -142,6 +156,109 @@ npt_tls_get_ring(struct npt_device *dev)
    list_addtail(&tr->tls_head, &tls->tls_rings);
 
    return new_ring;
+}
+
+void
+npt_tls_wait_ring_seqno(struct npt_device *dev, uint64_t ring_id,
+                        uint32_t seqno)
+{
+   if (!dev)
+      return;
+   if (dev->ring && dev->ring->id == ring_id) {
+      npt_ring_wait_seqno(dev->ring, seqno);
+      return;
+   }
+   /* tr->mutex under tls_rings_mutex matches the cross-ring drain
+    * barrier's order; the destroy path never nests the two.  Holding
+    * tr->mutex across the wait blocks a concurrent thread-exit destroy
+    * of this ring, which is exactly the lifetime guarantee needed. */
+   mtx_lock(&dev->tls_rings_mutex);
+   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
+      mtx_lock(&tr->mutex);
+      struct npt_ring *ring =
+         atomic_load_explicit(&tr->ring, memory_order_acquire);
+      if (ring && ring->id == ring_id) {
+         npt_ring_wait_seqno(ring, seqno);
+         mtx_unlock(&tr->mutex);
+         break;
+      }
+      mtx_unlock(&tr->mutex);
+   }
+   mtx_unlock(&dev->tls_rings_mutex);
+
+   /* Instance rings (queues, DC/SC wrappers) live in a separate list;
+    * without this leg a wait against a queue ring silently no-opped --
+    * which let a list Reset overtake its ExecuteCommandLists on the
+    * wire, which the host rejects with "Command list ... is in
+    * recording state" and marks the device removed. */
+   mtx_lock(&dev->instance_rings_mutex);
+   list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
+                       instance_head) {
+      if (ir->id == ring_id) {
+         npt_ring_wait_seqno(ir, seqno);
+         mtx_unlock(&dev->instance_rings_mutex);
+         return;
+      }
+   }
+   mtx_unlock(&dev->instance_rings_mutex);
+   /* Not found anywhere: the ring was destroyed, and DESTROY_RING is
+    * host-synchronous, so its bytes were consumed already. */
+}
+
+void
+npt_tls_drain_ring_id(struct npt_device *dev, uint64_t ring_id)
+{
+   if (!dev)
+      return;
+   if (dev->ring && dev->ring->id == ring_id) {
+      npt_ring_wait_all(dev->ring);
+      return;
+   }
+   mtx_lock(&dev->tls_rings_mutex);
+   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
+      mtx_lock(&tr->mutex);
+      struct npt_ring *ring =
+         atomic_load_explicit(&tr->ring, memory_order_acquire);
+      if (ring && ring->id == ring_id) {
+         npt_ring_wait_all(ring);
+         mtx_unlock(&tr->mutex);
+         mtx_unlock(&dev->tls_rings_mutex);
+         return;
+      }
+      mtx_unlock(&tr->mutex);
+   }
+   mtx_unlock(&dev->tls_rings_mutex);
+
+   mtx_lock(&dev->instance_rings_mutex);
+   list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
+                       instance_head) {
+      if (ir->id == ring_id) {
+         npt_ring_wait_all(ir);
+         mtx_unlock(&dev->instance_rings_mutex);
+         return;
+      }
+   }
+   mtx_unlock(&dev->instance_rings_mutex);
+   /* Not found: destroyed ring, DESTROY_RING is host-synchronous. */
+}
+
+void
+npt_tls_wait_all_rings(struct npt_device *dev)
+{
+   if (!dev)
+      return;
+   mtx_lock(&dev->tls_rings_mutex);
+   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
+      mtx_lock(&tr->mutex);
+      struct npt_ring *ring =
+         atomic_load_explicit(&tr->ring, memory_order_acquire);
+      if (ring)
+         npt_ring_wait_all(ring);
+      mtx_unlock(&tr->mutex);
+   }
+   mtx_unlock(&dev->tls_rings_mutex);
+   if (dev->ring)
+      npt_ring_wait_all(dev->ring);
 }
 
 void

@@ -13,10 +13,15 @@
 #include "neptune-protocol/npt_protocol_defs.h"
 
 /* Failure paths release both the singleton acquire and the host ref
- * on `raw`, so the use-count stays balanced. */
+ * on `raw`, so the use-count stays balanced.  `iid` is the caller's
+ * requested interface; `base_iid` is the entry point's own tier, used
+ * when the request has no registered ctor (e.g. IID_IUnknown via
+ * IID_PPV_ARGS) -- a base-tier wrapper is safe because the caller then
+ * reaches it only through IUnknown / QueryInterface. */
 static HRESULT
 finish_create_dxgi_factory(struct npt_device *dev, const GUID *iid,
-                           void *raw, HRESULT call_hr, void **ppFactory)
+                           const GUID *base_iid, void *raw, HRESULT call_hr,
+                           void **ppFactory)
 {
    if (NPT_FAILED(call_hr) || !raw) {
       if (raw)
@@ -24,9 +29,13 @@ finish_create_dxgi_factory(struct npt_device *dev, const GUID *iid,
       npt_device_release();
       return NPT_FAILED(call_hr) ? call_hr : NPT_E_FAIL;
    }
-   void *wrapper = npt_com_get_or_wrap_or_release(
-      dev, iid, (uint64_t)(uintptr_t)raw, NULL);
+   const uint64_t host_id = (uint64_t)(uintptr_t)raw;
+   void *wrapper = npt_com_get_or_wrap(dev, iid, host_id, NULL);
+   if (!wrapper && iid != base_iid)
+      wrapper = npt_com_get_or_wrap(dev, base_iid, host_id, NULL);
    if (!wrapper) {
+      /* No ctor for either IID: drop the host ref get_or_wrap left held. */
+      npt_com_send_release(dev, host_id);
       npt_device_release();
       return NPT_E_OUTOFMEMORY;
    }
@@ -50,8 +59,12 @@ CreateDXGIFactory(REFIID riid, void **ppFactory)
 
    void *raw = NULL;
    HRESULT hr = npt_call_CreateDXGIFactory(dev->ring, riid, &raw);
-   /* Wrap as base IDXGIFactory regardless of riid; QI handles tiers. */
-   return finish_create_dxgi_factory(dev, &NPT_IID_IDXGIFactory, raw, hr,
+   /* Wrap with the CALLER's riid: the returned pointer is used as that
+    * interface directly (e.g. CreateDXGIFactory1(IID_IDXGIFactory2) +
+    * CreateSwapChainForHwnd), so a lower-tier vtbl would send calls
+    * through slots past the end of the storage. */
+   return finish_create_dxgi_factory(dev, riid ? riid : &NPT_IID_IDXGIFactory,
+                                     &NPT_IID_IDXGIFactory, raw, hr,
                                      ppFactory);
 }
 
@@ -67,7 +80,10 @@ CreateDXGIFactory1(REFIID riid, void **ppFactory)
 
    void *raw = NULL;
    HRESULT hr = npt_call_CreateDXGIFactory1(dev->ring, riid, &raw);
-   return finish_create_dxgi_factory(dev, &NPT_IID_IDXGIFactory1, raw, hr,
+   /* Caller's riid; see CreateDXGIFactory. */
+   return finish_create_dxgi_factory(dev,
+                                     riid ? riid : &NPT_IID_IDXGIFactory1,
+                                     &NPT_IID_IDXGIFactory1, raw, hr,
                                      ppFactory);
 }
 
@@ -83,6 +99,8 @@ CreateDXGIFactory2(UINT flags, REFIID riid, void **ppFactory)
 
    void *raw = NULL;
    HRESULT hr = npt_call_CreateDXGIFactory2(dev->ring, flags, riid, &raw);
-   return finish_create_dxgi_factory(dev, &NPT_IID_IDXGIFactory2, raw, hr,
+   return finish_create_dxgi_factory(dev,
+                                     riid ? riid : &NPT_IID_IDXGIFactory2,
+                                     &NPT_IID_IDXGIFactory2, raw, hr,
                                      ppFactory);
 }

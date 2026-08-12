@@ -5,13 +5,12 @@
 
 #include <assert.h>
 #include "npt_event.h"
+#include "npt_com.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
 #include "npt_renderer.h"
 #include "npt_ring.h"
 #include "nptunix/npt_unixlib.h"
-
-#include "util/hash_table.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -29,6 +28,7 @@
 struct event_pending {
    int    sync_fd;
    void  *handle;
+   uint64_t token;     /* single-use host proxy token; released on completion */
    struct event_pending *next;
 };
 
@@ -37,18 +37,11 @@ struct event_pending {
  * spawn, since each extra thread only pays off while an arm is outstanding. */
 #define NPT_EVENT_WAITER_MAX 8
 
-/* Per-registered HANDLE: outstanding-arm refcount.  Inserted on the
- * first arm (refcount=1) and freed under registry_mutex when the
- * waiter completes the last in-flight arm and drops it to zero. */
-struct event_registry_entry {
-   uint32_t refcount;
-};
+/* Wait-slice granularity: bounds both shutdown latency at join and how
+ * long a slow arm holds its pool thread before yielding to queued work. */
+#define NPT_EVENT_WAIT_SLICE_MS 2000
 
 struct npt_event_state {
-   mtx_t                          registry_mutex;
-   /* HANDLE -> struct event_registry_entry. */
-   struct hash_table             *registry;
-
    /* Half-open [base, end) carving the upper portion of the host's
     * sync_queues table; sized from the renderer's
     * max_timeline_count so we don't collide with Present rings.
@@ -59,6 +52,18 @@ struct npt_event_state {
 
    /* Holds ARM + submit_present_fence back-to-back on the same ring. */
    mtx_t                          arm_mutex;
+
+   /* Dedicated transport ring for the synchronous GATE_WAIT arms
+    * (D3D12 DDI).  On the method ring the arm's reply queues behind
+    * the recording flood and the host's ExecuteCommandLists, costing
+    * milliseconds per arm on the submit thread; on this otherwise-empty
+    * ring it is a bare wire round trip.  Safe because GATE_WAIT has no
+    * FIFO dependency on
+    * any other ring's traffic: it references only the long-created
+    * drain fence object, and fence-vs-arm arrival order is already
+    * handled by the host's pending-arm/parked-fence pairing.
+    * Lazily created under arm_mutex; NULL until first gate arm. */
+   struct npt_ring               *gate_ring;
 
    /* Arms waiting for a waiter thread, oldest first.  Each entry occupies a
     * waiter for as long as its fence takes to retire, so the queue is FIFO
@@ -82,34 +87,6 @@ struct npt_event_state {
    pthread_t                      waiter_thread[NPT_EVENT_WAITER_MAX];
 #endif
 };
-
-/* Drop one outstanding-arm refcount.  When it hits zero, remove the
- * entry from the registry and emit RELEASE_EVENT so the host frees its
- * proxy.  Subsequent arms for the same HANDLE re-REGISTER (host's
- * npt_event_arm lazy-creates if the proxy is missing). */
-static void
-event_release_one(struct npt_device *dev, void *hEvent)
-{
-   struct npt_event_state *st = dev->event;
-   uint64_t token = (uint64_t)(uintptr_t)hEvent;
-
-   mtx_lock(&st->registry_mutex);
-   if (st->registry) {
-      struct hash_entry *e = _mesa_hash_table_search(st->registry, hEvent);
-      if (e) {
-         struct event_registry_entry *ent = e->data;
-         if (--ent->refcount == 0) {
-            _mesa_hash_table_remove(st->registry, e);
-            free(ent);
-            /* Submitted on the method ring and still under registry_mutex, so
-             * this token's REGISTER/RELEASE reach the host in refcount-
-             * transition order (see npt_dispatch_event_release_ring). */
-            npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
-         }
-      }
-   }
-   mtx_unlock(&st->registry_mutex);
-}
 
 #if defined(__WINE__)
 static void
@@ -209,12 +186,51 @@ static void *event_waiter_thread(void *arg)
       st->pending_count--;
       mtx_unlock(&st->pending_mutex);
 
-      /* 5s caps shutdown latency on an arm mid-flight at join. */
-      int rc = wait_one(p->sync_fd, 5000);
-      if (rc > 0)
+      /* Wait a slice at a time (each slice caps shutdown latency at
+       * join).  An arm is never dropped on timeout -- a fence that
+       * takes longer than one slice, or whose host-side signal is
+       * delayed, would otherwise silently lose the SetEvent and hang
+       * the app on its Win32 event.  But a slow arm must not
+       * monopolize its pool thread while other arms are queued (the
+       * pool is small and D3D12 apps leave many events armed for
+       * later values): on timeout, if other work is waiting, re-queue
+       * this arm to the tail and service the next, so the pool
+       * round-robins instead of starving.  Only when this arm is the
+       * sole outstanding one does the thread wait it out in place. */
+      int rc = wait_one(p->sync_fd, NPT_EVENT_WAIT_SLICE_MS);
+      while (rc == 0 && !atomic_load(&st->waiter_join)) {
+         mtx_lock(&st->pending_mutex);
+         bool others_waiting = st->pending_head != NULL;
+         if (others_waiting) {
+            p->next = NULL;
+            if (st->pending_tail)
+               st->pending_tail->next = p;
+            else
+               st->pending_head = p;
+            st->pending_tail = p;
+            st->pending_count++;
+            /* Wake an idle peer so the re-queued arm keeps a servicer. */
+            cnd_signal(&st->pending_cond);
+            mtx_unlock(&st->pending_mutex);
+            p = NULL;
+            break;
+         }
+         mtx_unlock(&st->pending_mutex);
+         rc = wait_one(p->sync_fd, NPT_EVENT_WAIT_SLICE_MS);
+      }
+      if (!p)
+         continue; /* re-queued for a round-robin turn */
+
+      if (rc > 0) {
          do_set_event(p->handle);
+      } else {
+         npt_log("event: dropping arm for handle %p (rc=%d%s)", p->handle,
+                 rc, rc == 0 ? ", shutdown" : "");
+      }
       close_fd(p->sync_fd);
-      event_release_one(dev, p->handle);
+      /* Single-use proxy: release after completion (the host firing
+       * necessarily preceded the KMD signal we just consumed). */
+      npt_dispatch_event_release_ring(npt_device_method_ring(dev), p->token);
       free(p);
    }
 #if defined(_WIN32)
@@ -250,7 +266,6 @@ npt_event_init(struct npt_device *dev)
    struct npt_event_state *st = calloc(1, sizeof(*st));
    if (!st) return;
 
-   mtx_init(&st->registry_mutex, mtx_plain);
    mtx_init(&st->arm_mutex, mtx_plain);
    mtx_init(&st->pending_mutex, mtx_plain);
    cnd_init(&st->pending_cond);
@@ -268,7 +283,6 @@ npt_event_init(struct npt_device *dev)
    atomic_init(&st->next_event_ring_idx, st->ring_base);
    atomic_init(&st->waiter_join, false);
    st->pending_head = NULL;
-   st->registry = _mesa_pointer_hash_table_create(NULL);
 
    /* Set dev->event before thread create so the waiter can read it. */
    dev->event = st;
@@ -309,62 +323,42 @@ npt_event_fini(struct npt_device *dev)
    st->pending_tail  = NULL;
    st->pending_count = 0;
 
-   /* Symmetric RELEASE for every entry left in the registry.  The
-    * host's npt_event_fini will sweep anything we miss, but explicit
-    * release keeps the host's per-context accounting balanced and
-    * silences the host's "leaked at teardown" diagnostic. */
-   if (st->registry) {
-      hash_table_foreach(st->registry, e) {
-         uint64_t token = (uint64_t)(uintptr_t)e->key;
-         free(e->data);
-         npt_dispatch_event_release(dev->renderer, token);
-      }
-      _mesa_hash_table_destroy(st->registry, NULL);
+   if (st->gate_ring) {
+      mtx_lock(&dev->instance_rings_mutex);
+      list_del(&st->gate_ring->instance_head);
+      mtx_unlock(&dev->instance_rings_mutex);
+      npt_ring_destroy(st->gate_ring);
+      st->gate_ring = NULL;
    }
+
    cnd_destroy(&st->pending_cond);
    mtx_destroy(&st->pending_mutex);
    mtx_destroy(&st->arm_mutex);
-   mtx_destroy(&st->registry_mutex);
    free(st);
    dev->event = NULL;
 }
 
-bool
+uint64_t
 npt_event_arm(struct npt_device *dev, void *hEvent)
 {
    if (!dev || !hEvent || !dev->event)
-      return false;
+      return 0;
 
    struct npt_event_state *st = dev->event;
-   uint64_t token = (uint64_t)(uintptr_t)hEvent;
 
-   /* Take a refcount under the registry lock; the matching decrement
-    * happens in the waiter (or in the failure paths below).  When the
-    * count drops to zero event_release_one emits RELEASE_EVENT. */
-   mtx_lock(&st->registry_mutex);
-   if (!st->registry) {
-      mtx_unlock(&st->registry_mutex);
-      return false;
-   }
-   struct hash_entry *e = _mesa_hash_table_search(st->registry, hEvent);
-   if (e) {
-      ((struct event_registry_entry *)e->data)->refcount++;
-   } else {
-      struct event_registry_entry *ent = calloc(1, sizeof(*ent));
-      if (!ent) {
-         mtx_unlock(&st->registry_mutex);
-         return false;
-      }
-      ent->refcount = 1;
-      _mesa_hash_table_insert(st->registry, hEvent, ent);
-      /* Submitted on the method ring so it precedes the ARM_EVENT_FENCE issued
-       * below (see npt_dispatch_event_register_ring).  Holding registry_mutex
-       * across the submit also keeps this REGISTER before any other thread's
-       * ARM, since that thread must take registry_mutex to bump the refcount
-       * before it can arm. */
-      npt_dispatch_event_register_ring(npt_device_method_ring(dev), token);
-   }
-   mtx_unlock(&st->registry_mutex);
+   /* SINGLE-USE token, minted per arm.  Keying the host proxy by the
+    * raw HANDLE value reused one proxy pipe across every wait on the
+    * same Win32 event -- and, as npt_event_arm_token_fd documents,
+    * "the host eventfd proxy is never drained, so a signaled proxy
+    * can't be re-armed for a second wait": after the first firing,
+    * every later wait on that event completed instantly.  Apps reuse
+    * one event across frames for fence pacing, so every such wait
+    * observed the PREVIOUS operation's completion.  A fresh token
+    * per arm gives each wait its own proxy; the waiter releases it
+    * after the KMD-signalled completion, which the host firing
+    * necessarily precedes. */
+   uint64_t token = npt_com_allocate_next_id();
+   npt_dispatch_event_register_ring(npt_device_method_ring(dev), token);
 
    /* Round-robin across event rings so independent in-flight arms
     * don't queue up on one sync-queue worker. */
@@ -380,25 +374,26 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
                                               token, ring_idx);
    if (!arm_ok) {
       mtx_unlock(&st->arm_mutex);
-      event_release_one(dev, hEvent);
-      return false;
+      npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
+      return 0;
    }
    int sync_fd = npt_renderer_submit_present_fence(dev->renderer, ring_idx);
    mtx_unlock(&st->arm_mutex);
 
    if (sync_fd < 0) {
-      event_release_one(dev, hEvent);
-      return false;
+      npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
+      return 0;
    }
 
    struct event_pending *p = calloc(1, sizeof(*p));
    if (!p) {
       close_fd(sync_fd);
-      event_release_one(dev, hEvent);
-      return false;
+      npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
+      return 0;
    }
    p->sync_fd = sync_fd;
    p->handle  = hEvent;
+   p->token   = token;
 
    mtx_lock(&st->pending_mutex);
    p->next = NULL;
@@ -416,7 +411,7 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
       event_waiter_spawn(dev, st);
    cnd_signal(&st->pending_cond);
    mtx_unlock(&st->pending_mutex);
-   return true;
+   return token;
 }
 
 /*
@@ -466,4 +461,82 @@ npt_event_release_token(struct npt_device *dev, uint64_t token)
 {
    if (token)
       npt_dispatch_event_release(dev->renderer, token);
+}
+
+/*
+ * Monitored-fence gate arm (D3D12 DDI): pair a host event-ring fence
+ * with a KMD gate token.  The KMD's VIOGPU_ARM_GATE escape submits the
+ * empty fenced SUBMIT_3D and fires the returned token when the host
+ * retires the fence at real GPU completion; a DMA packet on the D3D12
+ * queue's kernel context (VIOGPU_CMD_GATE{token}) parks on it, which is
+ * what gates dxgkrnl's monitored-fence packets.
+ *
+ * The host side is a GATE_WAIT: SetEventOnCompletion(drain fence, value)
+ * onto the ring's PERSISTENT gate eventfd, with value-checked
+ * retirement (GetCompletedValue >= value re-verified on every wakeup).
+ * Per-arm single-use eventfds were unsound: the host D3D library fires
+ * callbacks asynchronously by NUMERIC fd, and fd reuse after retirement
+ * lets a late fire signal the NEXT gate, which reads back stale by one.
+ *
+ * Returns the KMD gate token (0 on failure).
+ */
+/* Transport ring for GATE_WAIT (see gate_ring in npt_event_state).
+ * Called under arm_mutex.  Falls back to the method ring if creation
+ * fails. */
+static struct npt_ring *
+event_gate_transport_ring(struct npt_device *dev, struct npt_event_state *st)
+{
+   if (st->gate_ring)
+      return st->gate_ring;
+   struct npt_ring_layout layout;
+   npt_ring_get_layout(16u * 1024u, sizeof(uint32_t), &layout);
+   const uint64_t ring_id = atomic_fetch_add(&dev->next_ring_id, 1);
+   struct npt_ring *ring =
+      npt_ring_create(dev, &layout, ring_id, false /* is_tls_ring */);
+   if (!ring)
+      return npt_device_method_ring(dev);
+   mtx_lock(&dev->instance_rings_mutex);
+   list_addtail(&ring->instance_head, &dev->instance_rings);
+   mtx_unlock(&dev->instance_rings_mutex);
+   st->gate_ring = ring;
+   return ring;
+}
+
+uint64_t
+npt_event_gate_arm(struct npt_device *dev, uint64_t fence_obj_id,
+                   uint64_t value)
+{
+   if (!dev || !dev->event)
+      return 0;
+   struct npt_event_state *st = dev->event;
+
+   uint32_t ring_idx = atomic_fetch_add(&st->next_event_ring_idx, 1);
+   const uint32_t span = st->ring_end - st->ring_base;
+   assert(span);
+   ring_idx = st->ring_base + (ring_idx - st->ring_base) % span;
+
+   mtx_lock(&st->arm_mutex);
+   /* Escape first: if the fence outruns the GATE_WAIT the host parks it
+    * (the pairing handles either order).  The reverse order with a
+    * failing escape would leave an orphaned pending-arm that mispairs
+    * with this ring's next fence. */
+   uint64_t kmd_token = npt_renderer_arm_gate_fence(dev->renderer, ring_idx);
+   bool arm_ok = kmd_token != 0 &&
+      npt_dispatch_event_gate_wait(event_gate_transport_ring(dev, st),
+                                   fence_obj_id, value, ring_idx);
+   mtx_unlock(&st->arm_mutex);
+
+   if (!kmd_token)
+      return 0;
+   if (!arm_ok) {
+      /* The KMD fence is in flight with no arm: it parks host-side and
+       * would pair off-by-one with this ring's next arm.  A GATE_WAIT
+       * failure means the method ring is already fatal; log loud and
+       * let the caller skip the gate (TDR recovery applies if the ring
+       * truly died). */
+      npt_log("event: GATE_WAIT failed after escape (ring=%u) -- "
+              "ring fatal?", ring_idx);
+      return 0;
+   }
+   return kmd_token;
 }

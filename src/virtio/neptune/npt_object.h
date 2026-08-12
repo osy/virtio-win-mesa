@@ -40,6 +40,22 @@ struct npt_object {
     * (whether freshly created or cache-hit) and npt_com_destroy
     * issues exactly this many releases. */
    _Atomic uint32_t device_ref_holds;
+
+   /* Per-object wire ordering across TLS rings.  Interfaces whose calls
+    * are sequential by API contract but may legally migrate threads
+    * BETWEEN calls (D3D12 command lists: single-threaded recording, no
+    * thread affinity) set ring_ordered at wrapper construction.  When a
+    * flagged object's next call lands on a different ring than its
+    * previous one, npt_com_self_ring drains the previous ring first, so
+    * the host decodes this object's commands in call order.  Without
+    * this, a recording handoff split a list's commands across two rings
+    * with no ordering, and the host draws the result out of order. */
+   bool ring_ordered;
+   _Atomic uint64_t order_ring_id;
+   /* instance_ring is this object's PRIVATE ring (not the shared DC/SC
+    * ring): npt_com_destroy destroys it instead of unrefing the shared
+    * ring.  Set only by npt_com_pin_queue_ring. */
+   bool private_instance_ring;
 };
 
 static inline void
@@ -55,6 +71,9 @@ npt_object_init(struct npt_object *obj, uint64_t host_id,
    obj->parent = NULL;
    obj->instance_ring = NULL;
    atomic_store_explicit(&obj->device_ref_holds, 0, memory_order_relaxed);
+   obj->ring_ordered = false;
+   obj->private_instance_ring = false;
+   atomic_store_explicit(&obj->order_ring_id, 0, memory_order_relaxed);
 }
 
 #endif /* NPT_OBJECT_H */

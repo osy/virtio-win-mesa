@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 npt_common_src = files(
+  'npt_blob.c',
   'npt_com.c',
   'npt_cs.c',
   'npt_device.c',
@@ -13,8 +14,11 @@ npt_common_src = files(
   'npt_tls.c',
   'npt_shmem_pool.c',
   'npt_resource.c',
+  'npt_d3d12_heap.c',
   'npt_shared_texture.c',
   'npt_swapchain.c',
+  'npt_swapchain12.c',
+  'npt_swapchain_common.c',
   'npt_overrides_d3d11_buffer.c',
   'npt_overrides_d3d11_context.c',
   'npt_overrides_d3d11_device.c',
@@ -22,6 +26,11 @@ npt_common_src = files(
   'npt_overrides_d3d11_query.c',
   'npt_overrides_d3d11_texture.c',
   'npt_overrides_d3d11_view.c',
+  'npt_overrides_d3d12_device.c',
+  'npt_overrides_d3d12_fence.c',
+  'npt_overrides_d3d12_list.c',
+  'npt_overrides_d3d12_queue.c',
+  'npt_overrides_d3d12_resource.c',
   'npt_overrides_dxgi_adapter.c',
   'npt_overrides_dxgi_factory.c',
   'npt_overrides_dxgi_factorymedia.c',
@@ -134,6 +143,18 @@ if npt_is_windows
     dependencies : npt_deps,
     c_args : npt_c_args,
     vs_module_defs : 'dxgi.def',
+    name_prefix : '',
+    gnu_symbol_visibility : 'hidden',
+    install : true,
+  )
+
+  libd3d12_npt = shared_library(
+    'd3d12',
+    [npt_common_src, files('npt_entry_d3d12.c')],
+    include_directories : npt_incs,
+    dependencies : npt_deps,
+    c_args : npt_c_args,
+    vs_module_defs : 'd3d12.def',
     name_prefix : '',
     gnu_symbol_visibility : 'hidden',
     install : true,

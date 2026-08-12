@@ -55,14 +55,19 @@ static void *shmem_reaper_main(void *arg)
       mtx_lock(&g_shmem_reaper.mutex);
       while (list_is_empty(&g_shmem_reaper.queue))
          cnd_wait(&g_shmem_reaper.cond, &g_shmem_reaper.mutex);
-      struct shmem_reap_entry *e =
-         list_first_entry(&g_shmem_reaper.queue,
-                          struct shmem_reap_entry, head);
-      list_del(&e->head);
+      /* Detach the whole queue so the destroys run outside the lock. */
+      struct list_head batch;
+      list_replace(&g_shmem_reaper.queue, &batch);
+      list_inithead(&g_shmem_reaper.queue);
       mtx_unlock(&g_shmem_reaper.mutex);
 
-      e->renderer->shmem_ops.destroy(e->renderer, e->shmem);
-      free(e);
+      while (!list_is_empty(&batch)) {
+         struct shmem_reap_entry *e =
+            list_first_entry(&batch, struct shmem_reap_entry, head);
+         list_del(&e->head);
+         e->renderer->shmem_ops.destroy(e->renderer, e->shmem);
+         free(e);
+      }
    }
 #if defined(_WIN32)
    return 0;
@@ -115,6 +120,13 @@ shmem_reaper_unref(struct npt_renderer *renderer,
    list_addtail(&e->head, &g_shmem_reaper.queue);
    cnd_signal(&g_shmem_reaper.cond);
    mtx_unlock(&g_shmem_reaper.mutex);
+}
+
+void
+npt_renderer_shmem_unref_async(struct npt_renderer *renderer,
+                               struct npt_renderer_shmem *shmem)
+{
+   shmem_reaper_unref(renderer, shmem);
 }
 
 void

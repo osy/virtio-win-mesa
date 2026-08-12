@@ -11,6 +11,7 @@
 #include "npt_com.h"
 #include "npt_overrides.h"
 #include "npt_swapchain.h"
+#include "npt_swapchain12.h"
 #include "npt_device.h"
 
 #include "neptune-protocol/npt_protocol_client_idxgifactory.h"
@@ -53,6 +54,35 @@ fac_CreateSoftwareAdapter_override(void *self, HMODULE Module, IDXGIAdapter **pp
    if (ppAdapter)
       *ppAdapter = NULL;
    return NPT_DXGI_ERROR_UNSUPPORTED;
+}
+
+/* The host D3D library has no WARP device, so the wire default can't
+ * work: its fire-and-forget encode assumes success, wraps the minted
+ * guest id, and the host (which failed the call and registered
+ * nothing) fatals on the wrapper's first method.  Answer like Wine's
+ * dxgi does: hand back adapter 0.  EnumAdapters/QI return host-id'd
+ * objects, so nothing guest-minted reaches the wire. */
+static HRESULT NPT_STDMETHODCALLTYPE
+fac4_EnumWarpAdapter_override(void *self, const IID *riid, void **ppvAdapter)
+{
+   if (!ppvAdapter)
+      return NPT_E_POINTER;
+   *ppvAdapter = NULL;
+   if (!riid)
+      return NPT_E_POINTER;
+
+   const struct npt_idxgifactory_client_vtbl *fv =
+      (const void *)((struct npt_com_base *)self)->lpVtbl;
+   IDXGIAdapter *adp = NULL;
+   HRESULT hr = fv->EnumAdapters(self, 0, &adp);
+   if (NPT_FAILED(hr) || !adp)
+      return NPT_FAILED(hr) ? hr : NPT_E_FAIL;
+
+   const struct npt_idxgifactory_client_vtbl *av =
+      (const void *)((struct npt_com_base *)adp)->lpVtbl;
+   hr = av->QueryInterface(adp, riid, ppvAdapter);
+   av->Release(adp);
+   return hr;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
@@ -136,6 +166,25 @@ fac7_UnregisterAdaptersChangedEvent_override(void *self, DWORD dwCookie)
  * npt_overrides_dxgi_output.c); it never reaches the host.
  * ========================================================================= */
 
+/* D3D12 detection: DXGI swapchains for D3D12 are created with the
+ * app's ID3D12CommandQueue as pDevice.  The wrapper's QI resolves this
+ * guest-side via the parent-IID chain when pDevice is the queue
+ * wrapper itself (the common case); on a D3D11 device it is one
+ * failing host round-trip at swapchain creation time. */
+static bool
+fac_device_is_d3d12_queue(IUnknown *pDevice)
+{
+   const struct npt_idxgiswapchain_client_vtbl *v =
+      (const void *)((struct npt_com_base *)pDevice)->lpVtbl;
+   void *queue = NULL;
+   if (NPT_FAILED(v->QueryInterface(pDevice, &NPT_IID_ID3D12CommandQueue,
+                                    &queue)) || !queue)
+      return false;
+   npt_com_default_release(queue);
+   return true;
+}
+
+/* Classic CreateSwapChain: DXGI_SWAP_CHAIN_DESC carries Windowed directly. */
 static HRESULT NPT_STDMETHODCALLTYPE
 fac_CreateSwapChain_override(void *self, IUnknown *pDevice,
                              DXGI_SWAP_CHAIN_DESC *pDesc,
@@ -143,8 +192,13 @@ fac_CreateSwapChain_override(void *self, IUnknown *pDevice,
 {
    if (!pDevice || !pDesc || !ppSwapChain)
       return NPT_DXGI_ERROR_INVALID_CALL;
-   HRESULT hr = npt_guest_swapchain_create_legacy(pDevice, pDesc, self,
-                                                  (void **)ppSwapChain);
+   HRESULT hr;
+   if (fac_device_is_d3d12_queue(pDevice))
+      hr = npt_guest_swapchain12_create_legacy(pDevice, pDesc, self,
+                                               (void **)ppSwapChain);
+   else
+      hr = npt_guest_swapchain_create_legacy(pDevice, pDesc, self,
+                                             (void **)ppSwapChain);
    if (NPT_SUCCEEDED(hr) && !pDesc->Windowed)
       npt_swapchain_apply_initial_fullscreen(*ppSwapChain);
    return hr;
@@ -160,8 +214,13 @@ fac2_CreateSwapChainForHwnd_override(void *self, IUnknown *pDevice, HWND hWnd,
    (void)pRestrictToOutput;
    if (!pDevice || !pDesc || !ppSwapChain)
       return NPT_DXGI_ERROR_INVALID_CALL;
-   HRESULT hr = npt_guest_swapchain_create(pDevice, pDesc, pFs, hWnd, self,
-                                           (void **)ppSwapChain);
+   HRESULT hr;
+   if (fac_device_is_d3d12_queue(pDevice))
+      hr = npt_guest_swapchain12_create(pDevice, pDesc, pFs, hWnd, self,
+                                        (void **)ppSwapChain);
+   else
+      hr = npt_guest_swapchain_create(pDevice, pDesc, pFs, hWnd, self,
+                                      (void **)ppSwapChain);
    /* pFs == NULL means windowed (per DXGI); only enter fullscreen when the
     * app explicitly asked for it. */
    if (NPT_SUCCEEDED(hr) && pFs && !pFs->Windowed)
@@ -249,6 +308,8 @@ npt_overrides_dxgi_factory_init(void)
                                        fac2_UnregisterOcclusionStatus_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY2(GetSharedResourceAdapterLuid,
                                        fac2_GetSharedResourceAdapterLuid_override);
+   NPT_REGISTER_OVERRIDE_DXGI_FACTORY4(EnumWarpAdapter,
+                                       fac4_EnumWarpAdapter_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY7(RegisterAdaptersChangedEvent,
                                        fac7_RegisterAdaptersChangedEvent_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY7(UnregisterAdaptersChangedEvent,

@@ -49,6 +49,11 @@ enum npt_debug {
     * instead of capping it to the active CRTC scanout.  For modeset
     * experiments where the guest is meant to drive resolution changes. */
    NPT_DEBUG_EXPOSE_ALL_MODES        = 1ull << 4,
+
+   /* Report D3D12 command lists whose recording migrates between threads.
+    * Under NPT_PERF=multi_ring that splits one list's recording across
+    * TLS rings, so the host decodes it out of order. */
+   NPT_DEBUG_D3D12_LIST_MIGRATION    = 1ull << 9,
 };
 
 struct npt_env {
@@ -65,6 +70,12 @@ struct npt_env {
 extern struct npt_env npt_env;
 
 void npt_env_init(void);
+
+/* OR bits into npt_env.perf regardless of the environment (initializes
+ * the env first).  Used by entry points whose API contract mandates a
+ * mode -- e.g. D3D12CreateDevice forces MULTI_RING before the device
+ * singleton latches it.  Must run before npt_device_acquire(). */
+void npt_env_force_perf(uint64_t perf_bits);
 
 /* unlikely(): "perf disabled" is the rare bisect path. */
 #define NPT_PERF(category)  (unlikely(npt_env.perf & NPT_PERF_##category))

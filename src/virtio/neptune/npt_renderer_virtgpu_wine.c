@@ -367,6 +367,8 @@ npt_renderer_create_virtgpu(void)
    gpu->drm_fd = drm_fd;
    InitializeCriticalSection(&gpu->cs);
 
+   gpu->base.info.wire_format_version = capset.wire_format_version;
+   gpu->base.info.caps_flags = capset.caps_flags;
    gpu->base.info.max_timeline_count = 64;
 
    gpu->base.ops.destroy = npt_vgw_destroy;
