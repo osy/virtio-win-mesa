@@ -466,12 +466,51 @@ triton12InstallQueueDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
     t->pfnDestroyCommandQueue         = t12DestroyCommandQueue;
 }
 
+/* Tile mappings are deliberate no-ops: reserved resources are served by
+ * the committed-backing shim (tritonResource12.c), which backs the whole
+ * resource at create -- there is nothing to map or unmap, and tier-2
+ * "everything mapped, reads-zero" semantics hold by construction. */
+static VOID APIENTRY
+t12UpdateTileMappings(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDI_HRESOURCE hRes,
+                      UINT NumRegions,
+                      const D3D12DDI_TILED_RESOURCE_COORDINATE *pCoords,
+                      const D3D12DDI_TILE_REGION_SIZE *pSizes,
+                      D3D12DDI_HHEAP hPool, UINT NumRanges,
+                      const D3D12DDI_TILE_RANGE_FLAGS *pRangeFlags,
+                      const UINT *pHeapStartOffsets,
+                      const UINT *pRangeTileCounts,
+                      D3D12DDI_TILE_MAPPING_FLAGS Flags)
+{
+    (void)hQueue; (void)hRes; (void)pCoords; (void)pSizes; (void)hPool;
+    (void)pRangeFlags; (void)pHeapStartOffsets; (void)pRangeTileCounts;
+    (void)Flags;
+    static LONG once;
+    if (!InterlockedExchange(&once, 1))
+        TR_LOG("12.UpdateTileMappings: no-op (committed-backing shim; "
+               "regions=%u ranges=%u)", NumRegions, NumRanges);
+}
+
+static VOID APIENTRY
+t12CopyTileMappings(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDI_HRESOURCE hDst,
+                    const D3D12DDI_TILED_RESOURCE_COORDINATE *pDstCoord,
+                    D3D12DDI_HRESOURCE hSrc,
+                    const D3D12DDI_TILED_RESOURCE_COORDINATE *pSrcCoord,
+                    const D3D12DDI_TILE_REGION_SIZE *pSize,
+                    D3D12DDI_TILE_MAPPING_FLAGS Flags)
+{
+    (void)hQueue; (void)hDst; (void)pDstCoord; (void)hSrc; (void)pSrcCoord;
+    (void)pSize; (void)Flags;
+    static LONG once;
+    if (!InterlockedExchange(&once, 1))
+        TR_LOG("12.CopyTileMappings: no-op (committed-backing shim)");
+}
+
 void
 triton12InstallQueueFuncs(D3D12DDI_COMMAND_QUEUE_FUNCS_CORE_0001 *t)
 {
     t->pfnExecuteCommandLists = t12ExecuteCommandLists;
     t->pfnSignalFence         = t12SignalFence;
     t->pfnWaitForFence        = t12WaitForFence;
-    /* UpdateTileMappings / CopyTileMappings stay logged stubs (no tiled
-     * resources). */
+    t->pfnUpdateTileMappings  = t12UpdateTileMappings;
+    t->pfnCopyTileMappings    = t12CopyTileMappings;
 }

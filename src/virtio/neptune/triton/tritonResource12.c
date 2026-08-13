@@ -72,10 +72,14 @@ t12ResourceDesc(const D3D12DDIARG_CREATERESOURCE_0003 *pR,
         pDesc->DepthOrArraySize = 1;
         pDesc->MipLevels = 1;
         pDesc->Format = DXGI_FORMAT_UNKNOWN;
-    } else if (pR->Layout <= D3D12DDI_TL_64KB_TILE_STANDARD_SWIZZLE) {
-        /* UNDEFINED/ROW_MAJOR/64KB_* agree by value (0..3). */
-        pDesc->Layout = (D3D12_TEXTURE_LAYOUT)pR->Layout;
+    } else if (pR->Layout == D3D12DDI_TL_ROW_MAJOR) {
+        pDesc->Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     } else {
+        /* UNDEFINED, and BOTH 64KB tiled layouts: reserved (tiled)
+         * resources are served by the committed-backing shim, so the
+         * inner device sees a plain optimal-layout texture -- passing a
+         * tiled layout through would ask the backend for real sparse
+         * support it does not have. */
         pDesc->Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     }
 
@@ -370,9 +374,38 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
             pResDesc->ReuseBufferGPUVA.BaseAddress.UMD.hResource.pDrvPrivate;
         const UINT64 off =
             pResDesc->ReuseBufferGPUVA.BaseAddress.UMD.Offset;
+        const BOOL tiled =
+            pResDesc->Layout == D3D12DDI_TL_64KB_TILE_UNDEFINED_SWIZZLE ||
+            pResDesc->Layout == D3D12DDI_TL_64KB_TILE_STANDARD_SWIZZLE;
         D3D12_RESOURCE_DESC desc;
         t12ResourceDesc(pResDesc, &desc);
         HRESULT hr;
+        if (tiled) {
+            /* Reserved (tiled) resource: committed-backing shim.  The
+             * whole resource is backed by a zero-initialized committed
+             * allocation, so tier-2 semantics hold trivially
+             * ("everything is mapped", unmapped reads never happen);
+             * UpdateTileMappings/CopyTileMappings are queue-side no-ops
+             * and CopyTiles becomes region copies.  Cost: full physical
+             * backing up front -- the opposite of the feature's purpose,
+             * but the only shape the backend supports. */
+            D3D12_HEAP_PROPERTIES props;
+            memset(&props, 0, sizeof(props));
+            props.Type = D3D12_HEAP_TYPE_DEFAULT;
+            hr = ID3D12Device_CreateCommittedResource(
+                p->pDev, &props, D3D12_HEAP_FLAG_NONE, &desc,
+                (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
+                pClear, &IID_ID3D12Resource, (void **)&r->pResource);
+            TR_LOG("12.CreateHeapAndResource(reserved->committed): type=%d "
+                   "w=%llu h=%u fmt=%d mips=%u state=0x%x -> 0x%08lx",
+                   (int)pResDesc->ResourceType,
+                   (unsigned long long)pResDesc->Width,
+                   (unsigned)pResDesc->Height, (int)pResDesc->Format,
+                   (unsigned)pResDesc->MipLevels,
+                   (unsigned)pResDesc->InitialResourceState,
+                   (unsigned long)hr);
+            return hr;
+        }
         if (base && base->pPlaceHeap) {
             hr = ID3D12Device_CreatePlacedResource(
                 p->pDev, base->pPlaceHeap, off, &desc,

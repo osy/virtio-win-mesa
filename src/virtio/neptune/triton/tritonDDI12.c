@@ -13,6 +13,7 @@
 
 #include "triton12.h"
 #include "triton_log.h"
+#include "tritonSharedBridge.h"
 
 /* npt_device.h can't be included here: its vendored protocol DirectX
  * types collide with the SDK headers this TU already pulls. */
@@ -145,7 +146,8 @@ triton12GetSupportedVersions(D3D12DDI_HADAPTER hAdapter,
 static HRESULT APIENTRY
 triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
 {
-    (void)hAdapter;
+    PTRITON12_ADAPTER pAdapter = (PTRITON12_ADAPTER)hAdapter.pDrvPrivate;
+    const UINT32 hostCaps = pAdapter ? pAdapter->HostCaps : 0;
     TR_LOG("12.GetCaps: Type=%d DataSize=%u pInfo=%p",
            (int)pArgs->Type, pArgs->DataSize, pArgs->pInfo);
     if (!pArgs->pData || !pArgs->DataSize)
@@ -154,15 +156,20 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
     if ((int)pArgs->Type == 1074 /* D3D12DDICAPS_TYPE_0081_3DPIPELINESUPPORT1 */) {
         /* In/out struct, exempt from the zero-fill default: field 0 is
          * the runtime's input (HighestRuntimeSupportedFeatureLevel) and
-         * field 1 our answer, where zero reads as "no pipeline". */
+         * field 1 our answer, where zero reads as "no pipeline".
+         * ValidateCapsForFeatureLevel requires TiledResourcesTier >= 2
+         * and TypedUAVLoadAdditionalFormats from any driver claiming a
+         * 12_x pipeline; both hold on the DXIL-capable (D3DMetal) stack
+         * -- typed UAV load in SHADER caps, tiled tier 2 via the
+         * committed-backing shim in tritonResource12.c.  Kill switch:
+         * host NPT_CAPSET_CAPS=0x1 clears the DXIL bit and everything
+         * (SM6 + FL12 + tiled) reverts in one boot. */
         if (pArgs->DataSize >= 2 * sizeof(UINT)) {
             UINT *pLevels = (UINT *)pArgs->pData;
             TR_LOG("12.GetCaps 3DPIPELINESUPPORT1: runtime highest=%u", pLevels[0]);
-            /* 11_1, not 12_0: ValidateCapsForFeatureLevel requires
-             * TiledResourcesTier >= 2 and TypedUAVLoadAdditionalFormats
-             * from any driver claiming a 12_x pipeline, and this stack
-             * has neither. */
-            pLevels[1] = (UINT)D3D12DDI_3DPIPELINELEVEL_11_1;
+            pLevels[1] = (hostCaps & TRITON_HOSTCAP_DXIL)
+                             ? (UINT)D3D12DDI_3DPIPELINELEVEL_12_1
+                             : (UINT)D3D12DDI_3DPIPELINELEVEL_11_1;
         }
         return S_OK;
     }
@@ -172,28 +179,43 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
          * runtime supplies the pointers. */
         D3D12DDI_D3D12_SHADER_MODELS_DATA_0011 *pData =
             (D3D12DDI_D3D12_SHADER_MODELS_DATA_0011 *)pArgs->pData;
-        static const UINT kModels[] = {
-            /* DXBC 5.1 only, and it is mandatory -- a list without it is
-             * a validation reject.  Adding SM 6.0 would make the runtime
-             * treat this driver as a DXIL consumer: dxilconv.dll loads
-             * and the shader token streams stop being plain DXBC, which
-             * is all the host can parse. */
-            0x00050015, /* D3D12DDI_SHADER_MODEL_5_1_RELEASE_0011 */
-        };
-        const UINT kModelCount = sizeof(kModels) / sizeof(kModels[0]);
+        /* DXBC 5.1 is mandatory -- a list without it is a validation
+         * reject.  SM 6.x is DXIL: advertised only when the host backend
+         * consumes DXIL containers (D3DMetal yes, DXMT no).  Advertising
+         * it makes the runtime treat this driver as a DXIL consumer, so
+         * DXIL apps hand their containers through pfnCreateShader
+         * (tritonPipeline12.c detects the container magic). */
+        UINT models[8];
+        UINT cModels = 0;
+        models[cModels++] = 0x00050015; /* D3D12DDI_SHADER_MODEL_5_1_RELEASE_0011 */
+        if (hostCaps & TRITON_HOSTCAP_DXIL) {
+            /* The full 6.0-6.6 range D3DMetal itself reports.  Optional
+             * feature caps stay off (post-0022 cap types are never
+             * queried at this DDI), so shaders whose SFI0 flags need
+             * them are rejected by the runtime -- the correct clamp. */
+            models[cModels++] = 0x00060005; /* 6_0_RELEASE_0011 */
+            models[cModels++] = 0x00060015; /* 6_1_RELEASE_0033 */
+            models[cModels++] = 0x00060025; /* 6_2_RELEASE_0042 */
+            models[cModels++] = 0x00060035; /* 6_3_RELEASE_0054 */
+            models[cModels++] = 0x00060045; /* 6_4_RELEASE_0062 */
+            models[cModels++] = 0x00060055; /* 6_5_RELEASE_0071 */
+            models[cModels++] = 0x00060065; /* 6_6_RELEASE_0082 */
+        }
         if (!pData->pNumShaderModelsSupported)
             return S_OK;
         if (!pData->pShaderModelsSupported) {
-            *pData->pNumShaderModelsSupported = kModelCount;
+            *pData->pNumShaderModelsSupported = cModels;
         } else {
             UINT n = *pData->pNumShaderModelsSupported;
-            if (n > kModelCount)
-                n = kModelCount;
+            if (n > cModels)
+                n = cModels;
             for (UINT i = 0; i < n; i++)
                 pData->pShaderModelsSupported[i] =
-                    (D3D12DDI_SHADER_MODEL)kModels[i];
+                    (D3D12DDI_SHADER_MODEL)models[i];
             *pData->pNumShaderModelsSupported = n;
         }
+        TR_LOG("12.GetCaps SHADER_MODELS: %u models (dxil=%d)", cModels,
+               (hostCaps & TRITON_HOSTCAP_DXIL) ? 1 : 0);
         return S_OK;
     }
 
@@ -202,10 +224,11 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
     switch ((int)pArgs->Type) {
     case D3D12DDICAPS_TYPE_3DPIPELINESUPPORT: {
         /* "For D3D12, drivers only report the maximum level they
-         * support" (d3d12umddi.h).  11_1 to stay under the FL12+ cap
-         * validation (see 3DPIPELINESUPPORT1 above). */
+         * support" (d3d12umddi.h).  Same gate as 3DPIPELINESUPPORT1. */
         *(D3D12DDI_3DPIPELINELEVEL *)pArgs->pData =
-            D3D12DDI_3DPIPELINELEVEL_11_1;
+            (hostCaps & TRITON_HOSTCAP_DXIL)
+                ? D3D12DDI_3DPIPELINELEVEL_12_1
+                : D3D12DDI_3DPIPELINELEVEL_11_1;
         break;
     }
     case D3D12DDICAPS_TYPE_GPUVA_CAPS: {
@@ -233,18 +256,39 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         pCaps->ResourceBindingTier = D3D12DDI_RESOURCE_BINDING_TIER_3;
         pCaps->ResourceHeapTier    = D3D12DDI_RESOURCE_HEAP_TIER_2;
         pCaps->OutputMergerLogicOp = TRUE;
-        /* Conservative raster / tiled resources / cross-node stay 0 (off). */
+        /* Tiled tier 2 comes from the committed-backing shim (reserved
+         * resources are fully backed at create; UpdateTileMappings is a
+         * no-op; unmapped-reads-zero holds trivially because everything
+         * is mapped and zero-initialized).  FL 12_0 requires >= 2. */
+        if (hostCaps & TRITON_HOSTCAP_DXIL) {
+            pCaps->TiledResourcesTier = D3D12DDI_TILED_RESOURCES_TIER_2;
+            /* Tier 1 is claimed for the FL 12_1 label alone, which apps
+             * check before they will start.  The backend is tier 0, so a
+             * PSO that actually enables conservative rasterization fails
+             * at create -- loud and per-PSO, never silent corruption. */
+            pCaps->ConservativeRasterizationTier =
+                D3D12DDI_CONSERVATIVE_RASTERIZATION_TIER_1;
+        }
+        /* Cross-node stays 0 (off). */
         break;
     }
     case D3D12DDICAPS_TYPE_SHADER: {
         /* All size variants share the _0012 prefix.  The wave fields
-         * describe the host hardware only -- wave intrinsics need
-         * SM6/DXIL, which this driver does not advertise -- but they
-         * must still be honest: zero lane counts read as an invalid
-         * topology and the runtime rejects the adapter. */
+         * describe the host hardware; they must be honest either way:
+         * zero lane counts read as an invalid topology and the runtime
+         * rejects the adapter. */
         if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0012)) {
             D3D12DDI_SHADER_CAPS_0012 *pCaps =
                 (D3D12DDI_SHADER_CAPS_0012 *)pArgs->pData;
+            /* Host-backed on both backends (mirrors the D3D11 UMD's
+             * SHADER caps).  MinPrecision stays NONE until the input-
+             * layout reader understands ISG1 -- min-precision shaders
+             * make tritonBuildDxbc emit ISG1 instead of ISGN, and an
+             * unreadable input signature is a silent empty input
+             * layout, not an error. */
+            pCaps->ShaderSpecifiedStencilRef     = TRUE;
+            pCaps->TypedUAVLoadAdditionalFormats = TRUE;
+            pCaps->ROVs                          = TRUE;
             pCaps->WaveOps          = TRUE;
             pCaps->WaveLaneCountMin = 32;
             pCaps->WaveLaneCountMax = 32;
@@ -1134,6 +1178,15 @@ HRESULT APIENTRY OpenAdapter12(D3D12DDIARG_OPENADAPTER *pOpenData)
         return E_OUTOFMEMORY;
 
     pAdapter->hRTAdapter  = pOpenData->hRTAdapter;
+
+    /* Latch the host capset bits: every host-backend-dependent cap
+     * answer (SM6/DXIL, FL 12_0) gates on them. */
+    {
+        struct triton_adapter_probe probe;
+        tritonSharedBridgeAdapterProbe(&probe);
+        pAdapter->HostCaps = probe.caps_flags;
+        TR_LOG("OpenAdapter12: host caps=0x%08x", pAdapter->HostCaps);
+    }
 
     pOpenData->hAdapter.pDrvPrivate = pAdapter;
 

@@ -114,6 +114,9 @@ struct npt_capset {
 #define NPT_CAPSET_CAP_EXTENDED_RESOURCE_SHARING (1u << 3)
 #define NPT_CAPSET_CAP_MAP_DEFAULT_BUFFERS       (1u << 4)
 #define NPT_CAPSET_CAP_SHADER_CACHE              (1u << 5)
+/* Host D3D12 backend consumes DXIL containers (SM 6.x) directly.
+ * Set for D3DMetal, clear for DXMT (DXBC-only shader front end). */
+#define NPT_CAPSET_CAP_DXIL                      (1u << 6)
 
 #ifdef __WINE__
 void npt_log_impl(const char *fmt, ...);

@@ -26,6 +26,10 @@ typedef struct TRITON12_ADAPTER
      * pfnSetCommandListDDITableCb or the runtime dispatches through a
      * NULL table. */
     D3D12DDI_HRTTABLE       hRTTableCmdList[2];
+    /* Host capset TRITON_HOSTCAP_* bits (tritonSharedBridgeAdapterProbe),
+     * latched at OpenAdapter12.  Gates every capability whose backing
+     * varies by host backend (DXIL/SM6, FL 12_0). */
+    UINT32                  HostCaps;
 } TRITON12_ADAPTER, *PTRITON12_ADAPTER;
 
 /* Command queues per device tracked for cross-queue ordering.  The cap only

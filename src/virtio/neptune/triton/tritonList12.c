@@ -646,6 +646,185 @@ t12CopyTextureRegion(D3D12DDI_HCOMMANDLIST hList,
         l->pList, &dst, DstX, DstY, DstZ, &src, (const D3D12_BOX *)pSrcBox);
 }
 
+/* ---------- CopyTiles (committed-backing tiled shim) ----------
+ *
+ * Reserved resources are fully backed committed resources here, so
+ * CopyTiles is a plain region copy: each 64KB tile of the buffer maps to
+ * a spec-defined WxH texel block of the subresource.  Tiles are copied
+ * one CopyTextureRegion each (the buffer's per-tile layout is linear
+ * within the tile, which matches a footprint of exactly one tile). */
+
+static BOOL
+t12TileShape(DXGI_FORMAT fmt, UINT *tw, UINT *th, UINT *pitch)
+{
+    /* Bytes per element (block formats: per 4x4 block). */
+    UINT bpe = 0;
+    BOOL bc = FALSE;
+    switch (fmt) {
+    case DXGI_FORMAT_BC1_TYPELESS: case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB: case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM: case DXGI_FORMAT_BC4_SNORM:
+        bpe = 8; bc = TRUE; break;
+    case DXGI_FORMAT_BC2_TYPELESS: case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB: case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM: case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC5_TYPELESS: case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM: case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16: case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS: case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+        bpe = 16; bc = TRUE; break;
+    case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT: case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT: case DXGI_FORMAT_A8_UNORM:
+        bpe = 1; break;
+    case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT: case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT: case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT: case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT: case DXGI_FORMAT_D16_UNORM:
+        bpe = 2; break;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+        bpe = 16; break;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT: case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT: case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+        bpe = 8; break;
+    default:
+        /* The broad 32-bit class (R8G8B8A8*, B8G8R8A8*, R10G10B10A2*,
+         * R11G11B10, R16G16*, R32*, D32_FLOAT, ...). */
+        bpe = 4; break;
+    }
+    /* 64KB tile shapes per bytes-per-element (in ELEMENTS; texels for
+     * uncompressed, 4x4 blocks for BC). */
+    UINT ew, eh;
+    switch (bpe) {
+    case 1:  ew = 256; eh = 256; break;
+    case 2:  ew = 256; eh = 128; break;
+    case 4:  ew = 128; eh = 128; break;
+    case 8:  ew = 128; eh = 64;  break;
+    default: ew = 64;  eh = 64;  break; /* 16 */
+    }
+    *pitch = ew * bpe;             /* one element row of the tile */
+    *tw = bc ? ew * 4 : ew;        /* texels */
+    *th = bc ? eh * 4 : eh;
+    return TRUE;
+}
+
+static VOID APIENTRY
+t12CopyTiles(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HRESOURCE hRes,
+             const D3D12DDI_TILED_RESOURCE_COORDINATE *pStart,
+             const D3D12DDI_TILE_REGION_SIZE *pSize,
+             D3D12DDI_HRESOURCE hBuffer, UINT64 BufferStartOffsetInBytes,
+             D3D12DDI_TILE_COPY_FLAGS Flags)
+{
+    PTRITON12_LIST l = t12List(hList);
+    PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hRes.pDrvPrivate;
+    PTRITON12_RESOURCE b = (PTRITON12_RESOURCE)hBuffer.pDrvPrivate;
+    if (!l || !l->pList || !r || !r->pResource || !b || !b->pResource ||
+        !pStart || !pSize)
+        return;
+    /* LINEAR_BUFFER_TO_SWIZZLED (0x2) = buffer -> resource; otherwise
+     * (incl. flags 0, whose buffer-side "swizzled" order equals linear
+     * for this shim) resource -> buffer. */
+    const BOOL toResource = !!((UINT)Flags & 0x2u);
+
+    if (r->Desc.ResourceType == D3D12DDI_RT_BUFFER) {
+        /* Reserved buffer: tiles are plain 64KB spans. */
+        UINT64 resOff = (UINT64)pStart->X << 16;
+        UINT64 bytes = (UINT64)pSize->NumTiles << 16;
+        if (toResource)
+            ID3D12GraphicsCommandList_CopyBufferRegion(
+                l->pList, r->pResource, resOff, b->pResource,
+                BufferStartOffsetInBytes, bytes);
+        else
+            ID3D12GraphicsCommandList_CopyBufferRegion(
+                l->pList, b->pResource, BufferStartOffsetInBytes,
+                r->pResource, resOff, bytes);
+        return;
+    }
+
+    UINT tw, th, pitch;
+    t12TileShape(r->Desc.Format, &tw, &th, &pitch);
+    const UINT mips = r->Desc.MipLevels ? r->Desc.MipLevels : 1;
+    const UINT mip = pStart->Subresource % mips;
+    const UINT mipW = (UINT)(r->Desc.Width >> mip) ? (UINT)(r->Desc.Width >> mip) : 1;
+    const UINT mipH = (r->Desc.Height >> mip) ? (r->Desc.Height >> mip) : 1;
+    const UINT gridW = (mipW + tw - 1) / tw; /* tiles per row */
+    const UINT gridH = (mipH + th - 1) / th;
+
+    /* Walk the region tile by tile: boxes x->y->z, linear runs row-major
+     * from the start coordinate within one subresource. */
+    UINT n = pSize->NumTiles;
+    if (n > 16384) {
+        TR_LOG("12.CopyTiles: clamping %u tiles to 16384", n);
+        n = 16384;
+    }
+    UINT bw = pSize->UseBox ? pSize->Width : 0;
+    UINT tx = pStart->X, ty = pStart->Y;
+    static LONG once;
+    if (!InterlockedExchange(&once, 1))
+        TR_LOG("12.CopyTiles: %s %u tiles (box=%d) fmt=%d tile=%ux%u "
+               "grid=%ux%u", toResource ? "buf->res" : "res->buf", n,
+               (int)pSize->UseBox, (int)r->Desc.Format, tw, th, gridW, gridH);
+    if (pStart->Z || (pSize->UseBox && pSize->Depth > 1)) {
+        TR_LOG("12.CopyTiles: 3D tiled regions unsupported (z=%u depth=%u)",
+               pStart->Z, pSize->UseBox ? pSize->Depth : 0);
+        return;
+    }
+    for (UINT i = 0; i < n; i++) {
+        if (ty >= gridH) {
+            TR_LOG("12.CopyTiles: region leaves subresource (tile %u)", i);
+            break;
+        }
+        const UINT x0 = tx * tw, y0 = ty * th;
+        const UINT cw = (x0 + tw <= mipW) ? tw : mipW - x0;
+        const UINT ch = (y0 + th <= mipH) ? th : mipH - y0;
+
+        D3D12_TEXTURE_COPY_LOCATION tex, buf;
+        memset(&tex, 0, sizeof(tex));
+        memset(&buf, 0, sizeof(buf));
+        tex.pResource = r->pResource;
+        tex.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        tex.SubresourceIndex = pStart->Subresource;
+        buf.pResource = b->pResource;
+        buf.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        buf.PlacedFootprint.Offset =
+            BufferStartOffsetInBytes + ((UINT64)i << 16);
+        buf.PlacedFootprint.Footprint.Format = r->Desc.Format;
+        buf.PlacedFootprint.Footprint.Width = cw;
+        buf.PlacedFootprint.Footprint.Height = ch;
+        buf.PlacedFootprint.Footprint.Depth = 1;
+        buf.PlacedFootprint.Footprint.RowPitch = pitch;
+
+        if (toResource) {
+            ID3D12GraphicsCommandList_CopyTextureRegion(
+                l->pList, &tex, x0, y0, 0, &buf, NULL);
+        } else {
+            D3D12_BOX box = {x0, y0, 0, x0 + cw, y0 + ch, 1};
+            ID3D12GraphicsCommandList_CopyTextureRegion(
+                l->pList, &buf, 0, 0, 0, &tex, &box);
+        }
+
+        /* Advance: box regions wrap at the box width, linear runs wrap
+         * at the subresource's tile-grid width. */
+        tx++;
+        if (pSize->UseBox ? (tx >= pStart->X + bw) : (tx >= gridW)) {
+            tx = pSize->UseBox ? pStart->X : 0;
+            ty++;
+        }
+    }
+}
+
 static VOID APIENTRY
 t12ResourceCopy(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HRESOURCE hDst,
                 D3D12DDI_HRESOURCE hSrc)
@@ -983,6 +1162,7 @@ triton12InstallListFuncs(D3D12DDI_COMMAND_LIST_FUNCS_3D_0022 *t)
     t->pfnDrawIndexedInstanced = t12DrawIndexedInstanced;
     t->pfnDispatch          = t12Dispatch;
     t->pfnCopyTextureRegion = t12CopyTextureRegion;
+    t->pfnCopyTiles         = t12CopyTiles;
     t->pfnResourceCopy      = t12ResourceCopy;
     t->pfnIASetIndexBuffer  = t12IASetIndexBuffer;
     t->pfnIASetVertexBuffers = t12IASetVertexBuffers;

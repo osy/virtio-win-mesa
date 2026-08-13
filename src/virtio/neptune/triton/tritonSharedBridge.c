@@ -38,7 +38,8 @@ _Static_assert(TRITON_HOSTCAP_D3D12 == NPT_CAPSET_CAP_D3D12 &&
                   NPT_CAPSET_CAP_EXTENDED_RESOURCE_SHARING &&
                TRITON_HOSTCAP_MAP_DEFAULT_BUFFERS ==
                   NPT_CAPSET_CAP_MAP_DEFAULT_BUFFERS &&
-               TRITON_HOSTCAP_SHADER_CACHE == NPT_CAPSET_CAP_SHADER_CACHE,
+               TRITON_HOSTCAP_SHADER_CACHE == NPT_CAPSET_CAP_SHADER_CACHE &&
+               TRITON_HOSTCAP_DXIL == NPT_CAPSET_CAP_DXIL,
                "host capset bit assignment mismatch");
 
 void
