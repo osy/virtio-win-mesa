@@ -150,19 +150,74 @@ fence_GetCompletedValue_override(void *self)
                                memory_order_acquire);
 }
 
+static bool
+fence_reached(void *self, uint64_t value)
+{
+   struct npt_d3d11_fence_aux *aux = fence_aux(self);
+   struct npt_d3d11_fence_feedback_slot *slot = fence_slot(aux);
+   if (slot && aux->base.registered) {
+      /* Monotonic fence: any observed value is a valid lower bound. */
+      return atomic_load_explicit(&slot->completed_value,
+                                  memory_order_acquire) >= value;
+   }
+   return npt_id3d11fence_default_GetCompletedValue(self) >= value;
+}
+
+static bool
+fence_reached_sync(void *self, uint64_t value)
+{
+   return npt_id3d11fence_default_GetCompletedValue(self) >= value;
+}
+
+static void
+fence_block_arm(void *self, uint64_t value, uint64_t token)
+{
+   struct npt_device *dev = npt_com_self_device(self);
+   npt_async_ID3D11Fence_SetEventOnCompletion(
+      npt_device_method_ring(dev), npt_com_self_id(self), value,
+      (HANDLE)(uintptr_t)token);
+}
+
+static const struct npt_event_block_ops fence_block_ops = {
+   .reached = fence_reached,
+   .reached_sync = fence_reached_sync,
+   .arm = fence_block_arm,
+   .name = "d3d11",
+};
+
 static HRESULT NPT_STDMETHODCALLTYPE
 fence_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
 {
    struct npt_device *dev = npt_com_self_device(self);
+   struct npt_d3d11_fence_aux *aux = fence_aux(self);
+   struct npt_d3d11_fence_feedback_slot *slot = fence_slot(aux);
+
+   /* Fast path (mirrors the D3D12 override): if the feedback slot shows
+    * the fence already reached Value, complete locally and skip the arm
+    * + escape + ring traffic.  D3D11 fences are monotonic, so no rewind
+    * guard is needed; a stale-low read only means we fall through to
+    * the normal arm -- conservative. */
+   if (slot && aux->base.registered &&
+       atomic_load_explicit(&slot->completed_value,
+                            memory_order_acquire) >= Value) {
+      if (hEvent)
+         SetEvent(hEvent);
+      return NPT_S_OK;
+   }
+
+   /* NULL-event form: MSDN defines it as blocking until the fence
+    * reaches Value (D3D11's SEOC is specified as equivalent to
+    * D3D12's).  Wait guest-side; never block the host ring. */
+   if (!hEvent) {
+      npt_event_block_until_value(dev, &fence_block_ops, self, Value);
+      return NPT_S_OK;
+   }
 
    /* Arm before the D3D call so the host's npt_win32_handle_replace
     * sees the proxy when it decodes the token. */
-   uint64_t token = 0;
-   if (hEvent) {
-      token = npt_event_arm(dev, (void *)hEvent);
-      if (!token)
-         return NPT_E_FAIL;
-   }
+   uint64_t token = npt_event_arm(dev, (void *)hEvent);
+   if (!token)
+      return NPT_E_OUTOFMEMORY;
 
    /* Async dispatch, not npt_call_: a synchronous round-trip's reply is
     * serialised behind the submitted draw stream, so under heavy submission
@@ -175,7 +230,7 @@ fence_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
    npt_async_ID3D11Fence_SetEventOnCompletion(
       npt_device_method_ring(dev), npt_com_self_id(self), Value,
       (HANDLE)(uintptr_t)token);
-   return S_OK;
+   return NPT_S_OK;
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE

@@ -171,6 +171,20 @@ struct npt_renderer_ops {
                                uint32_t ring_idx);
 
    /*
+    * Like submit_present_fence, but additionally asks the transport to
+    * signal `direct_event` (a Win32 event HANDLE) itself at completion
+    * -- on Windows the KMD KeSetEvents it straight from the completion
+    * DPC, sparing the app the waiter-thread hop.  *direct_ok reports
+    * whether the transport took over signalling; when false the caller
+    * must signal the event itself (Wine/vtest, old KMD,
+    * unreferenceable handle).  Optional: absent falls back to
+    * submit_present_fence with *direct_ok = false.
+    */
+   int (*submit_present_fence_direct)(struct npt_renderer *renderer,
+                                      uint32_t ring_idx,
+                                      void *direct_event, bool *direct_ok);
+
+   /*
     * Monitored-fence gate (Windows KMD only): submit an empty fenced
     * SUBMIT_3D on ring_idx whose retirement fires a KMD-internal token
     * instead of a UM event (VIOGPU_ARM_GATE).  Returns the token (the
@@ -379,6 +393,20 @@ npt_renderer_submit_present_fence(struct npt_renderer *renderer,
    if (renderer->ops.submit_present_fence)
       return renderer->ops.submit_present_fence(renderer, ring_idx);
    return -1;
+}
+
+static inline int
+npt_renderer_submit_present_fence_direct(struct npt_renderer *renderer,
+                                         uint32_t ring_idx,
+                                         void *direct_event, bool *direct_ok)
+{
+   *direct_ok = false;
+   if (renderer->ops.submit_present_fence_direct) {
+      return renderer->ops.submit_present_fence_direct(renderer, ring_idx,
+                                                       direct_event,
+                                                       direct_ok);
+   }
+   return npt_renderer_submit_present_fence(renderer, ring_idx);
 }
 
 static inline uint64_t

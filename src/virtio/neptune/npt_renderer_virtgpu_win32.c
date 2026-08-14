@@ -753,16 +753,47 @@ npt_vgw32_submit_cmd_sync(struct npt_renderer *r, const void *data,
  * survives; callers treat a negative int as failure, so a handle with bit 31 set
  * would be misread as an error. */
 static int
-npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
+npt_vgw32_submit_present_fence_direct(struct npt_renderer *r,
+                                      uint32_t ring_idx,
+                                      void *direct_event, bool *direct_ok)
 {
    struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   if (direct_ok)
+      *direct_ok = false;
    HANDLE hWait = CreateEventW(NULL, /*bManualReset*/ FALSE, /*bInitial*/ FALSE, NULL);
    if (!hWait)
       return -1;
+   /* Belt-and-braces for the int squeeze below: Windows handles are
+    * 32-bit-significant, so bit 31 should never be set -- but if the
+    * kernel ever hands one back, returning it would read as an error
+    * at the caller.  Trade it for a fresh handle via DuplicateHandle
+    * rather than misreporting. */
+   if ((uintptr_t)hWait & 0x80000000u) {
+      npt_log("virtgpu: present-fence event handle %p has bit 31 set; "
+              "re-duplicating", hWait);
+      HANDLE hDup = NULL;
+      if (DuplicateHandle(GetCurrentProcess(), hWait, GetCurrentProcess(),
+                          &hDup, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+         CloseHandle(hWait);
+         hWait = hDup;
+      }
+      if ((uintptr_t)hWait & 0x80000000u) {
+         CloseHandle(hWait);
+         return -1;
+      }
+   }
    VIOGPU_ESCAPE esc = {
       .Type = VIOGPU_SUBMIT_PRESENT_FENCE,
       .DataLength = sizeof(esc.PresentFence),
-      .PresentFence = { .EventUM = VioGpuUmHandle(hWait), .RingIdx = ring_idx },
+      .PresentFence = {
+         .EventUM = VioGpuUmHandle(hWait),
+         .RingIdx = ring_idx,
+         /* The app's own wait event; the KMD signals it straight
+          * from the completion DPC when it can reference it, sparing
+          * the app the waiter-thread hop. */
+         .AppEventUM = VioGpuUmHandle((HANDLE)direct_event),
+         .DirectOk = 0,
+      },
    };
    NTSTATUS status = virtgpu_escape(gpu, &esc);
    if (!NT_SUCCESS(status)) {
@@ -770,7 +801,15 @@ npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
       CloseHandle(hWait);
       return -1;
    }
+   if (direct_ok)
+      *direct_ok = esc.PresentFence.DirectOk != 0;
    return (int)(intptr_t)hWait;
+}
+
+static int
+npt_vgw32_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
+{
+   return npt_vgw32_submit_present_fence_direct(r, ring_idx, NULL, NULL);
 }
 
 /* Monitored-fence gate arm: same empty fenced SUBMIT_3D on an event ring,
@@ -1123,6 +1162,8 @@ npt_renderer_create_virtgpu(void)
    gpu->base.ops.submit_cmd = npt_vgw32_submit_cmd;
    gpu->base.ops.submit_cmd_sync = npt_vgw32_submit_cmd_sync;
    gpu->base.ops.submit_present_fence = npt_vgw32_submit_present_fence;
+   gpu->base.ops.submit_present_fence_direct =
+      npt_vgw32_submit_present_fence_direct;
    gpu->base.ops.arm_gate_fence = npt_vgw32_arm_gate_fence;
    gpu->base.ops.import_res = npt_vgw32_import_res;
    gpu->base.ops.release_import_res = npt_vgw32_release_import_res;

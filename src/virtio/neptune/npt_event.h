@@ -24,6 +24,15 @@
 
 struct npt_device;
 
+/*
+ * INVARIANT (stack-wide): any wait loop in this stack must exit on the
+ * VALUE, never on the wake alone.  The wake (event/eventfd/KMD fence)
+ * and the value (feedback slot / GetCompletedValue) travel independent
+ * paths; a wake can be stale (recycled event, sibling gate, earlier
+ * arm) and a value can arrive without its wake (lost SetEvent).  Every
+ * waiter re-checks the value on wakeup and treats the wake as a hint.
+ */
+
 void npt_event_init(struct npt_device *dev);
 void npt_event_fini(struct npt_device *dev);
 
@@ -47,5 +56,41 @@ void npt_event_release_token(struct npt_device *dev, uint64_t token);
  * Returns the KMD gate token (0 on failure). */
 uint64_t npt_event_gate_arm(struct npt_device *dev, uint64_t fence_obj_id,
                             uint64_t value);
+
+#if defined(_WIN32) || defined(__WINE__)
+/* Per-thread cached auto-reset Win32 event (HANDLE) for guest-local
+ * blocking waits (the SetEventOnCompletion(v, NULL) form).  Never
+ * closed: an arm from a previous wait on this thread may still be
+ * outstanding when the wait exits on the value, and its late firing
+ * must hit a live handle we own, not a recycled one.  Callers drain
+ * it (WaitForSingleObject(h, 0)) before each arm.  NULL on OOM. */
+void *npt_event_thread_temp_event(void);
+
+/* Fence hooks for npt_event_block_until_value. */
+struct npt_event_block_ops {
+   /* Cheap completion test: the feedback slot where that is trustworthy,
+    * the authoritative read otherwise. */
+   bool (*reached)(void *self, uint64_t value);
+   /* Authoritative (synchronous) completion test, used periodically to
+    * cross-check a wedged feedback publish path. */
+   bool (*reached_sync)(void *self, uint64_t value);
+   /* Ask the host to signal `token` once the fence reaches `value`. */
+   void (*arm)(void *self, uint64_t value, uint64_t token);
+   /* Names the interface in the stall log ("d3d11" / "d3d12"). */
+   const char *name;
+};
+
+/* Block the calling thread until the fence reaches `value`: the
+ * SetEventOnCompletion(value, NULL) form, served guest-side.  Never
+ * forward that form to the host, which would service it with the
+ * backend's own blocking SEOC(NULL) on the ring's dispatch thread --
+ * head-of-line for every other guest thread on that ring, and a deadlock
+ * when the Signal that satisfies it is queued behind the blocked ring
+ * (unwedged only by TDR).  The arm is a wake hint; the value ends the
+ * wait, per the invariant above. */
+void npt_event_block_until_value(struct npt_device *dev,
+                                 const struct npt_event_block_ops *ops,
+                                 void *self, uint64_t value);
+#endif
 
 #endif /* NPT_EVENT_H */

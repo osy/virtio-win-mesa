@@ -208,17 +208,54 @@ fence12_GetCompletedValue_override(void *self)
                                memory_order_acquire);
 }
 
+static bool
+fence12_reached(void *self, uint64_t value)
+{
+   struct npt_d3d12_fence_aux *aux = fence12_aux(self);
+   struct npt_d3d11_fence_feedback_slot *slot = fence12_slot(aux);
+   if (slot && aux->base.registered &&
+       !atomic_load_explicit(&aux->rewound, memory_order_acquire)) {
+      return atomic_load_explicit(&slot->completed_value,
+                                  memory_order_acquire) >= value;
+   }
+   /* Rewound fence (snapshot can read stale-high) or no slot: take the
+    * authoritative sync read. */
+   return npt_id3d12fence_default_GetCompletedValue(self) >= value;
+}
+
+static bool
+fence12_reached_sync(void *self, uint64_t value)
+{
+   return npt_id3d12fence_default_GetCompletedValue(self) >= value;
+}
+
+static void
+fence12_block_arm(void *self, uint64_t value, uint64_t token)
+{
+   struct npt_device *dev = npt_com_self_device(self);
+   npt_async_ID3D12Fence_SetEventOnCompletion(
+      npt_device_method_ring(dev), npt_com_self_id(self), value,
+      (HANDLE)(uintptr_t)token);
+}
+
+static const struct npt_event_block_ops fence12_block_ops = {
+   .reached = fence12_reached,
+   .reached_sync = fence12_reached_sync,
+   .arm = fence12_block_arm,
+   .name = "d3d12",
+};
+
 static HRESULT NPT_STDMETHODCALLTYPE
 fence12_SetEventOnCompletion_override(void *self, UINT64 Value, HANDLE hEvent)
 {
    struct npt_device *dev = npt_com_self_device(self);
 
-   /* NULL-event form: the blocking wait.  The sync round-trip returns
-    * once the host's SetEventOnCompletion(Value, NULL) call has waited
-    * the fence out. */
+   /* NULL-event form: block guest-side until the fence reaches Value;
+    * never park the host ring dispatch thread in the backend's
+    * blocking SEOC(NULL). */
    if (!hEvent) {
-      return npt_call_ID3D12Fence_SetEventOnCompletion(
-         npt_device_method_ring(dev), npt_com_self_id(self), Value, hEvent);
+      npt_event_block_until_value(dev, &fence12_block_ops, self, Value);
+      return NPT_S_OK;
    }
 
    /* Fast path: the host publishes completed values to the feedback

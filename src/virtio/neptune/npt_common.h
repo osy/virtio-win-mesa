@@ -65,9 +65,47 @@ static inline unsigned util_last_bit(unsigned v) {
    unsigned long idx;
    return _BitScanReverse(&idx, v) ? (unsigned)idx + 1u : 0u;
 }
-/* MinGW's nanosleep is unreliable; round up to 1ms minimum. */
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+/* Relax sleeps via a per-thread cached HIGH_RESOLUTION waitable timer,
+ * not Sleep(): Sleep quantizes to the process timer resolution, which
+ * is 15.6 ms unless the process raised it with timeBeginPeriod -- and
+ * dwm.exe, which loads this driver, never does.  Every sync reply wait
+ * (Map, QI, blob create) relaxes through here, so that quantum lands on
+ * each one; the present pacing wait in triton/tritonDxgi.c has the same
+ * problem.  The request is FLOORED at 1 ms: honouring the sub-ms
+ * backoff tiers precisely multiplies the wake rate of every waiting
+ * thread severalfold, which costs a small guest more CPU than the
+ * latency it saves.  What this buys is bounded jitter -- 1 ms means
+ * 1 ms, not 15.6 -- not sub-ms latency.  The timer is
+ * TLS-cached and never closed: one handle per thread (per TU) that
+ * ever relaxes is a bounded leak, and closing at thread exit isn't
+ * worth an FLS callback.  Falls back to Sleep when creation fails
+ * (kernels predating the flag). */
 static inline void npt_relax_sleep_us(unsigned us) {
-   Sleep(us < 1000u ? 1u : (us / 1000u));
+   static NPT_TLS HANDLE npt_relax_timer;
+   static NPT_TLS bool npt_relax_timer_failed;
+   if (us < 1000u)
+      us = 1000u;
+   if (!npt_relax_timer && !npt_relax_timer_failed) {
+      npt_relax_timer =
+         CreateWaitableTimerExW(NULL, NULL,
+                                CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                TIMER_ALL_ACCESS);
+      if (!npt_relax_timer)
+         npt_relax_timer_failed = true;
+   }
+   if (npt_relax_timer) {
+      LARGE_INTEGER due;
+      due.QuadPart = -(LONGLONG)us * 10; /* relative, 100ns units */
+      if (SetWaitableTimer(npt_relax_timer, &due, 0, NULL, NULL, FALSE)) {
+         /* Bounded backstop wait in case the timer never fires. */
+         WaitForSingleObject(npt_relax_timer, (us / 1000u) + 2u);
+         return;
+      }
+   }
+   Sleep(us / 1000u);
 }
 #else
 #include "c11/threads.h"

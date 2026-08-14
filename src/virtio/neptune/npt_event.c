@@ -4,6 +4,7 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
 #include "npt_event.h"
 #include "npt_com.h"
 #include "npt_device.h"
@@ -29,6 +30,8 @@ struct event_pending {
    int    sync_fd;
    void  *handle;
    uint64_t token;     /* single-use host proxy token; released on completion */
+   bool   direct;      /* KMD signals `handle` itself from its completion
+                        * DPC; the waiter only releases the token */
    struct event_pending *next;
 };
 
@@ -160,6 +163,63 @@ close_fd(int fd)
 }
 #endif
 
+#if defined(_WIN32) || defined(__WINE__)
+/* See npt_event.h.  Deliberately never closed: a late-firing arm from a
+ * previous wait must SetEvent a handle we still own -- CloseHandle
+ * followed by kernel handle-value reuse would signal a stranger's
+ * object.  One event per thread that ever blocks is a bounded leak. */
+void *
+npt_event_thread_temp_event(void)
+{
+   static NPT_TLS HANDLE tls_ev;
+   if (!tls_ev)
+      tls_ev = CreateEventW(NULL, FALSE /* auto-reset */, FALSE, NULL);
+   return (void *)tls_ev;
+}
+
+/* Value-poll cadence for the blocking wait.  The armed wake is the fast
+ * path (the host publishes the value before it signals); the slice only
+ * bounds the cost of a lost wake or a failed arm. */
+#define NPT_BLOCK_SLICE_MS 20
+/* Slices between authoritative cross-checks, and between stall reports. */
+#define NPT_BLOCK_SYNC_SLICES 50
+#define NPT_BLOCK_STALL_SLICES 500
+
+void
+npt_event_block_until_value(struct npt_device *dev,
+                            const struct npt_event_block_ops *ops,
+                            void *self, uint64_t value)
+{
+   HANDLE ev = (HANDLE)npt_event_thread_temp_event();
+   uint64_t token = 0;
+   if (ev) {
+      /* Drain a stale wake left by a previous wait on this thread whose
+       * arm fired after that wait had already exited on the value. */
+      WaitForSingleObject(ev, 0);
+      token = npt_event_arm(dev, (void *)ev);
+      if (token)
+         ops->arm(self, value, token);
+   }
+
+   uint32_t slices = 0;
+   while (!ops->reached(self, value)) {
+      if (ev)
+         WaitForSingleObject(ev, NPT_BLOCK_SLICE_MS);
+      else
+         npt_relax_sleep_us(1000);
+      slices++;
+      if (slices % NPT_BLOCK_SYNC_SLICES == 0 &&
+          ops->reached_sync(self, value))
+         return;
+      if (slices % NPT_BLOCK_STALL_SLICES == 0) {
+         npt_log("%s fence: SetEventOnCompletion(%" PRIu64 ", NULL) still "
+                 "waiting after ~%us (armed=%d)", ops->name, value,
+                 slices * NPT_BLOCK_SLICE_MS / 1000u, token != 0);
+      }
+   }
+}
+#endif
+
 #if defined(_WIN32)
 static DWORD WINAPI event_waiter_thread(LPVOID arg)
 #else
@@ -222,10 +282,20 @@ static void *event_waiter_thread(void *arg)
          continue; /* re-queued for a round-robin turn */
 
       if (rc > 0) {
-         do_set_event(p->handle);
+         /* When the KMD signalled the app event directly from its DPC
+          * this thread's only job left is the token release. */
+         if (!p->direct)
+            do_set_event(p->handle);
       } else {
-         npt_log("event: dropping arm for handle %p (rc=%d%s)", p->handle,
+         /* Never swallow the wake: a lost SetEvent is the worst fence
+          * failure mode (the app parks on its event forever), while a
+          * spurious early one is absorbed by the value-checked waiters
+          * upstream (see the invariant in npt_event.h).  Signal on the
+          * error/shutdown path too and log loudly. */
+         npt_log("event: wait failed for handle %p (rc=%d%s) -- "
+                 "signaling anyway", p->handle,
                  rc, rc == 0 ? ", shutdown" : "");
+         do_set_event(p->handle);
       }
       close_fd(p->sync_fd);
       /* Single-use proxy: release after completion (the host firing
@@ -377,7 +447,13 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
       npt_dispatch_event_release_ring(npt_device_method_ring(dev), token);
       return 0;
    }
-   int sync_fd = npt_renderer_submit_present_fence(dev->renderer, ring_idx);
+   /* Hand the app's own event to the transport so the KMD can
+    * KeSetEvent it straight from the completion DPC; the waiter then
+    * only does token bookkeeping for that arm. */
+   bool direct_ok = false;
+   int sync_fd = npt_renderer_submit_present_fence_direct(dev->renderer,
+                                                          ring_idx, hEvent,
+                                                          &direct_ok);
    mtx_unlock(&st->arm_mutex);
 
    if (sync_fd < 0) {
@@ -394,6 +470,7 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
    p->sync_fd = sync_fd;
    p->handle  = hEvent;
    p->token   = token;
+   p->direct  = direct_ok;
 
    mtx_lock(&st->pending_mutex);
    p->next = NULL;
