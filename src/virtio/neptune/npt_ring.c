@@ -344,7 +344,11 @@ npt_ring_submit_locked(struct npt_ring *ring,
 
    const uint32_t status = npt_ring_load_status(ring);
    if (unlikely(status & NPT_RING_STATUS_FATAL_BIT)) {
-      npt_log("ring fatal error");
+      npt_log("ring fatal error (ring %llu status=0x%x head=%u tail=%u cur=%u is_tls=%d)",
+              (unsigned long long)ring->id, status,
+              atomic_load_explicit(ring->head, memory_order_relaxed),
+              atomic_load_explicit(ring->tail, memory_order_relaxed),
+              ring->cur, (int)ring->is_tls_ring);
       return false;
    }
 
@@ -701,7 +705,11 @@ npt_ring_submit_locked_split(struct npt_ring *ring,
 
    const uint32_t status = npt_ring_load_status(ring);
    if (unlikely(status & NPT_RING_STATUS_FATAL_BIT)) {
-      npt_log("ring fatal error");
+      npt_log("ring fatal error (ring %llu status=0x%x head=%u tail=%u cur=%u is_tls=%d)",
+              (unsigned long long)ring->id, status,
+              atomic_load_explicit(ring->head, memory_order_relaxed),
+              atomic_load_explicit(ring->tail, memory_order_relaxed),
+              ring->cur, (int)ring->is_tls_ring);
       return false;
    }
    if (status & NPT_RING_STATUS_IDLE_BIT) {
