@@ -607,21 +607,31 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
                 (D3D12DDI_SHADER_CAPS_0082 *)pArgs->pData;
             CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
                        OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
-            /* The host reports these but cannot execute them: on D3DMetal
-             * 3.0 a dispatch containing any 64-bit atomic -- even a raw
-             * buffer InterlockedAdd64, which SM 6.6 makes baseline --
-             * writes nothing at all (d3d12-atomic64-test, host and guest
-             * agree).  Claiming them lets UE5 past its SM6 gate into
-             * silently empty Nanite passes, so they stay off until the
-             * host executes d3d12-atomic64-test. */
-            CAP12_TODO("SHADER.AtomicInt64OnTypedResource",
-                       pCaps->AtomicInt64OnTypedResource, OPTIONS9,
-                       hc->options9.AtomicInt64OnTypedResourceSupported, FALSE,
-                       "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
-            CAP12_TODO("SHADER.AtomicInt64OnGroupShared",
-                       pCaps->AtomicInt64OnGroupShared, OPTIONS9,
-                       hc->options9.AtomicInt64OnGroupSharedSupported, FALSE,
-                       "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
+            /* The host reports these but executes only the min/max subset:
+             * on D3DMetal 3.0/4.0b2 a dispatch containing a 64-bit
+             * Add/And/Or/Xor/Exchange/CompareExchange writes nothing at all,
+             * and group-shared 64-bit atomics read back 0, while typed and
+             * raw InterlockedMin/Max are exact (d3d12-atomic64-test op
+             * matrix, host and guest agree).  The cap promises every op, so
+             * it stays off by default; NPT_DEBUG=d3d12_claim_atomic64
+             * reports host truth for engines on the min/max subset (UE5). */
+            if (NPT_DEBUG(D3D12_CLAIM_ATOMIC64)) {
+                CAP12_HOST("SHADER.AtomicInt64OnTypedResource",
+                           pCaps->AtomicInt64OnTypedResource, OPTIONS9,
+                           hc->options9.AtomicInt64OnTypedResourceSupported);
+                CAP12_HOST("SHADER.AtomicInt64OnGroupShared",
+                           pCaps->AtomicInt64OnGroupShared, OPTIONS9,
+                           hc->options9.AtomicInt64OnGroupSharedSupported);
+            } else {
+                CAP12_TODO("SHADER.AtomicInt64OnTypedResource",
+                           pCaps->AtomicInt64OnTypedResource, OPTIONS9,
+                           hc->options9.AtomicInt64OnTypedResourceSupported, FALSE,
+                           "host executes only 64-bit Min/Max (d3d12-atomic64-test); NPT_DEBUG=d3d12_claim_atomic64 opts in");
+                CAP12_TODO("SHADER.AtomicInt64OnGroupShared",
+                           pCaps->AtomicInt64OnGroupShared, OPTIONS9,
+                           hc->options9.AtomicInt64OnGroupSharedSupported, FALSE,
+                           "group-shared 64-bit atomics read back 0 on the host (d3d12-atomic64-test)");
+            }
             CAP12_TODO("SHADER.DerivativesInMeshAndAmplificationShaders",
                        pCaps->DerivativesInMeshAndAmplificationShaders,
                        OPTIONS9,
@@ -653,10 +663,15 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0084)) {
             D3D12DDI_SHADER_CAPS_0084 *pCaps =
                 (D3D12DDI_SHADER_CAPS_0084 *)pArgs->pData;
-            CAP12_TODO("SHADER.AtomicInt64OnDescriptorHeapResource",
-                       pCaps->AtomicInt64OnDescriptorHeapResource, OPTIONS11,
-                       hc->options11.AtomicInt64OnDescriptorHeapResourceSupported,
-                       FALSE, "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
+            if (NPT_DEBUG(D3D12_CLAIM_ATOMIC64))
+                CAP12_HOST("SHADER.AtomicInt64OnDescriptorHeapResource",
+                           pCaps->AtomicInt64OnDescriptorHeapResource, OPTIONS11,
+                           hc->options11.AtomicInt64OnDescriptorHeapResourceSupported);
+            else
+                CAP12_TODO("SHADER.AtomicInt64OnDescriptorHeapResource",
+                           pCaps->AtomicInt64OnDescriptorHeapResource, OPTIONS11,
+                           hc->options11.AtomicInt64OnDescriptorHeapResourceSupported,
+                           FALSE, "host executes only 64-bit Min/Max (d3d12-atomic64-test); NPT_DEBUG=d3d12_claim_atomic64 opts in");
         } else {
             TRITON_CAP_UNREACHABLE("d3d12", "SHADER.AtomicInt64OnDescriptorHeapResource",
                                    HC12(OPTIONS11),
