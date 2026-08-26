@@ -58,6 +58,12 @@ npt_env_init_impl(void)
     * 50 ms (= the gap is < 20 fps).  */
    npt_env.stutter_threshold_ms =
       parse_clamped_u32("NPT_STUTTER_MS", 50u, 1u, 10000u);
+
+   /* Trace thresholds; 0 (the default) disables the instrument. */
+   npt_env.present_gate_trace_ms =
+      parse_clamped_u32("NPT_PRESENT_GATE_TRACE", 0u, 0u, 60000u);
+   npt_env.event_waiter_trace_ms =
+      parse_clamped_u32("NPT_EVENT_WAITER_TRACE", 0u, 0u, 60000u);
 }
 
 static _Atomic int g_npt_env_init_state;

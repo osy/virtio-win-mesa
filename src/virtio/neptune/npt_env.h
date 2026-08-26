@@ -76,6 +76,17 @@ struct npt_env {
     * bitmask, but live here so every env-var read is in one place. */
    uint32_t profile_period_ms;     /* NPT_PROFILE_PERIOD_MS */
    uint32_t stutter_threshold_ms;  /* NPT_STUTTER_MS */
+   /* Present-gate wait breakdown (tritonPresentFlushAndGate): log any
+    * gate slower than this many ms, split into lock/wait halves with
+    * per-wake obj0-vs-timeout classification.  0 = off.  The companion
+    * to the 1s deadline canary: when "present-fence: GPU wait timed
+    * out" fires, this is the tool that says which half lost the time. */
+   uint32_t present_gate_trace_ms; /* NPT_PRESENT_GATE_TRACE */
+   /* Event-waiter pool latency (npt_event.c): log any arm whose
+    * enqueue-to-completion exceeds this many ms, split into queued_us
+    * (waiting for a pool thread -- head-of-line pressure) and wait_us
+    * (the fence itself).  0 = off. */
+   uint32_t event_waiter_trace_ms; /* NPT_EVENT_WAITER_TRACE */
 };
 
 extern struct npt_env npt_env;

@@ -5,12 +5,14 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include "npt_env.h"
 #include "npt_event.h"
 #include "npt_com.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
 #include "npt_renderer.h"
 #include "npt_ring.h"
+#include "util/os_time.h"
 #include "nptunix/npt_unixlib.h"
 
 #if defined(_WIN32)
@@ -33,7 +35,19 @@ struct event_pending {
    bool   direct;      /* KMD signals `handle` itself from its completion
                         * DPC; the waiter only releases the token */
    struct event_pending *next;
+   /* NPT_EVENT_WAITER_TRACE: push_us == 0 means tracing was off at
+    * enqueue.  pop_us keeps the FIRST pop so round-robin re-queues
+    * still measure head-of-line time, not the last hop. */
+   int64_t  push_us;
+   int64_t  pop_us;
+   uint32_t pop_depth; /* entries still queued at first pop */
 };
+
+static int64_t
+event_now_us(void)
+{
+   return os_time_get_nano() / 1000;
+}
 
 /* Upper bound on waiter threads.  Sized for the concurrent presents a
  * compositor drives through one device; past it arms queue rather than
@@ -244,6 +258,10 @@ static void *event_waiter_thread(void *arg)
       if (!st->pending_head)
          st->pending_tail = NULL;
       st->pending_count--;
+      if (p->push_us && !p->pop_us) {
+         p->pop_us = event_now_us();
+         p->pop_depth = st->pending_count;
+      }
       mtx_unlock(&st->pending_mutex);
 
       /* Wait a slice at a time (each slice caps shutdown latency at
@@ -297,6 +315,18 @@ static void *event_waiter_thread(void *arg)
                  rc, rc == 0 ? ", shutdown" : "");
          do_set_event(p->handle);
       }
+      if (p->push_us) {
+         /* queued_us is time spent waiting for a pool thread (head-of-
+          * line pressure); wait_us is the fence itself.  A large
+          * queued_us localises the latency to this pool, not the host. */
+         const int64_t done_us = event_now_us();
+         if (done_us - p->push_us >=
+             (int64_t)npt_env.event_waiter_trace_ms * 1000)
+            npt_log("event-waiter SLOW queued_us=%" PRId64
+                    " wait_us=%" PRId64 " depth=%u handle=%p",
+                    p->pop_us - p->push_us, done_us - p->pop_us,
+                    p->pop_depth, p->handle);
+      }
       close_fd(p->sync_fd);
       /* Single-use proxy: release after completion (the host firing
        * necessarily preceded the KMD signal we just consumed). */
@@ -333,6 +363,10 @@ event_waiter_spawn(struct npt_device *dev, struct npt_event_state *st)
 void
 npt_event_init(struct npt_device *dev)
 {
+   /* The trace reads npt_env directly from arm/waiter paths; init here
+    * so a process that reaches them first doesn't read a zeroed env. */
+   npt_env_init();
+
    struct npt_event_state *st = calloc(1, sizeof(*st));
    if (!st) return;
 
@@ -471,6 +505,8 @@ npt_event_arm(struct npt_device *dev, void *hEvent)
    p->handle  = hEvent;
    p->token   = token;
    p->direct  = direct_ok;
+   if (npt_env.event_waiter_trace_ms)
+      p->push_us = event_now_us();
 
    mtx_lock(&st->pending_mutex);
    p->next = NULL;

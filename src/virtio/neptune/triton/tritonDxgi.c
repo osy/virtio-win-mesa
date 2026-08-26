@@ -225,6 +225,17 @@ triton_pt_account(double sig, double arm, double wait, BOOL already)
  * The fence protocol and immediate-context use run under presentLock; the
  * long GPU wait runs unlocked on the thread's own pooled event and fence
  * reference, so concurrent present threads overlap their waits. */
+
+/* NPT_PRESENT_GATE_TRACE=<ms>: explicit init -- the NPT_DEBUG/NPT_PERF
+ * macros read npt_env directly, and a process that has not initialised
+ * the env yet would silently trace nothing. */
+static int
+tritonGateTraceMs(void)
+{
+   npt_env_init();
+   return (int)npt_env.present_gate_trace_ms;
+}
+
 static void
 tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
 {
@@ -253,6 +264,10 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
    UINT64       paceTarget = 0;
    const double pt_t0  = TRITON_PT_NOW();
    double       pt_sig = pt_t0, pt_arm = pt_t0;
+   /* Gate trace uses its own clock: TRITON_PT_NOW is gated on
+    * NPT_DEBUG=present_timing and must stay usable without it. */
+   const int    gate_ms = tritonGateTraceMs();
+   const double tr_t0   = gate_ms ? triton_pt_qpc_us() : 0.0;
 
    EnterCriticalSection(&pD->presentLock);
    if (tritonPresentEnsureFenceLocked(pD)) {
@@ -396,6 +411,9 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
    unsigned rounds = 0;
    unsigned extensions = 0;
    BOOL hitDeadline = FALSE;
+   const double tr_arm = gate_ms ? triton_pt_qpc_us() : 0.0;
+   double   tr_evt_fired = -1.0, tr_fence_done = -1.0;
+   unsigned tr_obj0 = 0, tr_timeout = 0, tr_stale = 0;
    /* Whether a SetEventOnCompletion registration is still outstanding on
     * hEvt.  Only a wait that actually consumed the signal clears it. */
    BOOL regOutstanding = TRUE;
@@ -451,6 +469,27 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
        * completion surfaces as the deadline instead of being hidden behind
        * repeated short polls. */
       DWORD r = WaitForSingleObject(hEvt, (DWORD)(deadline - now));
+      if (gate_ms) {
+         /* obj0 vs timeout is the discriminator: "event never came" vs
+          * "event came, value was stale".  The stale count is the health
+          * metric for pooled-event recycling (normal runs stay double-
+          * digit; a recycled-event bug pushes it into the thousands). */
+         if (r == WAIT_OBJECT_0) {
+            tr_obj0++;
+            if (tr_evt_fired < 0.0)
+               tr_evt_fired = triton_pt_qpc_us() - tr_arm;
+            if (ID3D11Fence_GetCompletedValue(pFence) < v) {
+               tr_stale++;
+               static LONG stN;
+               LONG sn = InterlockedIncrement(&stN);
+               if (sn <= 8 || (sn & 63) == 0)
+                  TR_LOG("present-gate STALE #%ld evt_us=%lld (wake before value)",
+                         sn, (long long)(triton_pt_qpc_us() - tr_arm));
+            }
+         } else if (r == WAIT_TIMEOUT) {
+            tr_timeout++;
+         }
+      }
       if (r == WAIT_OBJECT_0)
          regOutstanding = FALSE;   /* fired; this wait consumed the signal */
       if (r != WAIT_OBJECT_0 && r != WAIT_TIMEOUT) {
@@ -483,6 +522,21 @@ tritonPresentFlushAndGate(PTRITON_DEVICE pD, BOOL arm, BOOL wait)
          if (n == 1 || (n & 255) == 0)
             TR_LOG("present-fence: still short after grace #%ld (presenting un-gated)", n);
       }
+   }
+
+   if (gate_ms) {
+      const double tr_end = triton_pt_qpc_us();
+      if (ID3D11Fence_GetCompletedValue(pFence) >= v)
+         tr_fence_done = tr_end - tr_arm;
+      const long long total_us = (long long)(tr_end - tr_t0);
+      if (hitDeadline || total_us >= (long long)gate_ms * 1000)
+         TR_LOG("present-gate SLOW total_us=%lld lock_us=%lld wait_us=%lld "
+                "rounds=%u obj0=%u timeout=%u stale=%u deadline=%d "
+                "fence_done_us=%lld evt_fired_us=%lld",
+                total_us, (long long)(tr_arm - tr_t0),
+                (long long)(tr_end - tr_arm), rounds, tr_obj0, tr_timeout,
+                tr_stale, hitDeadline ? 1 : 0, (long long)tr_fence_done,
+                (long long)tr_evt_fired);
    }
 
    ID3D11Fence_Release(pFence);
