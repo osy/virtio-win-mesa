@@ -1327,11 +1327,15 @@ triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
 
 /* ---------- _0025 .. _0033 list entries ----------
  *
- * Each is reachable only behind a cap this driver reports off
- * (DepthBoundsTest, ProgrammableSamplePositions, WriteBufferImmediate,
- * ViewInstancing, PROTECTED_RESOURCE_SESSION_SUPPORT), except
- * ResolveSubresourceRegion, which is a core API the runtime routes here
- * once the revision offers the slot. */
+ * OMSetDepthBounds, ResolveSubresourceRegion and WriteBufferImmediate
+ * forward to the host list.  The rest stay stubs behind caps reported
+ * off, which is safe only where the unsupported path is documented as
+ * drop/sanitize (SetSamplePositions, the view-instance mask) or the
+ * feature needs a create-time object that cannot exist (protected
+ * session).  A zero cap does not make an entry unreachable: the runtime
+ * still routes the call here, and for a cap it validates against
+ * (WriteBufferImmediate) a zero report latches E_INVALIDARG on the
+ * recording list instead of dropping the call. */
 
 static VOID APIENTRY
 t12OMSetDepthBounds(D3D12DDI_HCOMMANDLIST hList, FLOAT Min, FLOAT Max)
@@ -1395,13 +1399,44 @@ t12SetProtectedResourceSession(D3D12DDI_HCOMMANDLIST hList,
     (void)hList; (void)hSession;
 }
 
+/* The DDI parameter and mode types are layout-identical to the API ones
+ * ({Dest GPU VA, UINT32 Value}; DEFAULT/MARKER_IN/MARKER_OUT with the
+ * same values), so the arrays pass through by cast.  Dest needs no
+ * translation: GetGPUVirtualAddress answers come from the host. */
+C_ASSERT(sizeof(D3D12DDI_WRITEBUFFERIMMEDIATE_PARAMETER_0032) ==
+         sizeof(D3D12_WRITEBUFFERIMMEDIATE_PARAMETER));
+C_ASSERT(sizeof(D3D12DDI_WRITEBUFFERIMMEDIATE_MODE_0032) ==
+         sizeof(D3D12_WRITEBUFFERIMMEDIATE_MODE));
+
 static VOID APIENTRY
 t12WriteBufferImmediate(D3D12DDI_HCOMMANDLIST hList, UINT Count,
                         const D3D12DDI_WRITEBUFFERIMMEDIATE_PARAMETER_0032 *pParams,
                         const D3D12DDI_WRITEBUFFERIMMEDIATE_MODE_0032 *pModes)
 {
-    (void)hList; (void)Count; (void)pParams; (void)pModes;
-    TR_STUB("12.WriteBufferImmediate");
+    PTRITON12_LIST l = t12List(hList);
+    ID3D12GraphicsCommandList2 *l2 = NULL;
+    if (!l || !l->pList || !Count || !pParams)
+        return;
+    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
+            l->pList, &IID_ID3D12GraphicsCommandList2, (void **)&l2))) {
+        static LONG once;
+        if (!InterlockedExchange(&once, 1))
+            TR_LOG("12.WriteBufferImmediate: forwarding to the host "
+                   "(count=%u mode0=%u)", Count,
+                   pModes ? (unsigned)pModes[0] : 0u);
+        ID3D12GraphicsCommandList2_WriteBufferImmediate(
+            l2, Count,
+            (const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER *)pParams,
+            (const D3D12_WRITEBUFFERIMMEDIATE_MODE *)pModes);
+        ID3D12GraphicsCommandList2_Release(l2);
+    } else {
+        /* OPTIONS reports the host's queue support, so dropping the
+         * writes here is silent data loss.  Say so once. */
+        static LONG qiFail;
+        if (!InterlockedExchange(&qiFail, 1))
+            TR_LOG("12.WriteBufferImmediate: host list has no "
+                   "ID3D12GraphicsCommandList2 -- writes DROPPED");
+    }
 }
 
 static VOID APIENTRY

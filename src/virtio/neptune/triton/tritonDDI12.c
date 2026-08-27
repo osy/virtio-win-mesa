@@ -443,10 +443,28 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (OPT12_AT(0032)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0032 *o =
                 (D3D12DDI_D3D12_OPTIONS_DATA_0032 *)pArgs->pData;
-            CAP12_TODO("OPTIONS.WriteBufferImmediateQueueFlags",
-                       o->WriteBufferImmediateQueueFlags, OPTIONS3,
-                       hc->options3.WriteBufferImmediateSupportFlags, 0,
-                       "pfnWriteBufferImmediate (command list _0032+) not implemented");
+            /* WriteBufferImmediate support is mandatory on every non-video
+             * queue (DirectX-Specs, D3D12WriteBufferImmediate), and the
+             * runtime validates each call against this cap: a zero report
+             * latches E_INVALIDARG on the recording list, first visible as
+             * device removal at ExecuteCommandLists.  Titles record
+             * breadcrumb writes without checking the cap.
+             *
+             * The ledger holds API D3D12_COMMAND_LIST_SUPPORT_FLAGS
+             * (DIRECT=1 BUNDLE=2 COMPUTE=4 COPY=8 VIDEO=0x70); this field
+             * is D3D12DDI_COMMAND_QUEUE_FLAGS (3D=1 COMPUTE=2 COPY=4
+             * PAGING=8 VIDEO=0x70).  COMPUTE and COPY shift down one bit,
+             * BUNDLE has no queue bit (the runtime derives the API BUNDLE
+             * flag from 3D), and PAGING is reserved -- passed through raw
+             * the API COPY bit would set it and fail device creation. */
+            const UINT wbiApi = hc->options3.WriteBufferImmediateSupportFlags;
+            const UINT wbiDdi = (wbiApi & 0x1) |
+                                ((wbiApi >> 1) & 0x6) |
+                                (wbiApi & 0x70);
+            CAP12_FIXED("OPTIONS.WriteBufferImmediateQueueFlags",
+                        o->WriteBufferImmediateQueueFlags, OPTIONS3,
+                        wbiApi, wbiDdi,
+                        "API COMMAND_LIST_SUPPORT flags -> DDI COMMAND_QUEUE flags");
         }
         if (OPT12_AT(0033)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0033 *o =
