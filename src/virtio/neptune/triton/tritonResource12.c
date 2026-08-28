@@ -715,6 +715,58 @@ t12UnmapHeap(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap)
 
 /* ---------- allocation info ---------- */
 
+/* Host-info memo.  t12CheckResourceAllocationInfo and
+ * t12CheckSubresourceInfo each cost one synchronous host round trip, and
+ * the runtime asks on every placed create, so a streaming-heavy title
+ * serializes its loader threads on them.  Both host answers are pure
+ * functions of the zero-initialized D3D12_RESOURCE_DESC that
+ * t12ResourceDesc builds (plus the subresource index), so the host's
+ * answer is memoised byte-keyed on the desc; the local adjustments
+ * (alignment restriction, layout choice, tight row size) still run on
+ * every call.  Direct-mapped, overwrite on conflict -- a miss pays the
+ * round trip it would have paid anyway.
+ *
+ * A hit skips the reply wait that otherwise paces the caller behind
+ * the host's decode.  That is safe only because the host create path
+ * touches no memory a create merely aliases (CREATE_NOT_ZEROED at
+ * every such create): no host-side work depends on the spacing these
+ * replies would have imposed, so the memo runs unconditionally. */
+#define T12_INFO_CACHE_SIZE 4096u /* power of two */
+
+typedef struct TRITON12_AICACHE_ENTRY {
+    D3D12_RESOURCE_DESC desc;
+    BOOL valid;
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+} TRITON12_AICACHE_ENTRY;
+
+typedef struct TRITON12_FPCACHE_ENTRY {
+    D3D12_RESOURCE_DESC desc;
+    UINT Subresource;
+    BOOL valid;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT placed;
+    UINT numRows;
+    UINT64 rowSize;
+    UINT64 total;
+} TRITON12_FPCACHE_ENTRY;
+
+/* Process-global: the answers depend only on the desc and the one host
+ * backend, so entries are shared across devices (caps probe + real). */
+static SRWLOCK t12InfoCacheLock = SRWLOCK_INIT;
+static TRITON12_AICACHE_ENTRY t12AICache[T12_INFO_CACHE_SIZE];
+static TRITON12_FPCACHE_ENTRY t12FPCache[T12_INFO_CACHE_SIZE];
+
+static UINT
+t12InfoCacheSlot(const D3D12_RESOURCE_DESC *desc, UINT extra)
+{
+    const unsigned char *b = (const unsigned char *)desc;
+    UINT h = 2166136261u ^ extra;
+    for (SIZE_T i = 0; i < sizeof(*desc); i++) {
+        h ^= b[i];
+        h *= 16777619u;
+    }
+    return h & (T12_INFO_CACHE_SIZE - 1);
+}
+
 static VOID APIENTRY
 t12CheckResourceAllocationInfo(D3D12DDI_HDEVICE hDevice,
                                const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
@@ -740,7 +792,29 @@ t12CheckResourceAllocationInfo(D3D12DDI_HDEVICE hDevice,
     D3D12_RESOURCE_DESC desc;
     t12ResourceDesc(pRes, &desc);
     D3D12_RESOURCE_ALLOCATION_INFO info;
-    p->pDev->lpVtbl->GetResourceAllocationInfo(p->pDev, &info, 0, 1, &desc);
+    const UINT slot = t12InfoCacheSlot(&desc, 0);
+    BOOL hit = FALSE;
+    AcquireSRWLockShared(&t12InfoCacheLock);
+    if (t12AICache[slot].valid &&
+        memcmp(&t12AICache[slot].desc, &desc, sizeof(desc)) == 0) {
+        info = t12AICache[slot].info;
+        hit = TRUE;
+    }
+    ReleaseSRWLockShared(&t12InfoCacheLock);
+    if (!hit) {
+        p->pDev->lpVtbl->GetResourceAllocationInfo(p->pDev, &info, 0, 1,
+                                                   &desc);
+        /* A failed round trip leaves info zeroed; a real answer is
+         * never zero-sized (an invalid desc reports UINT64_MAX).
+         * Only host answers may enter the memo. */
+        if (info.SizeInBytes) {
+            AcquireSRWLockExclusive(&t12InfoCacheLock);
+            t12AICache[slot].desc = desc;
+            t12AICache[slot].info = info;
+            t12AICache[slot].valid = TRUE;
+            ReleaseSRWLockExclusive(&t12InfoCacheLock);
+        }
+    }
 
     pOut->ResourceDataSize = info.SizeInBytes;
     UINT64 align = info.Alignment;
@@ -806,8 +880,39 @@ t12CheckSubresourceInfo(D3D12DDI_HDEVICE hDevice, D3D12DDI_HRESOURCE hResource,
     UINT numRows = 0;
     UINT64 rowSize = 0, total = 0;
     memset(&placed, 0, sizeof(placed));
-    p->pDev->lpVtbl->GetCopyableFootprints(p->pDev, &desc, Subresource, 1, 0,
-                                           &placed, &numRows, &rowSize, &total);
+    const UINT slot = t12InfoCacheSlot(&desc, 0x8000u | Subresource);
+    BOOL hit = FALSE;
+    AcquireSRWLockShared(&t12InfoCacheLock);
+    if (t12FPCache[slot].valid &&
+        t12FPCache[slot].Subresource == Subresource &&
+        memcmp(&t12FPCache[slot].desc, &desc, sizeof(desc)) == 0) {
+        placed = t12FPCache[slot].placed;
+        numRows = t12FPCache[slot].numRows;
+        rowSize = t12FPCache[slot].rowSize;
+        total = t12FPCache[slot].total;
+        hit = TRUE;
+    }
+    ReleaseSRWLockShared(&t12InfoCacheLock);
+    if (!hit) {
+        p->pDev->lpVtbl->GetCopyableFootprints(p->pDev, &desc, Subresource,
+                                               1, 0, &placed, &numRows,
+                                               &rowSize, &total);
+        /* A failed round trip leaves the outputs zeroed; a real
+         * answer never reports a zero total (an invalid desc or
+         * subresource reports UINT64_MAX).  Only host answers may
+         * enter the memo. */
+        if (total) {
+            AcquireSRWLockExclusive(&t12InfoCacheLock);
+            t12FPCache[slot].desc = desc;
+            t12FPCache[slot].Subresource = Subresource;
+            t12FPCache[slot].placed = placed;
+            t12FPCache[slot].numRows = numRows;
+            t12FPCache[slot].rowSize = rowSize;
+            t12FPCache[slot].total = total;
+            t12FPCache[slot].valid = TRUE;
+            ReleaseSRWLockExclusive(&t12InfoCacheLock);
+        }
+    }
     pOut->Offset = placed.Offset;
     /* For a row-major resource report the TIGHT row size, not the
      * pitch-aligned footprint.  The backend stores such a texture with its

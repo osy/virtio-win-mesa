@@ -36,7 +36,6 @@ extern "C" {
 #define TRITON_HOSTCAP_SHADER_CACHE              (1u << 5)
 /* Host D3D12 backend consumes DXIL containers (SM 6.x) directly. */
 #define TRITON_HOSTCAP_DXIL                      (1u << 6)
-
 /* Adapter-scope capability probe for DDI version selection (mirror of
  * the transport's npt_adapter_probe; caps_flags carries NPT_CAPSET_CAP_*
  * bits).  Runs a one-shot D3DKMT probe on first call and latches the
