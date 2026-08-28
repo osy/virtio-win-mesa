@@ -106,6 +106,12 @@ struct npt_d3d12_resource_aux {
    uint64_t gpu_va;
    _Atomic bool gpu_va_valid;
 
+   /* GetDesc likewise: immutable per resource, sync wire round-trip.
+    * Cached whole (the scalar fields above cover only what Map and
+    * WriteToSubresource need). */
+   D3D12_RESOURCE_DESC desc;
+   _Atomic bool desc_valid;
+
    /* Sync-path persistent-map flush list (see npt_d3d12_sync_maps_flush).
     * self is the wrapper this aux belongs to; link/next guarded by
     * g_sync_map_lock. */
@@ -285,14 +291,49 @@ npt_d3d12_resource_bind_shmem_heap(void *resource_wrapper,
    return true;
 }
 
+/* Cached-desc fetch shared by the GetDesc override and the Map
+ * bookkeeping: the desc is immutable per resource but a sync wire
+ * round-trip.  A failed round trip reports Dimension UNKNOWN (zeroed
+ * reply); that answer reaches the caller but never enters the cache. */
+static bool
+res12_fetch_desc(void *self, struct npt_d3d12_resource_aux *aux,
+                 D3D12_RESOURCE_DESC *out)
+{
+   if (atomic_load_explicit(&aux->desc_valid, memory_order_acquire)) {
+      *out = aux->desc;
+      return true;
+   }
+   memset(out, 0, sizeof(*out));
+   if (!npt_id3d12resource_default_GetDesc(self, out) ||
+       out->Dimension == D3D12_RESOURCE_DIMENSION_UNKNOWN)
+      return false;
+   /* Racing first calls store the same host answer; last-write-wins
+    * is benign. */
+   aux->desc = *out;
+   atomic_store_explicit(&aux->desc_valid, true, memory_order_release);
+   return true;
+}
+
+static D3D12_RESOURCE_DESC * NPT_STDMETHODCALLTYPE
+res12_GetDesc_override(void *self, D3D12_RESOURCE_DESC *_ret_out)
+{
+   struct npt_d3d12_resource_aux *aux = res12_aux(self);
+   if (!aux)
+      return npt_id3d12resource_default_GetDesc(self, _ret_out);
+   D3D12_RESOURCE_DESC desc;
+   res12_fetch_desc(self, aux, &desc); /* failure hands the zeroed reply on */
+   if (_ret_out)
+      *_ret_out = desc;
+   return _ret_out;
+}
+
 static bool
 res12_ensure_desc(void *self, struct npt_d3d12_resource_aux *aux)
 {
    if (aux->dimension >= 0)
       return true;
    D3D12_RESOURCE_DESC desc;
-   memset(&desc, 0, sizeof(desc));
-   if (!npt_id3d12resource_default_GetDesc(self, &desc))
+   if (!res12_fetch_desc(self, aux, &desc))
       return false;
    aux->width = desc.Width;
    aux->dimension = (int32_t)desc.Dimension;
@@ -657,6 +698,7 @@ npt_overrides_d3d12_resource_init(void)
 {
    NPT_REGISTER_OVERRIDE_D3D12_RESOURCE(Map, res12_Map_override);
    NPT_REGISTER_OVERRIDE_D3D12_RESOURCE(Unmap, res12_Unmap_override);
+   NPT_REGISTER_OVERRIDE_D3D12_RESOURCE(GetDesc, res12_GetDesc_override);
    NPT_REGISTER_OVERRIDE_D3D12_RESOURCE(GetGPUVirtualAddress,
                                         res12_GetGPUVirtualAddress_override);
    NPT_REGISTER_OVERRIDE_D3D12_RESOURCE(GetHeapProperties,

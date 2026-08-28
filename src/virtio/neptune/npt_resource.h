@@ -109,7 +109,11 @@ void npt_d3d_map_ring_mark_slot_submitted(struct npt_d3d_map_ring *r,
 /* NULL on non-buffer resource (used by ctx Map/Unmap). */
 struct npt_d3d11_buffer *npt_d3d11_buffer_cast(void *resource);
 
-void npt_d3d11_buffer_set_byte_width(struct npt_d3d11_buffer *b, uint32_t bytes);
+void npt_d3d11_buffer_set_desc(struct npt_d3d11_buffer *b,
+                               const D3D11_BUFFER_DESC *desc);
+/* False until set_desc has run; caller then falls back to the wire. */
+bool npt_d3d11_buffer_fill_desc(struct npt_d3d11_buffer *b,
+                                D3D11_BUFFER_DESC *out);
 uint32_t npt_d3d11_buffer_get_byte_width(struct npt_d3d11_buffer *b);
 
 bool npt_d3d11_buffer_ensure_map_shmem(struct npt_d3d11_buffer *b);
@@ -283,6 +287,11 @@ uint32_t npt_dxgi_format_subresource_rows(DXGI_FORMAT fmt, uint32_t height);
 struct npt_d3d11_buffer_aux {
    struct npt_com_base *com;
    uint32_t byte_width;
+   /* App's create desc; GetDesc answers guest-side (the desc is
+    * immutable per buffer, each wire fetch a sync round trip).  Set
+    * before the wrapper escapes CreateBuffer, like the texture desc. */
+   D3D11_BUFFER_DESC desc;
+   bool has_desc;
    struct npt_d3d_map_ring map_ring;
 };
 

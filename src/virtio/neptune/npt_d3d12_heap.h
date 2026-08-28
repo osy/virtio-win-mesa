@@ -14,6 +14,8 @@
 #ifndef NPT_D3D12_HEAP_H
 #define NPT_D3D12_HEAP_H
 
+#include <stdatomic.h>
+
 #include "npt_com.h"
 #include "npt_renderer.h"
 
@@ -37,6 +39,11 @@ struct npt_d3d12_heap_aux {
    struct npt_d3d12_shmem_heap *shmem_heap;  /* owned */
    D3D12_HEAP_DESC app_desc;                 /* GetDesc answers guest-side */
    bool has_app_desc;
+   /* Host-allocated heaps: the desc is immutable per heap but a sync
+    * wire round-trip; cache the first answer.  valid's release store
+    * publishes host_desc to racing readers. */
+   D3D12_HEAP_DESC host_desc;
+   _Atomic bool host_desc_valid;
 };
 
 /* NULL on wrappers outside the heap family (e.g. QI-minted ids that

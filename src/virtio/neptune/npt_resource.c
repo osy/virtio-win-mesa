@@ -305,10 +305,23 @@ npt_d3d11_buffer_cast(void *resource)
 }
 
 void
-npt_d3d11_buffer_set_byte_width(struct npt_d3d11_buffer *b, uint32_t bytes)
+npt_d3d11_buffer_set_desc(struct npt_d3d11_buffer *b,
+                          const D3D11_BUFFER_DESC *desc)
 {
    struct npt_d3d11_buffer_aux *aux = buf_aux(b);
-   if (aux) aux->byte_width = bytes;
+   if (!aux || !desc) return;
+   aux->byte_width = desc->ByteWidth;
+   aux->desc = *desc;
+   aux->has_desc = true;
+}
+
+bool
+npt_d3d11_buffer_fill_desc(struct npt_d3d11_buffer *b, D3D11_BUFFER_DESC *out)
+{
+   struct npt_d3d11_buffer_aux *aux = buf_aux(b);
+   if (!aux || !aux->has_desc) return false;
+   *out = aux->desc;
+   return true;
 }
 
 uint32_t

@@ -112,7 +112,7 @@ dev_CreateBuffer_override(void *self,
                                         (uint64_t)(uintptr_t)raw,
                                         (struct npt_com_base *)self);
       if (b && pDesc)
-         npt_d3d11_buffer_set_byte_width(b, pDesc->ByteWidth);
+         npt_d3d11_buffer_set_desc(b, pDesc);
       if (ppBuffer) {
          *ppBuffer = (ID3D11Buffer *)b;
       } else if (b) {

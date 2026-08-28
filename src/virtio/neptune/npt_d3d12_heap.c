@@ -133,17 +133,39 @@ npt_d3d12_heap_create_shmem_backed(void *device_wrapper, const GUID *riid,
 
 /* Shmem-backed heaps answer GetDesc with the APP's original desc; the
  * host heap is an OpenExistingHeapFromAddress import whose desc does
- * not round-trip the app's heap type/flags. */
+ * not round-trip the app's heap type/flags.  Host-allocated heaps
+ * answer with the host's desc, fetched once -- it is immutable per
+ * heap and each fetch is a sync wire round-trip.  A failed round trip
+ * reports SizeInBytes 0 (zeroed reply); that answer reaches the caller
+ * but never enters the cache. */
 static D3D12_HEAP_DESC * NPT_STDMETHODCALLTYPE
 heap12_GetDesc_override(void *self, D3D12_HEAP_DESC *_ret_out)
 {
    struct npt_d3d12_heap_aux *aux = npt_d3d12_heap_aux_cast(self);
-   if (aux && aux->has_app_desc) {
+   if (!aux)
+      return npt_id3d12heap_default_GetDesc(self, _ret_out);
+   if (aux->has_app_desc) {
       if (_ret_out)
          *_ret_out = aux->app_desc;
       return _ret_out;
    }
-   return npt_id3d12heap_default_GetDesc(self, _ret_out);
+   if (atomic_load_explicit(&aux->host_desc_valid, memory_order_acquire)) {
+      if (_ret_out)
+         *_ret_out = aux->host_desc;
+      return _ret_out;
+   }
+   D3D12_HEAP_DESC desc;
+   memset(&desc, 0, sizeof(desc));
+   if (npt_id3d12heap_default_GetDesc(self, &desc) && desc.SizeInBytes) {
+      /* Racing first calls store the same host answer; last-write-wins
+       * is benign. */
+      aux->host_desc = desc;
+      atomic_store_explicit(&aux->host_desc_valid, true,
+                            memory_order_release);
+   }
+   if (_ret_out)
+      *_ret_out = desc;
+   return _ret_out;
 }
 
 void
