@@ -97,6 +97,23 @@ extern NPT_TLS uint64_t npt_tl_sync_count;
 extern NPT_TLS uint64_t npt_tl_submit_ns;
 extern NPT_TLS uint64_t npt_tl_submit_count;
 
+/* Per-thread registry node: the periodic dump attributes submit/reply
+ * time to threads (NPT-PROF-THREAD lines), which is what separates
+ * "the render thread is busy marshalling" from "a worker is".  The
+ * node is owned by the registry and never freed, so the dump can read
+ * a finished thread's totals; fields are plain u64 mirrors of the TLS
+ * counters (racy torn reads are acceptable for a profile line). */
+struct npt_profile_thread {
+   struct npt_profile_thread *next;
+   uint32_t tid;
+   uint64_t submit_ns;
+   uint64_t submit_count;
+   uint64_t reply_ns;
+   uint64_t sync_count;
+};
+extern NPT_TLS struct npt_profile_thread *npt_tl_thread;
+struct npt_profile_thread *npt_profile_thread_register(void);
+
 static inline void
 npt_profile_record_thread_reply_ns(uint64_t reply_ns)
 {
@@ -104,6 +121,12 @@ npt_profile_record_thread_reply_ns(uint64_t reply_ns)
       return;
    npt_tl_reply_ns += reply_ns;
    npt_tl_sync_count++;
+   struct npt_profile_thread *t =
+      npt_tl_thread ? npt_tl_thread : npt_profile_thread_register();
+   if (t) {
+      t->reply_ns = npt_tl_reply_ns;
+      t->sync_count = npt_tl_sync_count;
+   }
 }
 
 static inline void
@@ -113,6 +136,12 @@ npt_profile_record_thread_submit_ns(uint64_t submit_ns)
       return;
    npt_tl_submit_ns += submit_ns;
    npt_tl_submit_count++;
+   struct npt_profile_thread *t =
+      npt_tl_thread ? npt_tl_thread : npt_profile_thread_register();
+   if (t) {
+      t->submit_ns = npt_tl_submit_ns;
+      t->submit_count = npt_tl_submit_count;
+   }
 }
 
 /* Always called from ring create/destroy so a runtime toggle works. */

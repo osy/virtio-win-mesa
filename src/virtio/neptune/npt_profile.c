@@ -47,6 +47,29 @@ NPT_TLS uint64_t npt_tl_reply_ns;
 NPT_TLS uint64_t npt_tl_sync_count;
 NPT_TLS uint64_t npt_tl_submit_ns;
 NPT_TLS uint64_t npt_tl_submit_count;
+
+NPT_TLS struct npt_profile_thread *npt_tl_thread;
+/* Guarded by npt_profile.rings_mutex (registration is once per thread). */
+static struct npt_profile_thread *npt_profile_threads;
+
+struct npt_profile_thread *
+npt_profile_thread_register(void)
+{
+   struct npt_profile_thread *t = calloc(1, sizeof(*t));
+   if (!t)
+      return NULL;
+#ifdef _WIN32
+   t->tid = (uint32_t)GetCurrentThreadId();
+#else
+   t->tid = (uint32_t)(uintptr_t)thrd_current();
+#endif
+   mtx_lock(&npt_profile.rings_mutex);
+   t->next = npt_profile_threads;
+   npt_profile_threads = t;
+   mtx_unlock(&npt_profile.rings_mutex);
+   npt_tl_thread = t;
+   return t;
+}
 /* Snapshot of the above at the previous Present marker, so we can
  * report the per-frame delta on the Present thread. */
 static NPT_TLS uint64_t npt_tl_reply_ns_prev;
@@ -424,6 +447,18 @@ npt_profile_dump(const char *reason)
            (unsigned long long)agg.total_submit_ns,
            (unsigned long long)agg.total_reply_ns,
            (unsigned long long)agg.roundtrips);
+
+   mtx_lock(&npt_profile.rings_mutex);
+   for (struct npt_profile_thread *t = npt_profile_threads; t; t = t->next) {
+      npt_log("NPT-PROF-THREAD reason=%s tid=%u submits=%llu "
+              "submit_ns=%llu sync=%llu reply_ns=%llu",
+              reason ? reason : "?", (unsigned)t->tid,
+              (unsigned long long)t->submit_count,
+              (unsigned long long)t->submit_ns,
+              (unsigned long long)t->sync_count,
+              (unsigned long long)t->reply_ns);
+   }
+   mtx_unlock(&npt_profile.rings_mutex);
 
    /* Top 20 hot methods. */
    struct npt_profile_slot *ptrs[NPT_PROFILE_NUM_SLOTS];
