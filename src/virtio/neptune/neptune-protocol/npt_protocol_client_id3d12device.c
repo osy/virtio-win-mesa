@@ -38,44 +38,10 @@ npt_id3d12device_default_QueryInterface(void *self, REFIID riid, void **ppvObjec
         self, riid, ppvObject, npt_id3d12device_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -963,44 +929,10 @@ npt_id3d12device1_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device1_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -1178,44 +1110,10 @@ npt_id3d12device2_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device2_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -1373,44 +1271,10 @@ npt_id3d12device3_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device3_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -1623,44 +1487,10 @@ npt_id3d12device4_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device4_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -1999,44 +1829,10 @@ npt_id3d12device5_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device5_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -2327,44 +2123,10 @@ npt_id3d12device6_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device6_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -2511,44 +2273,10 @@ npt_id3d12device7_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device7_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -2771,44 +2499,10 @@ npt_id3d12device8_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device8_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -3059,44 +2753,10 @@ npt_id3d12device9_default_QueryInterface(void *self, REFIID riid, void **ppvObje
         self, riid, ppvObject, npt_id3d12device9_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -3340,44 +3000,10 @@ npt_id3d12device10_default_QueryInterface(void *self, REFIID riid, void **ppvObj
         self, riid, ppvObject, npt_id3d12device10_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -3654,44 +3280,10 @@ npt_id3d12device11_default_QueryInterface(void *self, REFIID riid, void **ppvObj
         self, riid, ppvObject, npt_id3d12device11_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -3856,44 +3448,10 @@ npt_id3d12device12_default_QueryInterface(void *self, REFIID riid, void **ppvObj
         self, riid, ppvObject, npt_id3d12device12_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -4064,44 +3622,10 @@ npt_id3d12device13_default_QueryInterface(void *self, REFIID riid, void **ppvObj
         self, riid, ppvObject, npt_id3d12device13_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE
@@ -4304,44 +3828,10 @@ npt_id3d12device14_default_QueryInterface(void *self, REFIID riid, void **ppvObj
         self, riid, ppvObject, npt_id3d12device14_parent_iids);
     if (hr == NPT_S_OK)
         return hr;
-    /* Pre-allocate the guest id and speculatively build the wrapper
-     * BEFORE the host round-trip.  On E_NOINTERFACE the wrapper is
-     * never used (the host rejected the QI, so its id is unregistered)
-     * and we must Release the speculative wrapper to keep the refcount
-     * straight.  The host round-trip carries just HRESULT. */
-    uint64_t _guest_id = npt_com_allocate_next_id();
-    /* Pass `self` as parent so the new wrapper inherits its instance_ring
-     * (DC/SC shared ring pinning).  QI typically returns the same host
-     * pointer as `self`, so the cache hit short-circuits before any new
-     * wrapper is created -- but on the cache-miss path the new wrapper
-     * must inherit the same ring or generated methods on the QI'd
-     * interface would scatter onto a different host dispatch thread
-     * than every other method on the same underlying object. */
-    void *wrapper = npt_com_get_or_wrap(
-        npt_com_self_device(self), riid, _guest_id,
-        (struct npt_com_base *)self);
-    if (!wrapper) {
-        if (ppvObject) *ppvObject = NULL;
-        return NPT_E_OUTOFMEMORY;
-    }
-    HRESULT host_hr = npt_com_send_query_interface(
-        npt_com_self_device(self),
-        npt_com_self_id(self),
-        riid, _guest_id);
-    if (host_hr == NPT_S_OK) {
-        if (ppvObject)
-            *ppvObject = wrapper;
-        return NPT_S_OK;
-    }
-    /* QI failed host-side: the guest_id stays unregistered.  Release the
-     * speculative wrapper so the guest-side refcount drains cleanly.
-     * (npt_com_default_release still issues COM_RELEASE to the host,
-     * which is a no-op there because the id was never registered.) */
-    struct npt_com_base *com = wrapper;
-    typedef ULONG (NPT_STDMETHODCALLTYPE *release_fn_t)(void *);
-    ((release_fn_t)com->lpVtbl[2])(com);
-    if (ppvObject) *ppvObject = NULL;
-    return host_hr;
+    /* Derived/sibling IIDs are resolved against the host object, one
+     * wire round trip per (object, IID) lifetime: the runtime memoizes
+     * the verdict and the wrapper on `self` (npt_com.c). */
+    return npt_com_query_interface_host(self, riid, ppvObject);
 }
 
 ULONG NPT_STDMETHODCALLTYPE

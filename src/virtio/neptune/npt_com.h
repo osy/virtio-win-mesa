@@ -41,6 +41,8 @@
 #define NPT_API NPT_DLLEXPORT
 #endif
 
+struct npt_com_qi_memo_entry;
+
 /*
  * Every Neptune COM wrapper starts with `lpVtbl` followed by struct
  * npt_object.  `base.id` is the host COM pointer cast to uint64_t.
@@ -54,6 +56,9 @@ struct npt_com_base {
    void *aux;
    /* Owns aux's lifetime; called by npt_com_destroy. */
    void (*aux_destroy)(void *aux);
+   /* Host QueryInterface verdicts learned for this wrapper, one wire
+    * round trip per IID for the wrapper's lifetime (npt_com.c). */
+   struct npt_com_qi_memo_entry *qi_memo;
 };
 
 /* npt_object_get_id (npt_cs.h) reads host_id through struct npt_com_head;
@@ -97,6 +102,7 @@ npt_com_base_init(struct npt_com_base *com, const void **vtbl,
    npt_object_init(&com->base, host_id, dev);
    com->aux = NULL;
    com->aux_destroy = NULL;
+   com->qi_memo = NULL;
 }
 
 static inline uint64_t
@@ -270,12 +276,15 @@ npt_com_init(void);
 void
 npt_com_send_release(struct npt_device *dev, uint64_t host_id);
 
-/* Caller pre-allocates `guest_id` and builds the wrapper before
- * calling.  Success registers the queried host pointer under
- * guest_id; on failure the wrapper must be discarded. */
+/*
+ * QueryInterface fallback for IIDs outside the wrapper's parent chain:
+ * resolves against the host object, memoized per (wrapper, IID) --
+ * one wire round trip for the wrapper's lifetime, after which repeat
+ * QIs return the same interface pointer with a fresh public ref and
+ * no wire traffic.  Called by the generated default QI thunks.
+ */
 HRESULT
-npt_com_send_query_interface(struct npt_device *dev, uint64_t src_id,
-                             const GUID *iid, uint64_t guest_id);
+npt_com_query_interface_host(void *self, const GUID *riid, void **ppvObject);
 
 /*
  * The ring this object's commands are submitted on and, when out_seqno is
