@@ -15,6 +15,7 @@
 #include "triton_log.h"
 #include "tritonSharedBridge.h"
 #include "tritonHostCaps.h"
+#include "triton12_tables.h"
 #include "npt_env.h"
 
 /* npt_device.h can't be included here: its vendored protocol DirectX
@@ -114,6 +115,12 @@ triton12DestroyDevice(D3D12DDI_HDEVICE hDevice)
     TR_LOG("12.DestroyDevice");
     if (!p)
         return;
+    for (UINT i = 0; i < TRITON12_POOL_TYPES; i++) {
+        if (p->pScratchAlloc[i]) {
+            ID3D12CommandAllocator_Release(p->pScratchAlloc[i]);
+            p->pScratchAlloc[i] = NULL;
+        }
+    }
     if (p->pDev) {
         ID3D12Device_Release(p->pDev);
         p->pDev = NULL;
@@ -147,15 +154,12 @@ triton12GetSupportedVersions(D3D12DDI_HADAPTER hAdapter,
                              UINT64 *pSupportedDDIInterfaceVersions)
 {
     (void)hAdapter;
-    /* Offer _0022 alone: it is the only revision whose tables, callback
-     * struct and cap types this driver implements.  A lower revision is
-     * not a weaker promise but a different one -- the runtime would hand
-     * over smaller tables, which pfnFillDDITable refuses to populate
-     * because it requires the _0022 sizes, leaving the runtime to
-     * dispatch through stubs. */
-    static const UINT64 kSupportedVersions[] = { D3D12DDI_SUPPORTED_0022 };
-    const UINT32 kCount =
-        sizeof(kSupportedVersions) / sizeof(kSupportedVersions[0]);
+    /* One revision: _0082 (R8).  A lower revision is not a weaker
+     * promise but a different one -- smaller tables the fill must know
+     * how to populate -- so the list holds exactly the build
+     * FillDDITable assembles. */
+    static const UINT64 kSupportedVersions[] = { D3D12DDI_SUPPORTED_0082 };
+    const UINT32 kCount = 1;
 
     if (!puEntries)
         return E_INVALIDARG;
@@ -587,6 +591,14 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
             CAP12_HOST("SHADER.Int64Ops", pCaps->Int64Ops, OPTIONS1,
                        hc->options1.Int64ShaderOps);
         }
+        if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0042) &&
+            pArgs->DataSize < sizeof(D3D12DDI_SHADER_CAPS_0082)) {
+            /* R4..R7: Native16BitOps is the only addition. */
+            D3D12DDI_SHADER_CAPS_0042 *pCaps =
+                (D3D12DDI_SHADER_CAPS_0042 *)pArgs->pData;
+            CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
+                       OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
+        }
         if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0082)) {
             /* Reached only once the advertised DDI revision is >= R8;
              * shader-side features the host executes from forwarded
@@ -595,25 +607,42 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
                 (D3D12DDI_SHADER_CAPS_0082 *)pArgs->pData;
             CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
                        OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
-            CAP12_HOST("SHADER.AtomicInt64OnTypedResource",
+            /* The host reports these but cannot execute them: on D3DMetal
+             * 3.0 a dispatch containing any 64-bit atomic -- even a raw
+             * buffer InterlockedAdd64, which SM 6.6 makes baseline --
+             * writes nothing at all (d3d12-atomic64-test, host and guest
+             * agree).  Claiming them lets UE5 past its SM6 gate into
+             * silently empty Nanite passes, so they stay off until the
+             * host executes d3d12-atomic64-test. */
+            CAP12_TODO("SHADER.AtomicInt64OnTypedResource",
                        pCaps->AtomicInt64OnTypedResource, OPTIONS9,
-                       hc->options9.AtomicInt64OnTypedResourceSupported);
-            CAP12_HOST("SHADER.AtomicInt64OnGroupShared",
+                       hc->options9.AtomicInt64OnTypedResourceSupported, FALSE,
+                       "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
+            CAP12_TODO("SHADER.AtomicInt64OnGroupShared",
                        pCaps->AtomicInt64OnGroupShared, OPTIONS9,
-                       hc->options9.AtomicInt64OnGroupSharedSupported);
+                       hc->options9.AtomicInt64OnGroupSharedSupported, FALSE,
+                       "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
             CAP12_TODO("SHADER.DerivativesInMeshAndAmplificationShaders",
                        pCaps->DerivativesInMeshAndAmplificationShaders,
                        OPTIONS9,
                        hc->options9.DerivativesInMeshAndAmplificationShadersSupported,
                        FALSE, "mesh shader DDI not implemented");
-            CAP12_HOST("SHADER.WaveMMATier", pCaps->WaveMMATier, OPTIONS9,
-                       hc->options9.WaveMMATier);
+            /* The API encoding (D3D12_WAVE_MMA_TIER_1_0 = 10) does not
+             * exist in D3D12DDI_WAVE_MMA_TIER, which encodes only
+             * NOT_SUPPORTED and 0_5_EXPERIMENTAL: the host value cannot
+             * pass through. */
+            CAP12_FIXED("SHADER.WaveMMATier", pCaps->WaveMMATier, OPTIONS9,
+                        hc->options9.WaveMMATier,
+                        D3D12DDI_WAVE_MMA_TIER_NOT_SUPPORTED,
+                        "API tier 1.0 has no encoding in D3D12DDI_WAVE_MMA_TIER");
         } else {
-            const char *why = "SHADER_CAPS_0082 is DDI R8; runtime sized "
-                              "the query for _0022 (see GetSupportedVersions)";
-            TRITON_CAP_UNREACHABLE("d3d12", "SHADER.Native16BitOps",
-                                   HC12(OPTIONS4),
-                                   hc->options4.Native16BitShaderOpsSupported, why);
+            const char *why = "SHADER_CAPS_0082 is DDI R8; the runtime "
+                              "sized the query below it";
+            if (pArgs->DataSize < sizeof(D3D12DDI_SHADER_CAPS_0042))
+                TRITON_CAP_UNREACHABLE("d3d12", "SHADER.Native16BitOps",
+                                       HC12(OPTIONS4),
+                                       hc->options4.Native16BitShaderOpsSupported,
+                                       "SHADER_CAPS_0042 is DDI R4");
             TRITON_CAP_UNREACHABLE("d3d12", "SHADER.AtomicInt64OnTypedResource",
                                    HC12(OPTIONS9),
                                    hc->options9.AtomicInt64OnTypedResourceSupported, why);
@@ -624,19 +653,30 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0084)) {
             D3D12DDI_SHADER_CAPS_0084 *pCaps =
                 (D3D12DDI_SHADER_CAPS_0084 *)pArgs->pData;
-            CAP12_HOST("SHADER.AtomicInt64OnDescriptorHeapResource",
+            CAP12_TODO("SHADER.AtomicInt64OnDescriptorHeapResource",
                        pCaps->AtomicInt64OnDescriptorHeapResource, OPTIONS11,
-                       hc->options11.AtomicInt64OnDescriptorHeapResourceSupported);
+                       hc->options11.AtomicInt64OnDescriptorHeapResourceSupported,
+                       FALSE, "host drops dispatches with 64-bit atomics (d3d12-atomic64-test)");
         } else {
             TRITON_CAP_UNREACHABLE("d3d12", "SHADER.AtomicInt64OnDescriptorHeapResource",
                                    HC12(OPTIONS11),
                                    hc->options11.AtomicInt64OnDescriptorHeapResourceSupported,
-                                   "SHADER_CAPS_0084 is DDI R8; runtime sized the query for _0022");
+                                   "SHADER_CAPS_0084 needs build 0084; this driver offers 0082");
         }
         TRITON_CAP_UNREACHABLE("d3d12", "OPTIONS9.MeshShaderPipelineStatsSupported",
                                HC12(OPTIONS9),
                                hc->options9.MeshShaderPipelineStatsSupported,
                                "no D3D12DDI field at any revision in WDK 26100");
+        break;
+    }
+    case D3D12DDICAPS_TYPE_0022_TEXTURE_LAYOUT: {
+        /* R3 asks through this type with the _0026 struct (adds
+         * IndexableSwizzlePatterns); same row-major-only answer. */
+        if (pArgs->DataSize >= sizeof(D3D12DDI_TEXTURE_LAYOUT_CAPS_0026)) {
+            D3D12DDI_TEXTURE_LAYOUT_CAPS_0026 *pCaps =
+                (D3D12DDI_TEXTURE_LAYOUT_CAPS_0026 *)pArgs->pData;
+            pCaps->SupportsRowMajorTexture = TRUE;
+        }
         break;
     }
     case D3D12DDICAPS_TYPE_TEXTURE_LAYOUT:
@@ -692,6 +732,14 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
                             FALSE, 0, FALSE,
                             "ExecuteCommandLists is serialised on QueueLock + one ring");
         }
+        break;
+    }
+    case D3D12DDICAPS_TYPE_0050_HARDWARE_SCHEDULING_CAPS: {
+        /* ComputeQueuesPer3DQueue = 0: no scheduling groups, every queue
+         * gets its own kernel context as today. */
+        if (pArgs->DataSize >= sizeof(D3D12DDICAPS_HARDWARE_SCHEDULING_CAPS_0050))
+            ((D3D12DDICAPS_HARDWARE_SCHEDULING_CAPS_0050 *)pArgs->pData)
+                ->ComputeQueuesPer3DQueue = 0;
         break;
     }
     case D3D12DDICAPS_TYPE_0073_SUPPORT_BATCHED_MARKERS: {
@@ -1483,8 +1531,18 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
 
         if (tableType == D3D12DDI_TABLE_TYPE_DEVICE_CORE &&
             tableSize >= sizeof(D3D12DDI_DEVICE_FUNCS_CORE_0022)) {
-            D3D12DDI_DEVICE_FUNCS_CORE_0022 *t =
-                (D3D12DDI_DEVICE_FUNCS_CORE_0022 *)pTable;
+            /* The _0080 table is assembled by name through the revision
+             * chain, each image stub-seeded: _0022 image (the shared
+             * prefix every implementation reads) -> _0033 overrides for
+             * the slots whose parameter lists changed -> _0043 image
+             * (the pool/recorder slots interleave where the allocator
+             * ones were, so a byte copy would misalign; see
+             * triton12_tables.h) -> _0062 image -> _0080 table. */
+            D3D12DDI_DEVICE_FUNCS_CORE_0022 image;
+            /* Seeded with the stubs like the live table, so a slot no
+             * installer fills stays a named log line after the copy. */
+            memcpy(&image, t12_stub_table, sizeof(image));
+            D3D12DDI_DEVICE_FUNCS_CORE_0022 *t = &image;
             t->pfnCheckFormatSupport             = triton12CheckFormatSupport;
             t->pfnCheckMultisampleQualityLevels  = triton12CheckMultisampleQualityLevels;
             t->pfnGetMipPacking                  = triton12GetMipPacking;
@@ -1496,6 +1554,28 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
             triton12InstallPipelineFuncs(t);
             triton12InstallPresentDeviceFuncs(t);
             triton12InstallQueryDeviceFuncs(t);
+            if (tableSize >= sizeof(D3D12DDI_DEVICE_FUNCS_CORE_0080)) {
+                D3D12DDI_DEVICE_FUNCS_CORE_0033 *t33 =
+                    (D3D12DDI_DEVICE_FUNCS_CORE_0033 *)&image;
+                triton12InstallQueueDeviceFuncs0033(t33);
+                triton12InstallResourceFuncs0033(t33);
+                D3D12DDI_DEVICE_FUNCS_CORE_0043 image43;
+                memcpy(&image43, t12_stub_table, sizeof(image43));
+                T12_COPY_DEVICE_FUNCS_0033_TO_0043(&image43, t33);
+                triton12InstallListDeviceFuncs0043(&image43);
+                triton12InstallResourceFuncs0043(&image43);
+                D3D12DDI_DEVICE_FUNCS_CORE_0062 image62;
+                memcpy(&image62, t12_stub_table, sizeof(image62));
+                T12_COPY_DEVICE_FUNCS_0043_TO_0062(&image62, &image43);
+                triton12InstallQueueDeviceFuncs0062(&image62);
+                triton12InstallListDeviceFuncs0062(&image62);
+                D3D12DDI_DEVICE_FUNCS_CORE_0080 *t80 =
+                    (D3D12DDI_DEVICE_FUNCS_CORE_0080 *)pTable;
+                T12_COPY_DEVICE_FUNCS_0062_TO_0080(t80, &image62);
+                triton12InstallPipelineFuncs0080(t80);
+                triton12InstallResourceFuncs0080(t80);
+                triton12InstallListDeviceFuncs0080(t80);
+            }
         }
 
         if (tableType == D3D12DDI_TABLE_TYPE_COMMAND_LIST_3D &&
@@ -1503,10 +1583,38 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
             PTRITON12_ADAPTER pAdapter = (PTRITON12_ADAPTER)hAdapter.pDrvPrivate;
             if (pAdapter && tableNum < 2)
                 pAdapter->hRTTableCmdList[tableNum] = hRTTable;
+            /* _0033 appends six slots after the _0022 prefix; _0040
+             * keeps the 58-slot layout, only ResetCommandList's argument
+             * (recorder instead of allocator) changes. */
             triton12InstallListFuncs(
                 (D3D12DDI_COMMAND_LIST_FUNCS_3D_0022 *)pTable);
             triton12InstallPresentFuncs(
                 (D3D12DDI_COMMAND_LIST_FUNCS_3D_0022 *)pTable);
+            if (tableSize >= sizeof(D3D12DDI_COMMAND_LIST_FUNCS_3D_0033)) {
+                D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *t33 =
+                    (D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *)pTable;
+                triton12InstallListFuncs0033(t33);
+                triton12InstallPresentFuncs0033(t33);
+                triton12InstallListFuncs0040(
+                    (D3D12DDI_COMMAND_LIST_FUNCS_3D_0040 *)pTable);
+                /* _0062 appends nine slots and retypes pfnPresent; the
+                 * table was filled in place as _0040 above, so reassemble
+                 * it by name from that image. */
+                if (tableSize >= sizeof(D3D12DDI_COMMAND_LIST_FUNCS_3D_0062)) {
+                    D3D12DDI_COMMAND_LIST_FUNCS_3D_0040 image40;
+                    memcpy(&image40, pTable, sizeof(image40));
+                    D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *t62 =
+                        (D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *)pTable;
+                    memcpy(t62, t12_stub_table, sizeof(*t62));
+                    T12_COPY_LIST_FUNCS_0040_TO_0062(t62, &image40);
+                    triton12InstallListFuncs0062(t62);
+                    triton12InstallPresentFuncs0062(t62);
+                    /* _0074 appends DispatchMesh. */
+                    if (tableSize >= sizeof(D3D12DDI_COMMAND_LIST_FUNCS_3D_0074))
+                        triton12InstallListFuncs0074(
+                            (D3D12DDI_COMMAND_LIST_FUNCS_3D_0074 *)pTable);
+                }
+            }
         }
 
         if (tableType == D3D12DDI_TABLE_TYPE_COMMAND_QUEUE_3D &&

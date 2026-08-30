@@ -865,6 +865,61 @@ t12DestroyPipelineState(D3D12DDI_HDEVICE hDevice, D3D12DDI_HPIPELINESTATE h)
     }
 }
 
+/* _0075 appends hMeshShader/hAmplificationShader to the PSO args; with
+ * MeshShaderTier 0 the runtime never sets them and the _0010 prefix the
+ * handlers read is unchanged. */
+static SIZE_T APIENTRY
+t12CalcPrivatePipelineStateSize0075(D3D12DDI_HDEVICE hDevice,
+                                    const D3D12DDIARG_CREATE_PIPELINE_STATE_0075 *pArgs)
+{
+    return t12CalcPrivatePipelineStateSize(
+        hDevice, (const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *)pArgs);
+}
+
+static HRESULT APIENTRY
+t12CreatePipelineState0075(D3D12DDI_HDEVICE hDevice,
+                           const D3D12DDIARG_CREATE_PIPELINE_STATE_0075 *pArgs,
+                           D3D12DDI_HPIPELINESTATE hPso,
+                           D3D12DDI_HRTPIPELINESTATE hRTPso)
+{
+    if (pArgs && (pArgs->hMeshShader.pDrvPrivate ||
+                  pArgs->hAmplificationShader.pDrvPrivate)) {
+        TR_LOG("12.CreatePipelineState(0075): mesh pipeline requested with "
+               "MeshShaderTier 0");
+        return E_INVALIDARG;
+    }
+    return t12CreatePipelineState(
+        hDevice, (const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *)pArgs, hPso,
+        hRTPso);
+}
+
+static VOID APIENTRY
+t12CreateMeshShaderUnsupported(D3D12DDI_HDEVICE hDevice,
+                               const D3D12DDIARG_CREATE_SHADER_0026 *pArgs,
+                               D3D12DDI_HSHADER hShader)
+{
+    PTRITON12_SHADER s = (PTRITON12_SHADER)hShader.pDrvPrivate;
+    (void)hDevice; (void)pArgs;
+    if (s)
+        memset(s, 0, sizeof(*s));
+    TR_STUB("12.CreateMesh/AmplificationShader");
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateMeshShaderSize(D3D12DDI_HDEVICE hDevice,
+                             const D3D12DDIARG_CREATE_SHADER_0026 *pArgs)
+{ (void)hDevice; (void)pArgs; return sizeof(TRITON12_SHADER); }
+
+void
+triton12InstallPipelineFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t)
+{
+    t->pfnCalcPrivatePipelineStateSize = t12CalcPrivatePipelineStateSize0075;
+    t->pfnCreatePipelineState          = t12CreatePipelineState0075;
+    t->pfnCreateAmplificationShader    = t12CreateMeshShaderUnsupported;
+    t->pfnCreateMeshShader             = t12CreateMeshShaderUnsupported;
+    t->pfnCalcPrivateMeshShaderSize    = t12CalcPrivateMeshShaderSize;
+}
+
 void
 triton12InstallPipelineFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
 {

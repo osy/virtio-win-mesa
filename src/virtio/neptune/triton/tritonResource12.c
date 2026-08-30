@@ -915,6 +915,131 @@ t12DestroyFence(D3D12DDI_HDEVICE hDevice, D3D12DDI_HFENCE hFence)
     }
 }
 
+/* _0030 threads a protected-resource-session handle through both calls;
+ * no session is ever created (PROTECTED_RESOURCE_SESSION_SUPPORT is
+ * NONE), so it is always null and ignored. */
+static D3D12DDI_HEAP_AND_RESOURCE_SIZES APIENTRY
+t12CalcPrivateHeapAndResourceSizes0030(D3D12DDI_HDEVICE hDevice,
+                                       const D3D12DDIARG_CREATEHEAP_0001 *pHeap,
+                                       const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
+                                       D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession)
+{
+    (void)hSession;
+    return t12CalcPrivateHeapAndResourceSizes(hDevice, pHeap, pRes);
+}
+
+static HRESULT APIENTRY
+t12CreateHeapAndResource0030(D3D12DDI_HDEVICE hDevice,
+                             const D3D12DDIARG_CREATEHEAP_0001 *pHeapDesc,
+                             D3D12DDI_HHEAP hHeap,
+                             D3D12DDI_HRTRESOURCE hRTResource,
+                             const D3D12DDIARG_CREATERESOURCE_0003 *pResDesc,
+                             const D3D12DDI_CLEAR_VALUES *pClearValues,
+                             D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession,
+                             D3D12DDI_HRESOURCE hResource)
+{
+    (void)hSession;
+    return t12CreateHeapAndResource(hDevice, pHeapDesc, hHeap, hRTResource,
+                                    pResDesc, pClearValues, hResource);
+}
+
+static D3D12DDI_HEAP_AND_RESOURCE_SIZES APIENTRY
+t12CalcPrivateOpenedHeapAndResourceSizes0043(D3D12DDI_HDEVICE hDevice,
+                                             const D3D12DDIARG_OPENHEAP_0003 *pOpen,
+                                             D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession)
+{
+    (void)hSession;
+    return t12CalcPrivateOpenedHeapAndResourceSizes(hDevice, pOpen);
+}
+
+static HRESULT APIENTRY
+t12OpenHeapAndResource0043(D3D12DDI_HDEVICE hDevice,
+                           const D3D12DDIARG_OPENHEAP_0003 *pOpen,
+                           D3D12DDI_HHEAP hHeap, D3D12DDI_HRTRESOURCE hRTResource,
+                           D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession,
+                           D3D12DDI_HRESOURCE hResource)
+{
+    (void)hSession;
+    return t12OpenHeapAndResource(hDevice, pOpen, hHeap, hRTResource, hResource);
+}
+
+/* _0075 appends SamplerFeedbackMipRegion to the resource desc; sampler
+ * feedback is tier 0, so the _0003 prefix the handlers read is all. */
+static D3D12DDI_HEAP_AND_RESOURCE_SIZES APIENTRY
+t12CalcPrivateHeapAndResourceSizes0075(D3D12DDI_HDEVICE hDevice,
+                                       const D3D12DDIARG_CREATEHEAP_0001 *pHeap,
+                                       const D3D12DDIARG_CREATERESOURCE_0075 *pRes,
+                                       D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession)
+{
+    (void)hSession;
+    return t12CalcPrivateHeapAndResourceSizes(
+        hDevice, pHeap, (const D3D12DDIARG_CREATERESOURCE_0003 *)pRes);
+}
+
+static HRESULT APIENTRY
+t12CreateHeapAndResource0075(D3D12DDI_HDEVICE hDevice,
+                             const D3D12DDIARG_CREATEHEAP_0001 *pHeapDesc,
+                             D3D12DDI_HHEAP hHeap,
+                             D3D12DDI_HRTRESOURCE hRTResource,
+                             const D3D12DDIARG_CREATERESOURCE_0075 *pResDesc,
+                             const D3D12DDI_CLEAR_VALUES *pClearValues,
+                             D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession,
+                             D3D12DDI_HRESOURCE hResource)
+{
+    (void)hSession;
+    return t12CreateHeapAndResource(
+        hDevice, pHeapDesc, hHeap, hRTResource,
+        (const D3D12DDIARG_CREATERESOURCE_0003 *)pResDesc, pClearValues,
+        hResource);
+}
+
+static VOID APIENTRY
+t12CheckResourceAllocationInfo0075(D3D12DDI_HDEVICE hDevice,
+                                   const D3D12DDIARG_CREATERESOURCE_0075 *pRes,
+                                   D3D12DDI_RESOURCE_OPTIMIZATION_FLAGS Flags,
+                                   UINT32 AlignmentRestriction,
+                                   UINT VisibleNodeMask,
+                                   D3D12DDI_RESOURCE_ALLOCATION_INFO_0022 *pInfo)
+{
+    t12CheckResourceAllocationInfo(
+        hDevice, (const D3D12DDIARG_CREATERESOURCE_0003 *)pRes, Flags,
+        AlignmentRestriction, VisibleNodeMask, pInfo);
+}
+
+static HRESULT APIENTRY
+t12CreateSamplerFeedbackUnorderedAccessView(D3D12DDI_HDEVICE hDevice,
+                                            D3D12DDI_HRESOURCE hTarget,
+                                            D3D12DDI_HRESOURCE hFeedback,
+                                            D3D12DDI_CPU_DESCRIPTOR_HANDLE Dest)
+{
+    (void)hDevice; (void)hTarget; (void)hFeedback; (void)Dest;
+    return E_NOTIMPL;
+}
+
+void
+triton12InstallResourceFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t)
+{
+    t->pfnCalcPrivateHeapAndResourceSizes = t12CalcPrivateHeapAndResourceSizes0075;
+    t->pfnCreateHeapAndResource           = t12CreateHeapAndResource0075;
+    t->pfnCheckResourceAllocationInfo     = t12CheckResourceAllocationInfo0075;
+    t->pfnCreateSamplerFeedbackUnorderedAccessView =
+        t12CreateSamplerFeedbackUnorderedAccessView;
+}
+
+void
+triton12InstallResourceFuncs0043(D3D12DDI_DEVICE_FUNCS_CORE_0043 *t)
+{
+    t->pfnCalcPrivateOpenedHeapAndResourceSizes = t12CalcPrivateOpenedHeapAndResourceSizes0043;
+    t->pfnOpenHeapAndResource                   = t12OpenHeapAndResource0043;
+}
+
+void
+triton12InstallResourceFuncs0033(D3D12DDI_DEVICE_FUNCS_CORE_0033 *t)
+{
+    t->pfnCalcPrivateHeapAndResourceSizes = t12CalcPrivateHeapAndResourceSizes0030;
+    t->pfnCreateHeapAndResource           = t12CreateHeapAndResource0030;
+}
+
 void
 triton12InstallResourceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
 {

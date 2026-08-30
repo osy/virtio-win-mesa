@@ -581,6 +581,60 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
                (int)pArgs->FlipInterval);
 }
 
+/* _0028 appends SyncIntervalOverride{Valid,}: left clear, the runtime's
+ * own interval stands. */
+static VOID APIENTRY
+t12Present0028(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
+               const D3D12DDIARG_PRESENT_0001 *pArgs, D3D12DDI_PRESENT_0028 *pOut)
+{
+    if (!pOut)
+        return;
+    pOut->SyncIntervalOverrideValid = FALSE;
+    pOut->SyncIntervalOverride = (DXGI_DDI_FLIP_INTERVAL_TYPE)0;
+    t12Present(hList, hQueue, pArgs, (D3D12DDI_PRESENT_0003 *)pOut);
+}
+
+/* _0051 drops hSrc/hDst/hContext from the out struct: the allocations go
+ * to slot 0 of the broadcast arrays and the context to the optional
+ * contexts struct (the hardware-queue struct stays empty: no HW queues). */
+static VOID APIENTRY
+t12Present0051(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
+               const D3D12DDIARG_PRESENT_0001 *pArgs, D3D12DDI_PRESENT_0051 *pOut,
+               D3D12DDI_PRESENT_CONTEXTS_0051 *pContexts,
+               D3D12DDI_PRESENT_HWQUEUES_0051 *pHwQueues)
+{
+    D3D12DDI_PRESENT_0003 legacy;
+    if (!pOut)
+        return;
+    memset(pOut, 0, sizeof(*pOut));
+    if (pContexts)
+        memset(pContexts, 0, sizeof(*pContexts));
+    if (pHwQueues)
+        memset(pHwQueues, 0, sizeof(*pHwQueues));
+    memset(&legacy, 0, sizeof(legacy));
+    t12Present(hList, hQueue, pArgs, &legacy);
+    pOut->BroadcastSrcAllocation[0] = legacy.hSrcAllocation;
+    pOut->BroadcastDstAllocation[0] = legacy.hDstAllocation;
+    pOut->AddedGpuWork          = legacy.AddedGpuWork;
+    pOut->BackBufferMultiplicity = legacy.BackBufferMultiplicity;
+    if (pContexts) {
+        pContexts->hContext = legacy.hContext;
+        pContexts->BroadcastContextCount = 0;
+    }
+}
+
+void
+triton12InstallPresentFuncs0062(D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *t)
+{
+    t->pfnPresent = t12Present0051;
+}
+
+void
+triton12InstallPresentFuncs0033(D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *t)
+{
+    t->pfnPresent = t12Present0028;
+}
+
 void
 triton12InstallPresentFuncs(D3D12DDI_COMMAND_LIST_FUNCS_3D_0022 *t)
 {

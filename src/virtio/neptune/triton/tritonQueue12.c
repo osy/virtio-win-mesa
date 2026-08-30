@@ -495,6 +495,75 @@ t12WaitForFence(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDIARG_FENCE_OPERATION *pOp)
     (void)hr; /* only consumed by TR_LOG_HOT, which compiles out by default */
 }
 
+static SIZE_T APIENTRY
+t12CalcPrivateCommandQueueSize0023(D3D12DDI_HDEVICE hDevice,
+                                   const D3D12DDIARG_CREATECOMMANDQUEUE_0023 *pArgs)
+{
+    (void)hDevice; (void)pArgs;
+    return sizeof(TRITON12_QUEUE);
+}
+
+/* _0023 moved the two queue handles out of the arg struct and added
+ * QueueCreationFlags (GLOBAL_REALTIME_PRIORITY), which the host queue
+ * does not model. */
+static HRESULT APIENTRY
+t12CreateCommandQueue0023(D3D12DDI_HDEVICE hDevice,
+                          const D3D12DDIARG_CREATECOMMANDQUEUE_0023 *pArgs,
+                          D3D12DDI_HCOMMANDQUEUE hDrvCommandQueue,
+                          D3D12DDI_HRTCOMMANDQUEUE hRTCommandQueue)
+{
+    if (!pArgs)
+        return E_INVALIDARG;
+    D3D12DDIARG_CREATECOMMANDQUEUE_0001 a;
+    memset(&a, 0, sizeof(a));
+    a.hDrvCommandQueue = hDrvCommandQueue;
+    a.hRTCommandQueue  = hRTCommandQueue;
+    a.QueueFlags       = pArgs->QueueFlags;
+    a.NodeMask         = pArgs->NodeMask;
+    return t12CreateCommandQueue(hDevice, &a);
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateCommandQueueSize0050(D3D12DDI_HDEVICE hDevice,
+                                   const D3D12DDIARG_CREATECOMMANDQUEUE_0050 *pArgs)
+{
+    (void)hDevice; (void)pArgs;
+    return sizeof(TRITON12_QUEUE);
+}
+
+/* _0050 adds a scheduling group, which HARDWARE_SCHEDULING_CAPS reports
+ * as never used (ComputeQueuesPer3DQueue = 0), so it is always null. */
+static HRESULT APIENTRY
+t12CreateCommandQueue0050(D3D12DDI_HDEVICE hDevice,
+                          const D3D12DDIARG_CREATECOMMANDQUEUE_0050 *pArgs,
+                          D3D12DDI_HCOMMANDQUEUE hDrvCommandQueue,
+                          D3D12DDI_HRTCOMMANDQUEUE hRTCommandQueue)
+{
+    if (!pArgs)
+        return E_INVALIDARG;
+    D3D12DDIARG_CREATECOMMANDQUEUE_0001 a;
+    memset(&a, 0, sizeof(a));
+    a.hDrvCommandQueue = hDrvCommandQueue;
+    a.hRTCommandQueue  = hRTCommandQueue;
+    a.QueueFlags       = pArgs->QueueFlags;
+    a.NodeMask         = pArgs->NodeMask;
+    return t12CreateCommandQueue(hDevice, &a);
+}
+
+void
+triton12InstallQueueDeviceFuncs0062(D3D12DDI_DEVICE_FUNCS_CORE_0062 *t)
+{
+    t->pfnCalcPrivateCommandQueueSize = t12CalcPrivateCommandQueueSize0050;
+    t->pfnCreateCommandQueue          = t12CreateCommandQueue0050;
+}
+
+void
+triton12InstallQueueDeviceFuncs0033(D3D12DDI_DEVICE_FUNCS_CORE_0033 *t)
+{
+    t->pfnCalcPrivateCommandQueueSize = t12CalcPrivateCommandQueueSize0023;
+    t->pfnCreateCommandQueue          = t12CreateCommandQueue0023;
+}
+
 void
 triton12InstallQueueDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
 {

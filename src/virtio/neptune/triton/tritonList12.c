@@ -85,6 +85,119 @@ t12ResetCommandAllocator(D3D12DDI_HCOMMANDALLOCATOR hAllocator)
         ID3D12CommandAllocator_Reset(a->pAlloc);
 }
 
+/* ---------- command pool / recorder (_0040) ---------- */
+
+static UINT
+t12PoolIndex(D3D12_COMMAND_LIST_TYPE t)
+{
+    return ((UINT)t < TRITON12_POOL_TYPES) ? (UINT)t : 0u;
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateCommandPoolSize(D3D12DDI_HDEVICE hDevice,
+                              const D3D12DDIARG_CREATE_COMMAND_POOL_0040 *pArgs)
+{
+    (void)hDevice; (void)pArgs;
+    return sizeof(TRITON12_POOL);
+}
+
+static HRESULT APIENTRY
+t12CreateCommandPool(D3D12DDI_HDEVICE hDevice,
+                     const D3D12DDIARG_CREATE_COMMAND_POOL_0040 *pArgs,
+                     D3D12DDI_HCOMMANDPOOL_0040 hPool)
+{
+    PTRITON12_POOL pool = (PTRITON12_POOL)hPool.pDrvPrivate;
+    (void)hDevice; (void)pArgs;
+    if (!pool)
+        return E_INVALIDARG;
+    memset(pool, 0, sizeof(*pool));
+    return S_OK;
+}
+
+static VOID APIENTRY
+t12DestroyCommandPool(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDPOOL_0040 hPool)
+{
+    PTRITON12_POOL pool = (PTRITON12_POOL)hPool.pDrvPrivate;
+    (void)hDevice;
+    if (!pool)
+        return;
+    for (UINT i = 0; i < TRITON12_POOL_TYPES; i++) {
+        if (pool->pAlloc[i]) {
+            ID3D12CommandAllocator_Release(pool->pAlloc[i]);
+            pool->pAlloc[i] = NULL;
+        }
+    }
+}
+
+static VOID APIENTRY
+t12ResetCommandPool(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDPOOL_0040 hPool)
+{
+    PTRITON12_POOL pool = (PTRITON12_POOL)hPool.pDrvPrivate;
+    (void)hDevice;
+    if (!pool)
+        return;
+    for (UINT i = 0; i < TRITON12_POOL_TYPES; i++)
+        if (pool->pAlloc[i])
+            ID3D12CommandAllocator_Reset(pool->pAlloc[i]);
+}
+
+static ID3D12CommandAllocator *
+t12PoolAllocator(PTRITON12_DEVICE p, PTRITON12_POOL pool,
+                 D3D12_COMMAND_LIST_TYPE type)
+{
+    const UINT i = t12PoolIndex(type);
+    if (!pool->pAlloc[i]) {
+        HRESULT hr = ID3D12Device_CreateCommandAllocator(
+            p->pDev, type, &IID_ID3D12CommandAllocator,
+            (void **)&pool->pAlloc[i]);
+        TR_LOG("12.CommandPool: allocator for type %d -> 0x%08lx", (int)type,
+               (unsigned long)hr);
+        if (FAILED(hr))
+            pool->pAlloc[i] = NULL;
+    }
+    return pool->pAlloc[i];
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateCommandRecorderSize(D3D12DDI_HDEVICE hDevice,
+                                  const D3D12DDIARG_CREATE_COMMAND_RECORDER_0040 *pArgs)
+{
+    (void)hDevice; (void)pArgs;
+    return sizeof(TRITON12_RECORDER);
+}
+
+static HRESULT APIENTRY
+t12CreateCommandRecorder(D3D12DDI_HDEVICE hDevice,
+                         const D3D12DDIARG_CREATE_COMMAND_RECORDER_0040 *pArgs,
+                         D3D12DDI_HCOMMANDRECORDER_0040 hRecorder)
+{
+    PTRITON12_RECORDER rec = (PTRITON12_RECORDER)hRecorder.pDrvPrivate;
+    (void)hDevice;
+    if (!rec || !pArgs)
+        return E_INVALIDARG;
+    memset(rec, 0, sizeof(*rec));
+    rec->QueueFlags = pArgs->QueueFlags;
+    return S_OK;
+}
+
+static VOID APIENTRY
+t12DestroyCommandRecorder(D3D12DDI_HDEVICE hDevice,
+                          D3D12DDI_HCOMMANDRECORDER_0040 hRecorder)
+{
+    (void)hDevice; (void)hRecorder;
+}
+
+static VOID APIENTRY
+t12CommandRecorderSetCommandPoolAsTarget(D3D12DDI_HDEVICE hDevice,
+                                         D3D12DDI_HCOMMANDRECORDER_0040 hRecorder,
+                                         D3D12DDI_HCOMMANDPOOL_0040 hPool)
+{
+    PTRITON12_RECORDER rec = (PTRITON12_RECORDER)hRecorder.pDrvPrivate;
+    (void)hDevice;
+    if (rec)
+        rec->pPool = (PTRITON12_POOL)hPool.pDrvPrivate;
+}
+
 /* ---------- command list ---------- */
 
 static SIZE_T APIENTRY
@@ -127,6 +240,111 @@ t12CreateCommandList(D3D12DDI_HDEVICE hDevice,
     return S_OK;
 }
 
+static SIZE_T APIENTRY
+t12CalcPrivateCommandListSize0040(D3D12DDI_HDEVICE hDevice,
+                                  const D3D12DDIARG_CREATE_COMMAND_LIST_0040 *pArgs)
+{
+    (void)hDevice; (void)pArgs;
+    return sizeof(TRITON12_LIST);
+}
+
+/* No allocator rides the _0040 create: the host list is created against
+ * the device's scratch allocator for its type and closed at once, and the
+ * runtime's paired ResetCommandList (same ID) rebinds it to the recorder's
+ * pool before anything is recorded. */
+static HRESULT APIENTRY
+t12CreateCommandList0040(D3D12DDI_HDEVICE hDevice,
+                         const D3D12DDIARG_CREATE_COMMAND_LIST_0040 *pArgs,
+                         D3D12DDI_HCOMMANDLIST hList,
+                         D3D12DDI_HRTCOMMANDLIST hRTList)
+{
+    PTRITON12_DEVICE p = triton12Device(hDevice);
+    PTRITON12_LIST l = (PTRITON12_LIST)hList.pDrvPrivate;
+    if (!p || !p->pDev || !l || !pArgs)
+        return E_INVALIDARG;
+    memset(l, 0, sizeof(*l));
+    l->pDev = p;
+    const D3D12_COMMAND_LIST_TYPE type =
+        t12ListApiType(pArgs->Type, pArgs->QueueFlags);
+    l->ApiType = (UINT)type;
+
+    /* The host list must be created against SOME allocator, and an
+     * allocator may back only one RECORDING list at a time -- create
+     * leaves the list recording until the Close below.  Two threads
+     * creating lists of the same type would therefore collide on a
+     * shared scratch allocator and the second create would fail, which
+     * surfaces much later as recording sent to an object the host never
+     * registered.  Hold the device lock across create+Close so the
+     * scratch allocator backs one recording list at a time. */
+    const UINT si = t12PoolIndex(type);
+    HRESULT hr;
+    EnterCriticalSection(&p->QueueLock);
+    if (!p->pScratchAlloc[si]) {
+        HRESULT ahr = ID3D12Device_CreateCommandAllocator(
+            p->pDev, type, &IID_ID3D12CommandAllocator,
+            (void **)&p->pScratchAlloc[si]);
+        if (FAILED(ahr))
+            p->pScratchAlloc[si] = NULL;
+    }
+    if (!p->pScratchAlloc[si]) {
+        LeaveCriticalSection(&p->QueueLock);
+        return E_OUTOFMEMORY;
+    }
+    hr = ID3D12Device_CreateCommandList(
+        p->pDev, 0, type, p->pScratchAlloc[si], NULL,
+        &IID_ID3D12GraphicsCommandList, (void **)&l->pList);
+    if (SUCCEEDED(hr))
+        ID3D12GraphicsCommandList_Close(l->pList);
+    LeaveCriticalSection(&p->QueueLock);
+
+    TR_LOG("12.CreateCommandList(0040): type=%d qflags=0x%x id=%llu -> 0x%08lx",
+           (int)pArgs->Type, (unsigned)pArgs->QueueFlags,
+           (unsigned long long)pArgs->ID, (unsigned long)hr);
+    if (FAILED(hr))
+        return hr;
+    l->AwaitingReset = TRUE;
+
+    if (p->pUMCallbacks && p->pUMCallbacks->pfnSetCommandListDDITableCb &&
+        p->pAdapter) {
+        UINT idx = (pArgs->Type == D3D12DDI_COMMAND_LIST_TYPE_BUNDLE) ? 1 : 0;
+        p->pUMCallbacks->pfnSetCommandListDDITableCb(
+            hRTList, p->pAdapter->hRTTableCmdList[idx]);
+    }
+    return S_OK;
+}
+
+static VOID APIENTRY
+t12ResetCommandList0040(D3D12DDI_HCOMMANDLIST hList,
+                        const D3D12DDIARG_RESETCOMMANDLIST_0040 *pArgs)
+{
+    PTRITON12_LIST l = (PTRITON12_LIST)hList.pDrvPrivate;
+    PTRITON12_RECORDER rec =
+        pArgs ? (PTRITON12_RECORDER)pArgs->hDrvCommandRecorder.pDrvPrivate : NULL;
+    if (!l || !l->pList || !l->pDev || !rec || !rec->pPool) {
+        static LONG once;
+        if (!InterlockedExchange(&once, 1))
+            TR_LOG("12.ResetCommandList(0040): recorder %p has no target pool",
+                   (void *)rec);
+        return;
+    }
+    ID3D12CommandAllocator *alloc = t12PoolAllocator(
+        l->pDev, rec->pPool, (D3D12_COMMAND_LIST_TYPE)l->ApiType);
+    if (!alloc)
+        return;
+    l->RecordTid = GetCurrentThreadId();
+    l->AwaitingReset = FALSE;
+    HRESULT hr = ID3D12GraphicsCommandList_Reset(l->pList, alloc, NULL);
+    TR_LOG_HOT("12.ResetCommandList(0040) -> 0x%08lx", (unsigned long)hr);
+    if (FAILED(hr)) {
+        /* pfnResetCommandList is VOID: without pfnSetErrorCb the API-level
+         * Reset returns S_OK and the failure resurfaces only at Close. */
+        TR_LOG("12.ResetCommandList(0040) FAILED hr=0x%08lx list=%p",
+               (unsigned long)hr, (void *)l);
+        if (l->pDev->pUMCallbacks && l->pDev->pUMCallbacks->pfnSetErrorCb)
+            l->pDev->pUMCallbacks->pfnSetErrorCb(l->pDev->hRTDevice, hr);
+    }
+}
+
 static VOID APIENTRY
 t12DestroyCommandList(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDLIST hList)
 {
@@ -146,6 +364,16 @@ t12CloseCommandList(D3D12DDI_HCOMMANDLIST hList)
     PTRITON12_LIST l = (PTRITON12_LIST)hList.pDrvPrivate;
     if (!l || !l->pList)
         return;
+    if (l->AwaitingReset) {
+        /* R4 create-then-close never saw its paired reset: the host list
+         * is already closed, so this close is a no-op and anything the
+         * runtime recorded in between was lost.  Loud, once. */
+        static LONG once;
+        if (!InterlockedExchange(&once, 1))
+            TR_LOG("12.CloseCommandList: list %p closed without a reset after "
+                   "its _0040 create", (void *)l);
+        return;
+    }
     t12ListStampTid(l);
     HRESULT hr = ID3D12GraphicsCommandList_Close(l->pList);
     TR_LOG_HOT("12.CloseCommandList -> 0x%08lx", (unsigned long)hr);
@@ -1095,6 +1323,386 @@ triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
     t->pfnCalcPrivateQueryHeapSize = t12CalcPrivateQueryHeapSize;
     t->pfnCreateQueryHeap          = t12CreateQueryHeap;
     t->pfnDestroyQueryHeap         = t12DestroyQueryHeap;
+}
+
+/* ---------- _0025 .. _0033 list entries ----------
+ *
+ * Each is reachable only behind a cap this driver reports off
+ * (DepthBoundsTest, ProgrammableSamplePositions, WriteBufferImmediate,
+ * ViewInstancing, PROTECTED_RESOURCE_SESSION_SUPPORT), except
+ * ResolveSubresourceRegion, which is a core API the runtime routes here
+ * once the revision offers the slot. */
+
+static VOID APIENTRY
+t12OMSetDepthBounds(D3D12DDI_HCOMMANDLIST hList, FLOAT Min, FLOAT Max)
+{
+    PTRITON12_LIST l = t12List(hList);
+    ID3D12GraphicsCommandList1 *l1 = NULL;
+    if (!l || !l->pList)
+        return;
+    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
+            l->pList, &IID_ID3D12GraphicsCommandList1, (void **)&l1))) {
+        ID3D12GraphicsCommandList1_OMSetDepthBounds(l1, Min, Max);
+        ID3D12GraphicsCommandList1_Release(l1);
+    }
+}
+
+static VOID APIENTRY
+t12SetSamplePositions(D3D12DDI_HCOMMANDLIST hList, UINT NumSamplesPerPixel,
+                      UINT NumPixels, D3D12DDI_SAMPLE_POSITION *pPositions)
+{
+    (void)hList; (void)NumSamplesPerPixel; (void)NumPixels; (void)pPositions;
+    TR_STUB("12.SetSamplePositions");
+}
+
+static VOID APIENTRY
+t12ResourceResolveSubresourceRegion(D3D12DDI_HCOMMANDLIST hList,
+                                    D3D12DDI_HRESOURCE hDst, UINT DstSub,
+                                    UINT DstX, UINT DstY,
+                                    D3D12DDI_HRESOURCE hSrc, UINT SrcSub,
+                                    D3D12DDI_RECT *pSrcRect, DXGI_FORMAT Format,
+                                    D3D12DDI_RESOLVE_MODE Mode)
+{
+    PTRITON12_LIST l = t12List(hList);
+    PTRITON12_RESOURCE d = (PTRITON12_RESOURCE)hDst.pDrvPrivate;
+    PTRITON12_RESOURCE src = (PTRITON12_RESOURCE)hSrc.pDrvPrivate;
+    ID3D12GraphicsCommandList1 *l1 = NULL;
+    if (!l || !l->pList || !d || !d->pResource || !src || !src->pResource)
+        return;
+    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
+            l->pList, &IID_ID3D12GraphicsCommandList1, (void **)&l1))) {
+        D3D12_RECT rc;
+        if (pSrcRect) {
+            rc.left = pSrcRect->left; rc.top = pSrcRect->top;
+            rc.right = pSrcRect->right; rc.bottom = pSrcRect->bottom;
+        }
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(
+            l1, d->pResource, DstSub, DstX, DstY, src->pResource, SrcSub,
+            pSrcRect ? &rc : NULL, Format, (D3D12_RESOLVE_MODE)Mode);
+        ID3D12GraphicsCommandList1_Release(l1);
+    } else {
+        /* No region variant on the host list: whole-subresource resolve
+         * is the nearest the backend offers. */
+        ID3D12GraphicsCommandList_ResolveSubresource(
+            l->pList, d->pResource, DstSub, src->pResource, SrcSub, Format);
+    }
+}
+
+static VOID APIENTRY
+t12SetProtectedResourceSession(D3D12DDI_HCOMMANDLIST hList,
+                               D3D12DDI_HPROTECTEDRESOURCESESSION_0030 hSession)
+{
+    (void)hList; (void)hSession;
+}
+
+static VOID APIENTRY
+t12WriteBufferImmediate(D3D12DDI_HCOMMANDLIST hList, UINT Count,
+                        const D3D12DDI_WRITEBUFFERIMMEDIATE_PARAMETER_0032 *pParams,
+                        const D3D12DDI_WRITEBUFFERIMMEDIATE_MODE_0032 *pModes)
+{
+    (void)hList; (void)Count; (void)pParams; (void)pModes;
+    TR_STUB("12.WriteBufferImmediate");
+}
+
+static VOID APIENTRY
+t12SetViewInstanceMask(D3D12DDI_HCOMMANDLIST hList, UINT Mask)
+{
+    (void)hList; (void)Mask;
+}
+
+/* ---------- _0050 .. _0062 entries: none of these features is reported
+ * (HARDWARE_SCHEDULING_CAPS 0, no meta commands, RaytracingTier 0,
+ * VariableShadingRateTier 0, BackgroundProcessing off), so they answer
+ * "none" where the runtime reads a count and are otherwise unreachable. */
+
+static HRESULT APIENTRY
+t12EnumerateMetaCommands(D3D12DDI_HDEVICE hDevice, UINT *pNum,
+                         D3D12DDIARG_META_COMMAND_DESC *pDescs)
+{
+    (void)hDevice; (void)pDescs;
+    if (pNum)
+        *pNum = 0;
+    return S_OK;
+}
+
+static HRESULT APIENTRY
+t12EnumerateMetaCommandParameters(D3D12DDI_HDEVICE hDevice, GUID CommandId,
+                                  D3D12DDI_META_COMMAND_PARAMETER_STAGE Stage,
+                                  UINT *pCount,
+                                  D3D12DDIARG_META_COMMAND_PARAMETER_DESC *pDescs)
+{
+    (void)hDevice; (void)CommandId; (void)Stage; (void)pDescs;
+    if (pCount)
+        *pCount = 0;
+    return S_OK;
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateMetaCommandSize(D3D12DDI_HDEVICE hDevice, GUID CommandId,
+                              UINT NodeMask, const void *pParams, SIZE_T cb)
+{
+    (void)hDevice; (void)CommandId; (void)NodeMask; (void)pParams; (void)cb;
+    return 0;
+}
+
+static HRESULT APIENTRY
+t12CreateMetaCommand(D3D12DDI_HDEVICE hDevice, GUID CommandId, UINT NodeMask,
+                     const void *pParams, SIZE_T cb,
+                     D3D12DDI_HMETACOMMAND_0052 hMeta,
+                     D3D12DDI_HRTMETACOMMAND_0052 hRTMeta)
+{
+    (void)hDevice; (void)CommandId; (void)NodeMask; (void)pParams; (void)cb;
+    (void)hMeta; (void)hRTMeta;
+    return E_NOTIMPL;
+}
+
+static VOID APIENTRY
+t12DestroyMetaCommand(D3D12DDI_HDEVICE hDevice, D3D12DDI_HMETACOMMAND_0052 h)
+{ (void)hDevice; (void)h; }
+
+static VOID APIENTRY
+t12GetMetaCommandRequiredParameterInfo(D3D12DDI_HMETACOMMAND_0052 h,
+                                       D3D12DDI_META_COMMAND_PARAMETER_STAGE Stage,
+                                       UINT Index,
+                                       D3D12DDIARG_META_COMMAND_REQUIRED_PARAMETER_INFO *pInfo)
+{
+    (void)h; (void)Stage; (void)Index;
+    if (pInfo)
+        memset(pInfo, 0, sizeof(*pInfo));
+}
+
+static SIZE_T APIENTRY
+t12CalcPrivateSchedulingGroupSize(D3D12DDI_HDEVICE hDevice,
+                                  const D3D12DDIARG_CREATESCHEDULINGGROUP_0050 *pArgs)
+{ (void)hDevice; (void)pArgs; return sizeof(void *); }
+
+static HRESULT APIENTRY
+t12CreateSchedulingGroup(D3D12DDI_HDEVICE hDevice,
+                         const D3D12DDIARG_CREATESCHEDULINGGROUP_0050 *pArgs,
+                         D3D12DDI_HSCHEDULINGGROUP_0050 h,
+                         D3D12DDI_HRTSCHEDULINGGROUP_0050 hRT)
+{ (void)hDevice; (void)pArgs; (void)h; (void)hRT; return E_NOTIMPL; }
+
+static VOID APIENTRY
+t12DestroySchedulingGroup(D3D12DDI_HDEVICE hDevice, D3D12DDI_HSCHEDULINGGROUP_0050 h)
+{ (void)hDevice; (void)h; }
+
+static SIZE_T APIENTRY
+t12CalcPrivateStateObjectSize(D3D12DDI_HDEVICE hDevice,
+                              const D3D12DDIARG_CREATE_STATE_OBJECT_0054 *pArgs)
+{ (void)hDevice; (void)pArgs; return 0; }
+
+static HRESULT APIENTRY
+t12CreateStateObject(D3D12DDI_HDEVICE hDevice,
+                     const D3D12DDIARG_CREATE_STATE_OBJECT_0054 *pArgs,
+                     D3D12DDI_HSTATEOBJECT_0054 h, D3D12DDI_HRTSTATEOBJECT_0054 hRT)
+{ (void)hDevice; (void)pArgs; (void)h; (void)hRT; return E_NOTIMPL; }
+
+static VOID APIENTRY
+t12DestroyStateObject(D3D12DDI_HDEVICE hDevice, D3D12DDI_HSTATEOBJECT_0054 h)
+{ (void)hDevice; (void)h; }
+
+static void APIENTRY
+t12GetRaytracingAccelerationStructurePrebuildInfo(
+    D3D12DDI_HDEVICE hDevice,
+    const D3D12DDI_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS_0054 *pInputs,
+    D3D12DDI_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO_0054 *pInfo)
+{
+    (void)hDevice; (void)pInputs;
+    if (pInfo)
+        memset(pInfo, 0, sizeof(*pInfo));
+}
+
+static D3D12DDI_DRIVER_MATCHING_IDENTIFIER_STATUS APIENTRY
+t12CheckDriverMatchingIdentifier(D3D12DDI_HDEVICE hDevice,
+                                 D3D12DDI_SERIALIZED_DATA_TYPE Type,
+                                 const D3D12DDI_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER_0054 *pId)
+{
+    (void)hDevice; (void)Type; (void)pId;
+    return D3D12DDI_DRIVER_MATCHING_IDENTIFIER_UNSUPPORTED_TYPE;
+}
+
+static void *APIENTRY
+t12GetShaderIdentifier(D3D12DDI_HSTATEOBJECT_0054 h, LPCWSTR pName)
+{ (void)h; (void)pName; return NULL; }
+
+static UINT APIENTRY
+t12GetShaderStackSize(D3D12DDI_HSTATEOBJECT_0054 h, LPCWSTR pName)
+{ (void)h; (void)pName; return 0; }
+
+static UINT APIENTRY
+t12GetPipelineStackSize(D3D12DDI_HSTATEOBJECT_0054 h)
+{ (void)h; return 0; }
+
+static void APIENTRY
+t12SetPipelineStackSize(D3D12DDI_HSTATEOBJECT_0054 h, UINT size)
+{ (void)h; (void)size; }
+
+static void APIENTRY
+t12SetBackgroundProcessingMode(D3D12DDI_HDEVICE hDevice,
+                               D3D12DDI_BACKGROUND_PROCESSING_MODE_0062 Mode,
+                               D3D12DDI_MEASUREMENTS_ACTION_0062 Action)
+{ (void)hDevice; (void)Mode; (void)Action; }
+
+static VOID APIENTRY
+t12InitializeMetaCommand(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HMETACOMMAND_0052 h,
+                         const void *p, SIZE_T cb)
+{ (void)hList; (void)h; (void)p; (void)cb; }
+
+static VOID APIENTRY
+t12ExecuteMetaCommand(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HMETACOMMAND_0052 h,
+                      const void *p, SIZE_T cb)
+{ (void)hList; (void)h; (void)p; (void)cb; }
+
+static VOID APIENTRY
+t12BuildRaytracingAccelerationStructure(D3D12DDI_HCOMMANDLIST hList,
+    const D3D12DDIARG_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_0054 *pArgs)
+{ (void)hList; (void)pArgs; TR_STUB("12.BuildRaytracingAccelerationStructure"); }
+
+static VOID APIENTRY
+t12EmitRaytracingAccelerationStructurePostbuildInfo(D3D12DDI_HCOMMANDLIST hList,
+    const D3D12DDIARG_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_0054 *pArgs)
+{ (void)hList; (void)pArgs; TR_STUB("12.EmitRaytracingAccelerationStructurePostbuildInfo"); }
+
+static VOID APIENTRY
+t12CopyRaytracingAccelerationStructure(D3D12DDI_HCOMMANDLIST hList,
+    const D3D12DDIARG_COPY_RAYTRACING_ACCELERATION_STRUCTURE_0054 *pArgs)
+{ (void)hList; (void)pArgs; TR_STUB("12.CopyRaytracingAccelerationStructure"); }
+
+static VOID APIENTRY
+t12SetPipelineState1(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HSTATEOBJECT_0054 h)
+{ (void)hList; (void)h; TR_STUB("12.SetPipelineState1"); }
+
+static VOID APIENTRY
+t12DispatchRays(D3D12DDI_HCOMMANDLIST hList, const D3D12DDIARG_DISPATCH_RAYS_0054 *pArgs)
+{ (void)hList; (void)pArgs; TR_STUB("12.DispatchRays"); }
+
+static VOID APIENTRY
+t12RSSetShadingRate(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_SHADING_RATE_0062 Rate,
+                    const D3D12DDI_SHADING_RATE_COMBINER_0062 *pCombiners)
+{ (void)hList; (void)Rate; (void)pCombiners; }
+
+static VOID APIENTRY
+t12RSSetShadingRateImage(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HRESOURCE h)
+{ (void)hList; (void)h; }
+
+static SIZE_T APIENTRY
+t12CalcPrivateAddToStateObjectSize(D3D12DDI_HDEVICE hDevice,
+                                   const D3D12DDIARG_ADD_TO_STATE_OBJECT_0072 *pArgs)
+{ (void)hDevice; (void)pArgs; return 0; }
+
+static HRESULT APIENTRY
+t12AddToStateObject(D3D12DDI_HDEVICE hDevice,
+                    const D3D12DDIARG_ADD_TO_STATE_OBJECT_0072 *pArgs,
+                    D3D12DDI_HSTATEOBJECT_0054 h, D3D12DDI_HRTSTATEOBJECT_0054 hRT)
+{ (void)hDevice; (void)pArgs; (void)h; (void)hRT; return E_NOTIMPL; }
+
+static void APIENTRY
+t12SetBackgroundProcessingMode0063(D3D12DDI_HDEVICE hDevice,
+                                   D3D12DDI_BACKGROUND_PROCESSING_MODE_0062 Mode,
+                                   D3D12DDI_MEASUREMENTS_ACTION_0062 Action,
+                                   BOOL *pbFurtherMeasurementsDesired)
+{
+    (void)hDevice; (void)Mode; (void)Action;
+    if (pbFurtherMeasurementsDesired)
+        *pbFurtherMeasurementsDesired = FALSE;
+}
+
+static void APIENTRY
+t12ImplicitShaderCacheControl(D3D12DDI_HDEVICE hDevice,
+                              D3D12DDI_IMPLICIT_SHADER_CACHE_CONTROL_FLAGS_0080 Flags)
+{ (void)hDevice; (void)Flags; }
+
+static VOID APIENTRY
+t12DispatchMesh(D3D12DDI_HCOMMANDLIST hList, UINT x, UINT y, UINT z)
+{ (void)hList; (void)x; (void)y; (void)z; TR_STUB("12.DispatchMesh"); }
+
+void
+triton12InstallListDeviceFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t)
+{
+    t->pfnCalcPrivateAddToStateObjectSize = t12CalcPrivateAddToStateObjectSize;
+    t->pfnAddToStateObject                = t12AddToStateObject;
+    t->pfnSetBackgroundProcessingMode     = t12SetBackgroundProcessingMode0063;
+    t->pfnImplicitShaderCacheControl      = t12ImplicitShaderCacheControl;
+}
+
+void
+triton12InstallListFuncs0074(D3D12DDI_COMMAND_LIST_FUNCS_3D_0074 *t)
+{
+    t->pfnDispatchMesh = t12DispatchMesh;
+}
+
+void
+triton12InstallListDeviceFuncs0062(D3D12DDI_DEVICE_FUNCS_CORE_0062 *t)
+{
+    t->pfnCalcPrivateSchedulingGroupSize = t12CalcPrivateSchedulingGroupSize;
+    t->pfnCreateSchedulingGroup          = t12CreateSchedulingGroup;
+    t->pfnDestroySchedulingGroup         = t12DestroySchedulingGroup;
+    t->pfnEnumerateMetaCommands          = t12EnumerateMetaCommands;
+    t->pfnEnumerateMetaCommandParameters = t12EnumerateMetaCommandParameters;
+    t->pfnCalcPrivateMetaCommandSize     = t12CalcPrivateMetaCommandSize;
+    t->pfnCreateMetaCommand              = t12CreateMetaCommand;
+    t->pfnDestroyMetaCommand             = t12DestroyMetaCommand;
+    t->pfnGetMetaCommandRequiredParameterInfo = t12GetMetaCommandRequiredParameterInfo;
+    t->pfnCalcPrivateStateObjectSize     = t12CalcPrivateStateObjectSize;
+    t->pfnCreateStateObject              = t12CreateStateObject;
+    t->pfnDestroyStateObject             = t12DestroyStateObject;
+    t->pfnGetRaytracingAccelerationStructurePrebuildInfo =
+        t12GetRaytracingAccelerationStructurePrebuildInfo;
+    t->pfnCheckDriverMatchingIdentifier  = t12CheckDriverMatchingIdentifier;
+    t->pfnGetShaderIdentifier            = t12GetShaderIdentifier;
+    t->pfnGetShaderStackSize             = t12GetShaderStackSize;
+    t->pfnGetPipelineStackSize           = t12GetPipelineStackSize;
+    t->pfnSetPipelineStackSize           = t12SetPipelineStackSize;
+    t->pfnSetBackgroundProcessingMode    = t12SetBackgroundProcessingMode;
+}
+
+void
+triton12InstallListFuncs0062(D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *t)
+{
+    t->pfnInitializeMetaCommand = t12InitializeMetaCommand;
+    t->pfnExecuteMetaCommand    = t12ExecuteMetaCommand;
+    t->pfnBuildRaytracingAccelerationStructure = t12BuildRaytracingAccelerationStructure;
+    t->pfnEmitRaytracingAccelerationStructurePostbuildInfo =
+        t12EmitRaytracingAccelerationStructurePostbuildInfo;
+    t->pfnCopyRaytracingAccelerationStructure = t12CopyRaytracingAccelerationStructure;
+    t->pfnSetPipelineState1     = t12SetPipelineState1;
+    t->pfnDispatchRays          = t12DispatchRays;
+    t->pfnRSSetShadingRate      = t12RSSetShadingRate;
+    t->pfnRSSetShadingRateImage = t12RSSetShadingRateImage;
+}
+
+void
+triton12InstallListDeviceFuncs0043(D3D12DDI_DEVICE_FUNCS_CORE_0043 *t)
+{
+    t->pfnCalcPrivateCommandPoolSize     = t12CalcPrivateCommandPoolSize;
+    t->pfnCreateCommandPool              = t12CreateCommandPool;
+    t->pfnDestroyCommandPool             = t12DestroyCommandPool;
+    t->pfnResetCommandPool               = t12ResetCommandPool;
+    t->pfnCalcPrivateCommandRecorderSize = t12CalcPrivateCommandRecorderSize;
+    t->pfnCreateCommandRecorder          = t12CreateCommandRecorder;
+    t->pfnDestroyCommandRecorder         = t12DestroyCommandRecorder;
+    t->pfnCommandRecorderSetCommandPoolAsTarget =
+        t12CommandRecorderSetCommandPoolAsTarget;
+    t->pfnCalcPrivateCommandListSize     = t12CalcPrivateCommandListSize0040;
+    t->pfnCreateCommandList              = t12CreateCommandList0040;
+}
+
+void
+triton12InstallListFuncs0040(D3D12DDI_COMMAND_LIST_FUNCS_3D_0040 *t)
+{
+    t->pfnResetCommandList = t12ResetCommandList0040;
+}
+
+void
+triton12InstallListFuncs0033(D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *t)
+{
+    t->pfnOMSetDepthBounds                 = t12OMSetDepthBounds;
+    t->pfnSetSamplePositions               = t12SetSamplePositions;
+    t->pfnResourceResolveSubresourceRegion = t12ResourceResolveSubresourceRegion;
+    t->pfnSetProtectedResourceSession      = t12SetProtectedResourceSession;
+    t->pfnWriteBufferImmediate             = t12WriteBufferImmediate;
+    t->pfnSetViewInstanceMask              = t12SetViewInstanceMask;
 }
 
 void

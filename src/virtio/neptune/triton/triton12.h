@@ -19,6 +19,10 @@
 
 struct triton_host_caps12;
 
+/* Command-list types a command pool can back: DIRECT, BUNDLE, COMPUTE,
+ * COPY (D3D12_COMMAND_LIST_TYPE 0..3). */
+#define TRITON12_POOL_TYPES 4
+
 typedef struct TRITON12_ADAPTER
 {
     D3D12DDI_HRTADAPTER     hRTAdapter;
@@ -66,6 +70,10 @@ typedef struct TRITON12_DEVICE
      * t12CreateHeapAndResource forwards CreateReservedResource; 0 takes
      * the committed backing instead. */
     UINT                         HostTiledTier;
+    /* R4 (_0040+) creates command lists with no allocator; the host API
+     * needs one at create, so each list type gets a device-level scratch
+     * allocator that only ever backs the empty create-then-close. */
+    ID3D12CommandAllocator      *pScratchAlloc[TRITON12_POOL_TYPES];
     /* One-shot VIOGPU_CTX_INIT on the runtime's kernel device so the
      * KMD can bind exported blobs; see
      * tritonPresentEnsureRuntimeCtx. */
@@ -254,6 +262,23 @@ typedef struct TRITON12_ALLOCATOR
     ID3D12CommandAllocator      *pAlloc;
 } TRITON12_ALLOCATOR, *PTRITON12_ALLOCATOR;
 
+/* DDI R4 (_0040+) replaces command allocators with pools and recorders:
+ * a pool owns the command memory, a recorder is the per-thread recording
+ * context that targets one pool at a time, and lists reset against a
+ * recorder.  The host API still thinks in allocators, so a pool carries
+ * one host allocator per command-list type, created on first reset of a
+ * list of that type (the pool's own create names no type). */
+typedef struct TRITON12_POOL
+{
+    ID3D12CommandAllocator      *pAlloc[TRITON12_POOL_TYPES];
+} TRITON12_POOL, *PTRITON12_POOL;
+
+typedef struct TRITON12_RECORDER
+{
+    D3D12DDI_COMMAND_QUEUE_FLAGS QueueFlags;
+    PTRITON12_POOL               pPool;
+} TRITON12_RECORDER, *PTRITON12_RECORDER;
+
 typedef struct TRITON12_LIST
 {
     ID3D12GraphicsCommandList   *pList;
@@ -264,6 +289,12 @@ typedef struct TRITON12_LIST
      * — under multi-ring the wire then splits the list across TLS rings
      * with no intra-list ordering. */
     DWORD                        RecordTid;
+    /* R4: the list's API type, to pick the pool allocator at reset, and
+     * whether the create-time close still awaits the runtime's paired
+     * reset (a recording call before that reset would hit a closed host
+     * list). */
+    UINT                         ApiType;
+    BOOL                         AwaitingReset;
 } TRITON12_LIST, *PTRITON12_LIST;
 
 /* Each object family installs its own slots into the tables the runtime
@@ -278,6 +309,32 @@ void triton12InstallPipelineFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
 void triton12InstallPresentFuncs(D3D12DDI_COMMAND_LIST_FUNCS_3D_0022 *t);
 void triton12InstallPresentDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
 void triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
+/* _0033 overrides: only the slots whose DDI signature changed past _0022
+ * (the tables share member order, so the _0022 image is copied first). */
+void triton12InstallQueueDeviceFuncs0033(D3D12DDI_DEVICE_FUNCS_CORE_0033 *t);
+void triton12InstallResourceFuncs0033(D3D12DDI_DEVICE_FUNCS_CORE_0033 *t);
+void triton12InstallListFuncs0033(D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *t);
+void triton12InstallPresentFuncs0033(D3D12DDI_COMMAND_LIST_FUNCS_3D_0033 *t);
+/* _0043: pools/recorders replace allocators; lists create without one. */
+void triton12InstallListDeviceFuncs0043(D3D12DDI_DEVICE_FUNCS_CORE_0043 *t);
+void triton12InstallListFuncs0040(D3D12DDI_COMMAND_LIST_FUNCS_3D_0040 *t);
+void triton12InstallResourceFuncs0043(D3D12DDI_DEVICE_FUNCS_CORE_0043 *t);
+/* _0062: queue create takes a scheduling group (never created), present
+ * moves its handles into broadcast arrays / an optional contexts struct,
+ * and the meta-command / state-object / raytracing / VRS slots get
+ * bodies that report "none" rather than the generic stub. */
+void triton12InstallQueueDeviceFuncs0062(D3D12DDI_DEVICE_FUNCS_CORE_0062 *t);
+void triton12InstallPresentFuncs0062(D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *t);
+void triton12InstallListDeviceFuncs0062(D3D12DDI_DEVICE_FUNCS_CORE_0062 *t);
+void triton12InstallListFuncs0062(D3D12DDI_COMMAND_LIST_FUNCS_3D_0062 *t);
+/* _0080/_0074: the R7/R8 arg structs append fields the handlers never
+ * read (mesh/amplification shader handles on the PSO, a sampler-feedback
+ * mip region on the resource desc), so the existing bodies install
+ * through their new pfn types; the seven new slots report "none". */
+void triton12InstallPipelineFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t);
+void triton12InstallResourceFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t);
+void triton12InstallListDeviceFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t);
+void triton12InstallListFuncs0074(D3D12DDI_COMMAND_LIST_FUNCS_3D_0074 *t);
 
 /* Give a presentable committed resource its shared-blob KM allocation,
  * which the runtime's kernel present needs to flip it.  pSurf is the host
