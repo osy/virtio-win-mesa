@@ -18,15 +18,10 @@
 #include "util/macros.h"
 
 enum npt_perf {
-   NPT_PERF_NO_QUERY_FEEDBACK        = 1ull << 0,
-
    /* Opt-in: multi-ring on D3D11 is not the default. */
-   NPT_PERF_MULTI_RING               = 1ull << 1,
+   NPT_PERF_MULTI_RING               = 1ull << 0,
 
-   NPT_PERF_NO_ASYNC_BUFFER_CREATE   = 1ull << 3,
-   NPT_PERF_NO_ASYNC_TEXTURE_CREATE  = 1ull << 4,
-   NPT_PERF_NO_DYNAMIC_MAP_FAST_PATH = 1ull << 5,
-   NPT_PERF_NO_FENCE_FEEDBACK        = 1ull << 6,
+   NPT_PERF_NO_FENCE_FEEDBACK        = 1ull << 1,
 };
 
 enum npt_debug {
@@ -40,34 +35,29 @@ enum npt_debug {
    /* Per-Present timing breakdown. */
    NPT_DEBUG_PRESENT_TIMING          = 1ull << 2,
 
-   /* Per-Present image-index trace across the WSI chain
-    * (sc_Present_override -> npt_do_wsi_present -> X11 IDLE_NOTIFY).
-    * Diagnoses visible frames appearing out of order. */
-   NPT_DEBUG_PRESENT_ORDER           = 1ull << 3,
-
    /* Report the connector's full KMS mode list through IDXGIOutput
     * instead of capping it to the active CRTC scanout.  For modeset
     * experiments where the guest is meant to drive resolution changes. */
-   NPT_DEBUG_EXPOSE_ALL_MODES        = 1ull << 4,
+   NPT_DEBUG_EXPOSE_ALL_MODES        = 1ull << 3,
 
    /* Cap the D3D11 DDI advertisement at D3D11.1 regardless of KMD mode. */
-   NPT_DEBUG_NO_WDDM2_DDI            = 1ull << 5,
+   NPT_DEBUG_NO_WDDM2_DDI            = 1ull << 4,
 
    /* Cap the D3D11 DDI advertisement at D3DWDDM2_0 (drop 2_1/2_2).
     * Triage lever: separates "new-tier DDI table bug" from "cap bug"
     * without a rebuild. */
-   NPT_DEBUG_WDDM2_0_ONLY            = 1ull << 6,
+   NPT_DEBUG_WDDM2_0_ONLY            = 1ull << 5,
 
    /* Report D3D12 command lists whose recording migrates between threads.
     * Under NPT_PERF=multi_ring that splits one list's recording across
     * TLS rings, so the host decodes it out of order. */
-   NPT_DEBUG_D3D12_LIST_MIGRATION    = 1ull << 7,
+   NPT_DEBUG_D3D12_LIST_MIGRATION    = 1ull << 6,
 
    /* Drop the cross-queue submission ordering the D3D12 queues impose on
     * each other, restoring the host's concurrent execution of independent
     * queues.  Recovers the async-compute overlap at the cost of the
     * ordering an app's unobservable Wait() would have given it. */
-   NPT_DEBUG_NO_D3D12_XQUEUE_ORDER   = 1ull << 8,
+   NPT_DEBUG_NO_D3D12_XQUEUE_ORDER   = 1ull << 7,
 
    /* Report the host's 64-bit atomic caps (OPTIONS9/11) even though the
     * host executes only InterlockedMin/Max on typed and raw buffers:
@@ -75,7 +65,7 @@ enum npt_debug {
     * group-shared 64-bit atomics read back 0 (d3d12-atomic64-test).
     * Opt-in for engines whose atomic64 use is the min/max subset (UE5
     * Nanite / virtual shadow maps). */
-   NPT_DEBUG_D3D12_CLAIM_ATOMIC64    = 1ull << 9,
+   NPT_DEBUG_D3D12_CLAIM_ATOMIC64    = 1ull << 8,
 };
 
 struct npt_env {
@@ -86,7 +76,6 @@ struct npt_env {
     * bitmask, but live here so every env-var read is in one place. */
    uint32_t profile_period_ms;     /* NPT_PROFILE_PERIOD_MS */
    uint32_t stutter_threshold_ms;  /* NPT_STUTTER_MS */
-   uint64_t tls_idle_timeout_ns;   /* NPT_TLS_IDLE_TIMEOUT_NS */
 };
 
 extern struct npt_env npt_env;

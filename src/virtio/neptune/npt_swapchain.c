@@ -299,10 +299,6 @@ gsc_present_common(void *self, UINT SyncInterval, UINT Flags)
    }
    if (prof) t2 = npt_profile_now_ns();
 
-   if (NPT_DEBUG(PRESENT_ORDER))
-      npt_profile_log_present_order(i, i, NPT_SC_PRESENT_IMAGES,
-                                    wait_fence_fd);
-
    atomic_fetch_add(&c->image_inflight[i], 1);
    npt_gsc_wsi_push(c, i, wait_fence_fd, token);
 

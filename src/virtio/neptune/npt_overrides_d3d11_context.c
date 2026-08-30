@@ -11,7 +11,6 @@
 #include "npt_overrides_d3d11_feedback.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
-#include "npt_env.h"
 #include "npt_overrides.h"
 #include "npt_resource.h"
 #include "npt_ring.h"
@@ -72,10 +71,8 @@ ctx_Map_buffer(void *self, struct npt_d3d11_buffer *b, UINT Subresource,
    if (!npt_d3d11_buffer_ensure_map_shmem(b))
       return NPT_E_OUTOFMEMORY;
 
-   /* Bisection knob: NPT_PERF=no_dynamic_map_fast_path. */
-   if (!NPT_PERF(NO_DYNAMIC_MAP_FAST_PATH) &&
-       (MapType == D3D11_MAP_WRITE_DISCARD ||
-        MapType == D3D11_MAP_WRITE_NO_OVERWRITE)) {
+   if (MapType == D3D11_MAP_WRITE_DISCARD ||
+       MapType == D3D11_MAP_WRITE_NO_OVERWRITE) {
       const uint32_t flags = npt_d3d11_map_to_access_flags(MapType);
       if (MapType == D3D11_MAP_WRITE_DISCARD)
          npt_d3d11_buffer_rotate_slot(b);
@@ -137,7 +134,6 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
    const uint32_t cached_rp   = npt_d3d11_texture_get_cached_row_pitch(t);
    const uint32_t cached_dp   = npt_d3d11_texture_get_cached_depth_pitch(t);
    const bool can_async = (cached_rp != 0) &&
-      !NPT_PERF(NO_DYNAMIC_MAP_FAST_PATH) &&
       (MapType == D3D11_MAP_WRITE_DISCARD ||
        MapType == D3D11_MAP_WRITE_NO_OVERWRITE);
 

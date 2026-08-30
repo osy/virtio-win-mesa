@@ -5,7 +5,6 @@
 
 #include "npt_tls.h"
 #include "npt_device.h"
-#include "npt_env.h"
 #include "npt_ring.h"
 
 #include <stdlib.h>

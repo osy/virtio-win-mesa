@@ -15,7 +15,6 @@
 #include "npt_com.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
-#include "npt_env.h"
 #include "npt_object.h"
 #include "npt_overrides.h"
 #include "npt_resource.h"
@@ -82,11 +81,10 @@ dev_CreateBuffer_override(void *self,
    uint64_t self_id = npt_com_self_id(self);
 
    /* Sync under multi-ring (cross-ring Create->Use race), async on
-    * single-ring (FIFO ordering covers it).  NPT_PERF knob forces
-    * sync for bisection. */
+    * single-ring (FIFO ordering covers it). */
    ID3D11Buffer *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_BUFFER_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device_CreateBuffer(
          npt_device_method_ring(dev), self_id, pDesc, NULL, &raw);
    } else {
@@ -248,7 +246,7 @@ dev_CreateTexture1D_override(void *self,
    /* Sync/async policy: see dev_CreateBuffer_override. */
    ID3D11Texture1D *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_TEXTURE_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device_CreateTexture1D(
          npt_device_method_ring(dev), self_id, pDesc, NULL, &raw);
    } else {
@@ -293,7 +291,7 @@ dev_CreateTexture2D_override(void *self,
    /* Sync/async policy: see dev_CreateBuffer_override. */
    ID3D11Texture2D *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_TEXTURE_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device_CreateTexture2D(
          npt_device_method_ring(dev), self_id, pDesc, NULL, &raw);
    } else {
@@ -338,7 +336,7 @@ dev_CreateTexture3D_override(void *self,
    /* Sync/async policy: see dev_CreateBuffer_override. */
    ID3D11Texture3D *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_TEXTURE_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device_CreateTexture3D(
          npt_device_method_ring(dev), self_id, pDesc, NULL, &raw);
    } else {
@@ -383,7 +381,7 @@ dev3_CreateTexture2D1_override(void *self,
 
    ID3D11Texture2D1 *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_TEXTURE_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device3_CreateTexture2D1(
          npt_device_method_ring(dev), self_id, pDesc1, NULL, &raw);
    } else {
@@ -427,7 +425,7 @@ dev3_CreateTexture3D1_override(void *self,
 
    ID3D11Texture3D1 *raw = NULL;
    HRESULT hr;
-   if (dev->multi_ring_enabled || NPT_PERF(NO_ASYNC_TEXTURE_CREATE)) {
+   if (dev->multi_ring_enabled) {
       hr = npt_call_ID3D11Device3_CreateTexture3D1(
          npt_device_method_ring(dev), self_id, pDesc1, NULL, &raw);
    } else {

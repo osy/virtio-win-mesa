@@ -87,14 +87,6 @@ void npt_profile_log_present_timing(unsigned sync_interval,
                                     uint64_t t0, uint64_t t1,
                                     uint64_t t2, uint64_t t3);
 
-/* Emit one NPT-PO-A line per Present.  Trace the (flip_idx,
- * image_index, wait_fence_fd) tuple so out-of-order frame delivery
- * to X can be diagnosed against the host fence_trace. */
-void npt_profile_log_present_order(unsigned flip_idx,
-                                   unsigned image_index_pre,
-                                   unsigned image_count,
-                                   int wait_fence_fd);
-
 /* Per-thread sync-wait accounting.  TLS-only; readable from anywhere
  * that wants to know *this thread's* cumulative time blocked on sync
  * replies.  Used by present_marker to distinguish "Present thread

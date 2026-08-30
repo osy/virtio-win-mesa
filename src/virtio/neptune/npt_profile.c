@@ -465,18 +465,3 @@ npt_profile_log_present_timing(unsigned sync_interval,
            (unsigned long long)((t3 - t2) / 1000ull),
            (unsigned long long)((t3 - t0) / 1000ull));
 }
-
-void
-npt_profile_log_present_order(unsigned flip_idx,
-                              unsigned image_index_pre,
-                              unsigned image_count,
-                              int wait_fence_fd)
-{
-   static _Atomic unsigned long s_n = 0;
-   const unsigned long n =
-      atomic_fetch_add_explicit(&s_n, 1, memory_order_relaxed) + 1;
-   npt_log("NPT-PO-A seq=%lu flip_idx=%u image_index_pre=%u "
-           "image_count=%u wait_fence_fd=%d tid=%u",
-           n, flip_idx, image_index_pre, image_count, wait_fence_fd,
-           (unsigned)GetCurrentThreadId());
-}

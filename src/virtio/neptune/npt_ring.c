@@ -6,7 +6,6 @@
 #include "npt_ring.h"
 #include "npt_workaround.h"
 #include "npt_device.h"
-#include "npt_env.h"
 #include "npt_profile.h"
 #include "npt_tls.h"
 
@@ -28,6 +27,10 @@ static void
 npt_ring_notify(struct npt_ring *ring);
 
 #define NPT_RING_IDLE_TIMEOUT_NS (1000000) /* 1ms */
+/* TLS rings park 10x longer than the primary ring's 1ms idle so
+ * worker-thread traffic doesn't churn the host wakeup path.  +9ms
+ * worst-case first-submit-after-park latency. */
+#define NPT_TLS_RING_IDLE_TIMEOUT_NS (10000000) /* 10ms */
 
 /* Must be > host's ALIVE refresh + scheduler jitter so a healthy host
  * isn't killed. */
@@ -1040,7 +1043,7 @@ npt_ring_create(struct npt_device *device,
    create_cmd.extra_offset = layout->extra_offset;
    create_cmd.extra_size = layout->extra_size;
    create_cmd.idle_timeout = is_tls_ring
-                                ? npt_env.tls_idle_timeout_ns
+                                ? NPT_TLS_RING_IDLE_TIMEOUT_NS
                                 : NPT_RING_IDLE_TIMEOUT_NS;
    /* Monitor every ring: without this, the cross-ring drain would
     * spin on a TLS ring whose ALIVE bit never gets set. */

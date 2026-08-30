@@ -10,7 +10,6 @@
 #include "npt_overrides_d3d11_feedback.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
-#include "npt_env.h"
 #include "npt_overrides.h"
 #include "npt_ring.h"
 
@@ -104,13 +103,10 @@ npt_d3d11_query_aux_cast(void *async)
    return ((struct npt_com_base *)async)->aux;
 }
 
-/* Default-on; NPT_PERF=no_query_feedback is the regression killswitch. */
 static void
 npt_d3d11_query_finalize_create(struct npt_device *dev, void *wrapper,
                                 D3D11_QUERY type)
 {
-   if (NPT_PERF(NO_QUERY_FEEDBACK))
-      return;
    if (!dev || !wrapper)
       return;
    struct npt_com_base *com = wrapper;
