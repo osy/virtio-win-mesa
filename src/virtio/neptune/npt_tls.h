@@ -42,6 +42,12 @@ npt_tls_once_init(void);
 struct npt_ring *
 npt_tls_get_ring(struct npt_device *dev);
 
+/* The calling thread's existing TLS ring for dev, or NULL when it has
+ * none (never creates one; NULL when multi-ring is off).  For barriers
+ * that only need to drain what this thread already submitted. */
+struct npt_ring *
+npt_tls_peek_ring(struct npt_device *dev);
+
 /* Callable from thread exit (tss dtor) or device destroy. */
 void
 npt_tls_destroy_ring(struct npt_tls_ring *tr);

@@ -100,6 +100,29 @@ npt_tls_get(void)
    return tls;
 }
 
+/* This thread's TLS ring for dev, or NULL if it has none yet. */
+static struct npt_ring *
+npt_tls_find_ring(struct npt_tls *tls, struct npt_device *dev)
+{
+   list_for_each_entry(struct npt_tls_ring, tr, &tls->tls_rings,
+                       tls_head) {
+      struct npt_ring *ring =
+         atomic_load_explicit(&tr->ring, memory_order_acquire);
+      if (tr->device == dev && ring)
+         return ring;
+   }
+   return NULL;
+}
+
+struct npt_ring *
+npt_tls_peek_ring(struct npt_device *dev)
+{
+   if (!dev || !dev->multi_ring_enabled)
+      return NULL;
+   struct npt_tls *tls = npt_tls_get();
+   return tls ? npt_tls_find_ring(tls, dev) : NULL;
+}
+
 struct npt_ring *
 npt_tls_get_ring(struct npt_device *dev)
 {
@@ -115,13 +138,9 @@ npt_tls_get_ring(struct npt_device *dev)
    if (unlikely(!tls))
       return dev->ring;
 
-   list_for_each_entry(struct npt_tls_ring, tr, &tls->tls_rings,
-                       tls_head) {
-      struct npt_ring *ring =
-         atomic_load_explicit(&tr->ring, memory_order_acquire);
-      if (tr->device == dev && ring)
-         return ring;
-   }
+   struct npt_ring *found = npt_tls_find_ring(tls, dev);
+   if (found)
+      return found;
 
    /* Cache miss: drain primary so prior primary work commits before
     * this thread's first TLS submission. */

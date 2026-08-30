@@ -29,6 +29,7 @@ static const struct debug_control npt_debug_options[] = {
    { "present_order",            NPT_DEBUG_PRESENT_ORDER },
    { "expose_all_modes",         NPT_DEBUG_EXPOSE_ALL_MODES },
    { "d3d12_list_migration",     NPT_DEBUG_D3D12_LIST_MIGRATION },
+   { "no_d3d12_xqueue_order",    NPT_DEBUG_NO_D3D12_XQUEUE_ORDER },
    { NULL, 0 },
 };
 

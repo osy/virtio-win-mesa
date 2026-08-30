@@ -209,4 +209,9 @@ npt_device_release(void);
 bool
 npt_device_is_shutting_down(const struct npt_device *dev);
 
+/* Set by the Windows D3D12 DDI front-end (OpenAdapter12) before device
+ * creation.  Keeps that path single-ring -- see
+ * npt_d3d12_create_device_internal for why. */
+extern bool npt_d3d12_from_ddi;
+
 #endif /* NPT_DEVICE_H */

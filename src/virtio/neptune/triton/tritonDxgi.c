@@ -15,6 +15,7 @@
 #include "tritonDxgi.h"
 #include "tritonPresent.h"
 #include "npt_env.h"
+#include "tritonPresentTiming.h"
 
 #include <dxgiddi.h>
 
@@ -151,10 +152,10 @@ tritonPresentUnlock(PTRITON_DEVICE pD)
 
 /* ---- present stage timing (NPT_DEBUG=present_timing) ------------------
  *
- * A present that measures ~10ms of wall clock tells you nothing about which
- * of its four stages owns the time: the Signal+Flush ring submits, the fence
- * arm (a synchronous ring round-trip plus a D3DKMTEscape), the GPU-completion
- * wait, or the flip callback into dxgkrnl.  These counters split them.
+ * The four D3D11 stages: the Signal+Flush ring submits, the fence arm (a
+ * synchronous ring round-trip plus a D3DKMTEscape), the GPU-completion wait,
+ * and the flip callback into dxgkrnl.  The clock and the enable are shared
+ * with the D3D12 path in tritonPresentTiming.h.
  *
  * Microseconds are accumulated as integers with Interlocked adds because the
  * wait stage runs UNLOCKED and concurrent present threads (DWM has several)
@@ -167,23 +168,6 @@ static struct {
    LONG64 n, already, sig_us, arm_us, wait_us, cb_us, wait_max_us;
 } g_pt;
 
-static double
-triton_pt_qpc_us(void)
-{
-   static double scale;   /* races are benign: every writer stores the same value */
-   LARGE_INTEGER t;
-   if (scale == 0.0) {
-      LARGE_INTEGER f;
-      QueryPerformanceFrequency(&f);
-      scale = 1e6 / (double)f.QuadPart;
-   }
-   QueryPerformanceCounter(&t);
-   return (double)t.QuadPart * scale;
-}
-
-/* Only the enabled path pays for QueryPerformanceCounter. */
-#define TRITON_PT_NOW() (NPT_DEBUG(PRESENT_TIMING) ? triton_pt_qpc_us() : 0.0)
-
 static void
 triton_pt_account(double sig, double arm, double wait, BOOL already)
 {
@@ -194,12 +178,7 @@ triton_pt_account(double sig, double arm, double wait, BOOL already)
    InterlockedAdd64(&g_pt.wait_us, (LONG64)wait);
    if (already)
       InterlockedIncrement64(&g_pt.already);
-   for (;;) {   /* max is a hint; a lost race only under-reports an outlier */
-      LONG64 cur = g_pt.wait_max_us;
-      if ((LONG64)wait <= cur ||
-          InterlockedCompareExchange64(&g_pt.wait_max_us, (LONG64)wait, cur) == cur)
-         break;
-   }
+   triton_pt_max(&g_pt.wait_max_us, (LONG64)wait);
    LONG64 n = InterlockedIncrement64(&g_pt.n);
    if (n % TRITON_PT_REPORT == 0) {
       LONG64 sigT  = InterlockedExchange64(&g_pt.sig_us, 0);

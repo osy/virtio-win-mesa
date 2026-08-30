@@ -998,6 +998,18 @@ static UINT tritonAssignSemantics(TritonSigEntry *a, UINT n,
     for (UINT i = 0; i < n; ++i) {
         if (a[i].semIdx != 0xFFFFFFFFu)
             continue;
+        /* Generic inter-stage attributes: derive the index from the packed
+         * LOCATION (reg*4 + first component), not per-container sequence.
+         * Adjacent stages see different SUBSETS of the same linkage
+         * signature (a PS consumes only some DS outputs; packed r1.xy/r1.zw
+         * splits differ per stage), so sequential numbering diverges across
+         * containers and the host rejects the PSO because name+index
+         * linkage no longer matches.  Location-derived indices agree
+         * between stages by construction. */
+        if (a[i].reg != 0xFFFFFFFFu && strcmp(a[i].name, "ATTRIB") == 0) {
+            a[i].semIdx = a[i].reg * 4u + tritonFirstComp(a[i].mask);
+            continue;
+        }
         UINT idx = 0;
         for (UINT j = 0; j < i; ++j)
             if (a[j].stream == a[i].stream && strcmp(a[j].name, a[i].name) == 0)

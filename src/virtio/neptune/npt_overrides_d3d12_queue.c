@@ -48,7 +48,10 @@ queue12_ExecuteCommandLists_override(void *self, UINT NumCommandLists,
    npt_d3d12_sync_maps_flush(queue_ring);
 
    if (dev->multi_ring_enabled) {
-      struct npt_ring *tls_ring = npt_tls_get_ring(dev);
+      /* Peek, don't create: a thread that only ever submits has nothing
+       * of its own to drain, and creating a ring here would drain the
+       * primary for nothing. */
+      struct npt_ring *tls_ring = npt_tls_peek_ring(dev);
       if (tls_ring && tls_ring != queue_ring)
          npt_ring_wait_all(tls_ring);
 

@@ -23,6 +23,10 @@
 #include "nptunix/npt_unixlib.h"
 #endif
 
+/* Defined here rather than in npt_entry_d3d12.c: npt_device.c links into
+ * every DLL (d3d11/dxgi too), the D3D12 entry points do not. */
+bool npt_d3d12_from_ddi = false;
+
 static inline uint32_t
 npt_wrapper_cache_hash(uint64_t host_id)
 {

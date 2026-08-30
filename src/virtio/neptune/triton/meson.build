@@ -4,6 +4,13 @@
 triton_src = files(
   'triton.c',
   'tritonDDI.c',
+  'tritonDDI12.c',
+  'tritonDescriptor12.c',
+  'tritonResource12.c',
+  'tritonQueue12.c',
+  'tritonList12.c',
+  'tritonPipeline12.c',
+  'tritonPresent12.c',
   'tritonResource.c',
   'tritonView.c',
   'tritonState.c',
@@ -24,7 +31,8 @@ triton_incs = [
 libneptune_umd = shared_library(
   'neptune_umd',
   [npt_common_src, triton_src,
-   files('../npt_entry_d3d11.c', '../npt_entry_dxgi.c')],
+   files('../npt_entry_d3d11.c', '../npt_entry_dxgi.c',
+         '../npt_entry_d3d12.c')],
   include_directories : triton_incs,
   dependencies : npt_deps,
   c_args : npt_c_args,

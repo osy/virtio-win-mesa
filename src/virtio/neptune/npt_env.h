@@ -53,7 +53,13 @@ enum npt_debug {
    /* Report D3D12 command lists whose recording migrates between threads.
     * Under NPT_PERF=multi_ring that splits one list's recording across
     * TLS rings, so the host decodes it out of order. */
-   NPT_DEBUG_D3D12_LIST_MIGRATION    = 1ull << 9,
+   NPT_DEBUG_D3D12_LIST_MIGRATION    = 1ull << 5,
+
+   /* Drop the cross-queue submission ordering the D3D12 queues impose on
+    * each other, restoring the host's concurrent execution of independent
+    * queues.  Recovers the async-compute overlap at the cost of the
+    * ordering an app's unobservable Wait() would have given it. */
+   NPT_DEBUG_NO_D3D12_XQUEUE_ORDER   = 1ull << 6,
 };
 
 struct npt_env {

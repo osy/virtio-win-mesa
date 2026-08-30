@@ -421,7 +421,7 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
     if (FAILED(cfsHr)) {
         /* E_FAIL for an unsupported format is normal; anything else during
          * device finalization is a transport/host failure worth seeing. */
-        TR_LOG("CheckFormatSupport fmt=%u: host CFS failed 0x%08lx",
+        TR_LOG_HOT("CheckFormatSupport fmt=%u: host CFS failed 0x%08lx",
                (UINT)Format, (unsigned long)cfsHr);
         return;
     }
@@ -464,7 +464,7 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
             *pOut &= ~(UINT)D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
     }
 
-    TR_LOG("CheckFormatSupport fmt=%u -> ddi=0x%08x (host s1=0x%08x s2=0x%08x)",
+    TR_LOG_HOT("CheckFormatSupport fmt=%u -> ddi=0x%08x (host s1=0x%08x s2=0x%08x)",
            (UINT)Format, *pOut, s1, s2);
     if ((UINT)Format < 256u)
         InterlockedExchange(&s_fmtCache[Format],
@@ -487,7 +487,7 @@ tritonCheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format
         *pNumQualityLevels = (SampleCount <= 1 && support) ? 1 : 0;
     else
         *pNumQualityLevels = tritonMsaaQuality(pD, Format, SampleCount);
-    TR_LOG("CheckMSQL fmt=%u samples=%u -> q=%u",
+    TR_LOG_HOT("CheckMSQL fmt=%u samples=%u -> q=%u",
            (UINT)Format, SampleCount, *pNumQualityLevels);
 }
 

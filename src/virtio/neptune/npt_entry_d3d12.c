@@ -43,9 +43,28 @@ npt_d3d12_create_device_internal(IUnknown *pAdapter,
 {
    npt_com_init();
 
-   /* D3D12's command-list and queue model is built for multi-threaded
-    * recording, so every D3D12 device runs multi-ring. */
-   npt_env_force_perf(NPT_PERF_MULTI_RING);
+   /* Ring model, by path.
+    *
+    * API path (Wine), multi-ring: D3D12's threading contract is that N
+    * threads record N command lists with no driver-side serialization,
+    * so each thread's recording and device traffic rides its own TLS
+    * ring and each queue its own instance ring.  ExecuteCommandLists
+    * fences the recording rings to the submission through the Close
+    * stamps (npt_overrides_d3d12_queue.c), and cross-queue order is
+    * carried by the queues' wire-level Signal/Wait.
+    *
+    * DDI path (Windows WDDM), single ring: the Windows D3D12 runtime
+    * services every cross-queue dependency through dxgkrnl monitored-
+    * fence packets on the queues' kernel contexts and never calls
+    * pfnSignalFence/pfnWaitForFence, so no wire-level queue wait exists
+    * that could order independent per-queue rings at the host's ingress
+    * -- kernel wait packets hold context DMA only, never ring traffic.
+    * One ring for every queue and every recording thread is what those
+    * kernel packets assume, and it keeps ExecuteCommandLists free of
+    * the cross-ring drain: ring FIFO already orders a thread's
+    * recording ahead of the submission that consumes it. */
+   if (!npt_d3d12_from_ddi)
+      npt_env_force_perf(NPT_PERF_MULTI_RING);
 
    struct npt_device *dev = npt_device_acquire();
    if (!dev)
@@ -61,13 +80,14 @@ npt_d3d12_create_device_internal(IUnknown *pAdapter,
       return NPT_DXGI_ERROR_UNSUPPORTED;
    }
 
-   if (!dev->multi_ring_enabled) {
+   if (!dev->multi_ring_enabled && !npt_d3d12_from_ddi) {
       /* The device singleton latched multi_ring off before this call --
-       * the usual cause is the app creating its DXGI factory, which
-       * acquires the device, before D3D12CreateDevice runs.  Upgrading
-       * in place is safe because TLS rings and the instance ring are
-       * created lazily off this flag; the primary ring keeps its
-       * single-ring sizing, which costs memory only. */
+       * the usual cause is the app creating its DXGI factory (or a
+       * D3D11 device through the D3D11 DDI), which acquires the device,
+       * before D3D12CreateDevice runs.  Upgrading in place is safe
+       * because TLS rings and the instance ring are created lazily off
+       * this flag; the primary ring keeps its single-ring sizing, which
+       * costs memory only. */
       static _Atomic int upgraded;
       if (atomic_exchange_explicit(&upgraded, 1, memory_order_relaxed) == 0)
          npt_log("D3D12CreateDevice: upgrading device to multi-ring "
