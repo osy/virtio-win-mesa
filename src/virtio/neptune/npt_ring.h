@@ -18,6 +18,8 @@
 #include "npt_shmem_pool.h"
 #include "npt_transport_defs.h"
 
+#include "util/futex.h"
+
 /*
  * Shmem layout (64-byte aligned):
  *   0:   head (host writes, guest reads)
@@ -26,6 +28,112 @@
  *   192: circular buffer
  *   192 + buffer_size: extra region
  */
+
+/*
+ * Ring lock: bounded test-and-test-and-set spin, then futex park.
+ *
+ * The common critical section is tens of instructions (space check +
+ * two bounded memcpys + tail publish) and every recording thread takes
+ * the lock for every wire command -- hundreds of thousands of
+ * acquisitions per second.  A kernel-arbitrated mutex convoys at that
+ * rate: each contended handoff parks and wakes a thread, and under x64
+ * emulation that cost dominates the submit path (measured on CP2077:
+ * per-submit 600 ns at 4 vCPUs -> 2.6 us at 8 vCPUs, fps 54 -> 14).
+ * The spin phase resolves those handoffs in user space.
+ *
+ * The lock is NOT bounded-hold, so spinning cannot be the last resort:
+ * the holder can sit in npt_ring_wait_space's escalating-sleep backoff
+ * (ring full), an upload-drain or virtqueue-seqno wait, or be
+ * descheduled (vCPU preemption).  Guest vCPUs share host cores with
+ * the render server, so unbounded spinning steals CPU from the very
+ * consumer the holder is waiting on.  Past the spin budget, waiters
+ * park on the lock word (futex; WaitOnAddress on Windows) and cost
+ * nothing until release.
+ *
+ * States: 0 free, 1 held, 2 held with possible waiters (Drepper
+ * "mutex3").  Release wakes one waiter only from state 2, so the
+ * uncontended and spin-resolved paths never enter the kernel.
+ *
+ * The word lives in the heap-allocated npt_ring, not the WC-mapped
+ * shmem, so atomic RMWs on it are safe on every arch (see the
+ * npt_wc_atomic_ok discussion in npt_ring.c).
+ */
+struct npt_ring_lock {
+   atomic_uint v;
+};
+
+#define NPT_RING_LOCK_YIELD() thrd_yield()
+#if defined(_WIN32)
+#  define NPT_RING_LOCK_RELAX() YieldProcessor()
+#elif defined(__x86_64__) || defined(__i386__)
+#  define NPT_RING_LOCK_RELAX() __builtin_ia32_pause()
+#elif defined(__aarch64__)
+#  define NPT_RING_LOCK_RELAX() __asm__ __volatile__("isb" ::: "memory")
+#else
+#  define NPT_RING_LOCK_RELAX() ((void)0)
+#endif
+
+static inline void
+npt_ring_lock_init(struct npt_ring_lock *l)
+{
+   atomic_store_explicit(&l->v, 0u, memory_order_relaxed);
+}
+
+static inline bool
+npt_ring_lock_try(struct npt_ring_lock *l)
+{
+   unsigned expected = 0u;
+   return atomic_compare_exchange_weak_explicit(&l->v, &expected, 1u,
+                                                memory_order_acquire,
+                                                memory_order_relaxed);
+}
+
+static inline void
+npt_ring_lock_acquire(struct npt_ring_lock *l)
+{
+   if (likely(npt_ring_lock_try(l)))
+      return;
+
+   /* Spin budget sized for several queued short handoffs; the yield
+    * between rounds gives an off-cpu holder a slice to finish. */
+   for (unsigned round = 0; round < 4u; round++) {
+      for (unsigned spins = 0; spins < 128u; spins++) {
+         if (atomic_load_explicit(&l->v, memory_order_relaxed) == 0u &&
+             npt_ring_lock_try(l))
+            return;
+         NPT_RING_LOCK_RELAX();
+      }
+      NPT_RING_LOCK_YIELD();
+   }
+
+#if UTIL_FUTEX_SUPPORTED
+   /* Park: advertise waiters with state 2, sleep while it stays 2.
+    * The xchg on wake re-asserts 2 because this waiter cannot know it
+    * was the last; the cost is one spurious wake on the final release
+    * of a contended episode. */
+   while (atomic_exchange_explicit(&l->v, 2u, memory_order_acquire) != 0u)
+      futex_wait((uint32_t *)(void *)&l->v, 2, NULL);
+#else
+   for (;;) {
+      while (atomic_load_explicit(&l->v, memory_order_relaxed) != 0u)
+         NPT_RING_LOCK_YIELD();
+      if (npt_ring_lock_try(l))
+         return;
+   }
+#endif
+}
+
+static inline void
+npt_ring_lock_release(struct npt_ring_lock *l)
+{
+#if UTIL_FUTEX_SUPPORTED
+   if (unlikely(atomic_exchange_explicit(&l->v, 0u,
+                                         memory_order_release) == 2u))
+      futex_wake((uint32_t *)(void *)&l->v, 1);
+#else
+   atomic_store_explicit(&l->v, 0u, memory_order_release);
+#endif
+}
 
 struct npt_ring_layout {
    size_t head_offset;
@@ -69,13 +177,19 @@ struct npt_ring {
 
    uint32_t cur;
 
-   mtx_t mutex;
+   struct npt_ring_lock lock;
 
    /* Rate-limit idle notifications: only notify if
     * NPT_RING_IDLE_TIMEOUT_NS elapsed since the last one, to avoid
     * EXECBUFFER round-trips when the host is briefly idle. */
    int64_t last_notify;
    int64_t next_notify;
+
+   /* Set under lock when a submit finds the host IDLE; the doorbell
+    * itself (a kernel escape through the renderer) fires after the
+    * lock is dropped.  Lock-held waits on host progress must flush it
+    * first or a parked host never wakes to make that progress. */
+   bool notify_pending;
 
    /* Bump allocator for per-call reply windows.  Each sync submission
     * carves a region and SET_REPLY_STREAMs it just before the command,
@@ -100,7 +214,7 @@ struct npt_ring {
     * fails loudly instead of spinning forever. */
    uint32_t watchdog_misses;
 
-   /* Virtqueue-seqno roundtrip counter; advanced under ring->mutex. */
+   /* Virtqueue-seqno roundtrip counter; advanced under ring->lock. */
    uint64_t roundtrip_next;
 
    struct npt_profile_ring profile;

@@ -279,6 +279,49 @@ npt_ring_has_space(const struct npt_ring *ring, uint32_t size)
    return ring->cur + size - head <= ring->buffer_size;
 }
 
+/* Caller holds ring->lock.  Defer the doorbell to unlock: the escape
+ * ioctl behind npt_ring_notify (and the renderer CS it takes) must not
+ * run under the ring lock on the submit fast path, where waiters spin.
+ * The profile count stays here -- it equals doorbells delivered, since
+ * each pending transition fires exactly one notify (flush or unlock),
+ * and ring->profile is only written under the lock. */
+static void
+npt_ring_request_notify_locked(struct npt_ring *ring)
+{
+   if (ring->notify_pending)
+      return;
+   ring->notify_pending = true;
+   npt_profile_record_notify(&ring->profile);
+}
+
+/* Caller holds ring->lock.  A parked host advances head only after
+ * the doorbell, so deliver a deferred one before any lock-held wait
+ * on host progress. */
+static void
+npt_ring_flush_notify_locked(struct npt_ring *ring)
+{
+   if (ring->notify_pending) {
+      ring->notify_pending = false;
+      npt_ring_notify(ring);
+   }
+}
+
+/* Drop ring->lock, then deliver any deferred doorbell.  Late delivery
+ * is safe: the host re-checks the tail after setting IDLE (Dekker
+ * pairing in npt_ring_store_tail), so it never parks with the tail
+ * already visible, and a concurrent submitter that still sees IDLE
+ * requests its own notify -- a redundant wake at worst, never a
+ * missed one. */
+static void
+npt_ring_unlock_and_notify(struct npt_ring *ring)
+{
+   const bool notify = ring->notify_pending;
+   ring->notify_pending = false;
+   npt_ring_lock_release(&ring->lock);
+   if (notify)
+      npt_ring_notify(ring);
+}
+
 static bool
 npt_ring_wait_space(struct npt_ring *ring, uint32_t size)
 {
@@ -286,6 +329,9 @@ npt_ring_wait_space(struct npt_ring *ring, uint32_t size)
 
    if (likely(npt_ring_has_space(ring, size)))
       return true;
+
+   /* Full ring + parked host can only converge if the host wakes. */
+   npt_ring_flush_notify_locked(ring);
 
    /* Wait with adaptive backoff -- raw thrd_yield burns CPU when the
     * host falls behind. */
@@ -335,7 +381,7 @@ npt_ring_write_buffer(struct npt_ring *ring,
    ring->cur += size;
 }
 
-/* Caller holds ring->mutex. */
+/* Caller holds ring->lock. */
 static bool
 npt_ring_submit_locked(struct npt_ring *ring,
                        const void *data, uint32_t size)
@@ -361,10 +407,10 @@ npt_ring_submit_locked(struct npt_ring *ring,
       if (os_time_timeout(ring->last_notify, ring->next_notify, now)) {
          ring->last_notify = now;
          ring->next_notify = now + NPT_RING_IDLE_TIMEOUT_NS;
-         npt_ring_notify(ring);
+         npt_ring_request_notify_locked(ring);
       }
 #else
-      npt_ring_notify(ring);
+      npt_ring_request_notify_locked(ring);
 #endif
    }
 
@@ -381,7 +427,7 @@ npt_ring_submit_dispatch_locked(struct npt_ring *ring, const void *data,
  * COM_RELEASE(X) on primary could race a pending async use of X on
  * another thread's ring.
  *
- * Caller MUST hold primary->mutex on entry; we drop it for the drain
+ * Caller MUST hold primary->lock on entry; we drop it for the drain
  * (holding it across long TLS-ring waits would serialize every other
  * primary path and starve the watchdog) and re-acquire before return.
  */
@@ -392,7 +438,7 @@ npt_ring_drain_peer_rings_unlocked(struct npt_ring *primary)
    if (!dev || primary != dev->ring)
       return;
 
-   mtx_unlock(&primary->mutex);
+   npt_ring_unlock_and_notify(primary);
 
    mtx_lock(&dev->tls_rings_mutex);
    list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
@@ -413,7 +459,7 @@ npt_ring_drain_peer_rings_unlocked(struct npt_ring *primary)
    }
    mtx_unlock(&dev->instance_rings_mutex);
 
-   mtx_lock(&primary->mutex);
+   npt_ring_lock_acquire(&primary->lock);
 }
 
 void
@@ -426,7 +472,7 @@ npt_ring_send_com_release(struct npt_device *dev, uint64_t host_id)
     * in-flight async use of host_id on a TLS / instance ring is
     * fully observed by the host before the release. */
    struct npt_ring *primary = dev->ring;
-   mtx_lock(&primary->mutex);
+   npt_ring_lock_acquire(&primary->lock);
    npt_ring_drain_peer_rings_unlocked(primary);
 
    struct npt_cmd_com_release cmd;
@@ -437,7 +483,7 @@ npt_ring_send_com_release(struct npt_device *dev, uint64_t host_id)
    cmd.header.cmd_size = sizeof(cmd);
    cmd.header.object_id = host_id;
    npt_ring_submit_dispatch_locked(primary, &cmd, sizeof(cmd));
-   mtx_unlock(&primary->mutex);
+   npt_ring_unlock_and_notify(primary);
 }
 
 static void
@@ -450,7 +496,6 @@ npt_ring_notify(struct npt_ring *ring)
    cmd.header.cmd_size = sizeof(cmd);
    cmd.ring_id = ring->id;
 
-   npt_profile_record_notify(&ring->profile);
    npt_renderer_submit_cmd(ring->renderer, &cmd, sizeof(cmd));
 }
 
@@ -476,7 +521,7 @@ void
 npt_ring_wait_all(struct npt_ring *ring)
 {
    /* Use ring->tail (acquire) not ring->cur to pick up any publish
-    * from a peer under ring->mutex.  Pass NULL to npt_ring_relax to
+    * from a peer under ring->lock.  Pass NULL to npt_ring_relax to
     * disable the ALIVE watchdog: a deep host dispatch (batch of
     * draws) can legitimately blow past the 3-miss threshold, and the
     * submitter's own sync-reply wait still gets watchdog coverage. */
@@ -548,14 +593,15 @@ npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno)
 }
 
 /* Wait for the host to consume past the last EXECUTE on this ring
- * (i.e. done reading upload_shmem).  Caller holds ring->mutex. */
+ * (i.e. done reading upload_shmem).  Caller holds ring->lock. */
 static void
 npt_ring_wait_upload_drained_locked(struct npt_ring *ring)
 {
+   npt_ring_flush_notify_locked(ring);
    npt_ring_wait_seqno(ring, ring->upload_horizon_seqno);
 }
 
-/* Caller holds ring->mutex.  *out_fresh = a new upload_shmem was
+/* Caller holds ring->lock.  *out_fresh = a new upload_shmem was
  * just created => caller must roundtrip before the host consumes
  * its res_id (same reason as the reply-pool fresh flag). */
 static bool
@@ -602,7 +648,7 @@ npt_ring_upload_reserve_locked(struct npt_ring *ring, uint32_t size,
  * RESOURCE_CREATE_BLOB has reached the resource table.  WAIT goes on
  * the ring so the ring thread stops before processing the EXECUTE /
  * SET_REPLY_STREAM that references the fresh res_id.  Caller holds
- * ring->mutex.
+ * ring->lock.
  */
 static void
 npt_ring_roundtrip_locked(struct npt_ring *ring)
@@ -638,7 +684,7 @@ npt_ring_roundtrip_locked(struct npt_ring *ring)
  * place a small reference in the ring.  On fresh upload_shmem, force
  * a virtqueue-seqno roundtrip so the ring thread sees the
  * RESOURCE_CREATE_BLOB before it reads our res_id.  Caller holds
- * ring->mutex.
+ * ring->lock.
  */
 static bool
 npt_ring_submit_indirect_locked(struct npt_ring *ring, const void *data,
@@ -672,7 +718,7 @@ npt_ring_submit_indirect_locked(struct npt_ring *ring, const void *data,
    return true;
 }
 
-/* Caller holds ring->mutex. */
+/* Caller holds ring->lock. */
 static bool
 npt_ring_submit_dispatch_locked(struct npt_ring *ring, const void *data,
                                 uint32_t size)
@@ -721,10 +767,10 @@ npt_ring_submit_locked_split(struct npt_ring *ring,
       if (os_time_timeout(ring->last_notify, ring->next_notify, now)) {
          ring->last_notify = now;
          ring->next_notify = now + NPT_RING_IDLE_TIMEOUT_NS;
-         npt_ring_notify(ring);
+         npt_ring_request_notify_locked(ring);
       }
 #else
-      npt_ring_notify(ring);
+      npt_ring_request_notify_locked(ring);
 #endif
    }
    return true;
@@ -784,7 +830,7 @@ npt_ring_submit_raw_with_payload(struct npt_ring *ring,
       return false;
 
    const uint32_t total = header_size + payload_padded_size;
-   mtx_lock(&ring->mutex);
+   npt_ring_lock_acquire(&ring->lock);
    bool ok;
    if (total > ring->direct_size) {
       ok = npt_ring_submit_indirect_locked_split(ring, header, header_size,
@@ -795,7 +841,7 @@ npt_ring_submit_raw_with_payload(struct npt_ring *ring,
                                         payload, payload_size,
                                         payload_padded_size);
    }
-   mtx_unlock(&ring->mutex);
+   npt_ring_unlock_and_notify(ring);
    return ok;
 }
 
@@ -804,9 +850,9 @@ npt_ring_force_roundtrip(struct npt_ring *ring)
 {
    if (!ring)
       return;
-   mtx_lock(&ring->mutex);
+   npt_ring_lock_acquire(&ring->lock);
    npt_ring_roundtrip_locked(ring);
-   mtx_unlock(&ring->mutex);
+   npt_ring_unlock_and_notify(ring);
 }
 
 bool
@@ -816,11 +862,11 @@ npt_ring_submit_raw_seqno(struct npt_ring *ring, const void *data,
    if (!ring || !data || !size)
       return false;
 
-   mtx_lock(&ring->mutex);
+   npt_ring_lock_acquire(&ring->lock);
    const bool ok = npt_ring_submit_dispatch_locked(ring, data, size);
    if (out_seqno)
       *out_seqno = ring->cur;
-   mtx_unlock(&ring->mutex);
+   npt_ring_unlock_and_notify(ring);
    return ok;
 }
 
@@ -856,7 +902,7 @@ npt_ring_submit_command(struct npt_ring *ring,
    struct npt_profile_submit_state prof;
    npt_profile_submit_begin(submit, ring->direct_size, &prof);
 
-   /* Reply window must be carved BEFORE ring->mutex: the pool's growth
+   /* Reply window must be carved BEFORE ring->lock: the pool's growth
     * path takes its own lock and may call shmem_create. */
    bool shmem_fresh = false;
    if (submit->reply_size) {
@@ -872,7 +918,7 @@ npt_ring_submit_command(struct npt_ring *ring,
       submit->reply_offset = (uint32_t)off;
    }
 
-   mtx_lock(&ring->mutex);
+   npt_ring_lock_acquire(&ring->lock);
 
    /* Fresh shmem: roundtrip so the virtqueue dispatcher's
     * RESOURCE_CREATE_BLOB lands before the ring thread reads
@@ -893,12 +939,12 @@ npt_ring_submit_command(struct npt_ring *ring,
       npt_ring_submit_locked(ring, &set_cmd, sizeof(set_cmd));
    }
 
-   /* SET_REPLY + (EXECUTE_)CMD stay back-to-back under ring->mutex,
+   /* SET_REPLY + (EXECUTE_)CMD stay back-to-back under ring->lock,
     * so the host writes its reply into our window before any peer
     * SET_REPLY can re-target the stream. */
    if (!npt_ring_submit_dispatch_locked(ring, submit->cmd_data,
                                         (uint32_t)submit->cmd_size)) {
-      mtx_unlock(&ring->mutex);
+      npt_ring_unlock_and_notify(ring);
       if (submit->reply_shmem) {
          npt_renderer_shmem_unref(ring->renderer, submit->reply_shmem);
          submit->reply_shmem = NULL;
@@ -908,7 +954,7 @@ npt_ring_submit_command(struct npt_ring *ring,
 
    submit->seqno = ring->cur;
 
-   mtx_unlock(&ring->mutex);
+   npt_ring_unlock_and_notify(ring);
 
    npt_profile_submit_finalize(&ring->profile, &prof);
 }
@@ -1016,7 +1062,7 @@ npt_ring_create(struct npt_device *device,
                  : "no -- watchdog ALIVE-clear disabled");
    }
 
-   mtx_init(&ring->mutex, mtx_plain);
+   npt_ring_lock_init(&ring->lock);
 
    npt_shmem_pool_init(&ring->reply_pool, NPT_RING_REPLY_POOL_MIN_SIZE);
 
@@ -1097,7 +1143,6 @@ npt_ring_destroy(struct npt_ring *ring)
    if (ring->upload_shmem)
       npt_renderer_shmem_unref(ring->renderer, ring->upload_shmem);
    npt_shmem_pool_fini(ring->renderer, &ring->reply_pool);
-   mtx_destroy(&ring->mutex);
    npt_profile_unregister_ring(ring);
    free(ring);
 }

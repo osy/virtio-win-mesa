@@ -18,7 +18,7 @@
 
 #define NPT_PROFILE_NUM_SLOTS 1024u
 
-/* Producer holds ring->mutex on submit. */
+/* Producer holds ring->lock on submit. */
 struct npt_profile_ring {
    uint64_t submits;
    uint64_t submits_async;
