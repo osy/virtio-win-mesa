@@ -172,6 +172,18 @@ npt_ring_force_roundtrip(struct npt_ring *ring);
 uint32_t
 npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno);
 
+/* The seqno `head` must reach for everything submitted on this ring so
+ * far to have been decoded.  Sampled without ring->lock: `cur` only
+ * advances, so a value racing a concurrent submitter names a later point
+ * in the same stream, never an earlier one.  Relaxed read of a
+ * non-atomic field; volatile suppresses MSVC's load-hoisting without
+ * requiring full atomic semantics (as in npt_ring_seqno_status). */
+static inline uint32_t
+npt_ring_seqno_now(const struct npt_ring *ring)
+{
+   return *(const volatile uint32_t *)&ring->cur;
+}
+
 /*
  * Queue a COM_RELEASE on the device's primary ring.  Routing every
  * release through primary lets the cross-ring drain barrier (waits

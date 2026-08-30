@@ -37,6 +37,8 @@ typedef struct TRITON12_ADAPTER
  * extras", never to incorrect behaviour. */
 #define TRITON12_MAX_QUEUES 16
 
+struct npt_ring;
+
 typedef struct TRITON12_DEVICE
 {
     PTRITON12_ADAPTER            pAdapter;
@@ -48,6 +50,12 @@ typedef struct TRITON12_DEVICE
      * vtbl layer).  Populated by tritonCreateDevice12 via
      * npt_d3d12_create_device_internal. */
     ID3D12Device                *pDev;
+    /* Host TiledResourcesTier (D3D12_OPTIONS on the inner device),
+     * probed once at device create.  >= 1 means the host backs reserved
+     * resources sparsely and honours UpdateTileMappings, so
+     * t12CreateHeapAndResource forwards CreateReservedResource; 0 takes
+     * the committed backing instead. */
+    UINT                         HostTiledTier;
     /* One-shot VIOGPU_CTX_INIT on the runtime's kernel device so the
      * KMD can bind exported blobs; see
      * tritonPresentEnsureRuntimeCtx. */
@@ -69,6 +77,15 @@ typedef struct TRITON12_DEVICE
     BOOL                         QueueLockInit;
     struct TRITON12_QUEUE       *Queues[TRITON12_MAX_QUEUES];
     UINT                         QueueCount;
+
+    /* ---- tile-mapping decode edge (see t12UpdateTileMappings) ----
+     *
+     * Where in which ring the most recent forwarded tile-mapping update
+     * sits.  Work on any OTHER ring that could consume the mapping waits
+     * for the host to have decoded past this point first.  Also guarded by
+     * QueueLock; cleared when the owning queue goes away. */
+    struct npt_ring             *TileMapRing;
+    UINT32                       TileMapSeqno;
 } TRITON12_DEVICE, *PTRITON12_DEVICE;
 
 static inline PTRITON12_DEVICE
@@ -111,6 +128,11 @@ typedef struct TRITON12_RESOURCE
     D3DKMT_HANDLE                hKMAllocation;
     /* Cached host GPU VA (pfnCheckResourceVirtualAddress). */
     UINT64                       GpuVa;
+    /* Reserved (tiled) resource created on the host with
+     * CreateReservedResource: the tile-mapping and CopyTiles DDIs are
+     * forwarded for it.  FALSE means committed backing, where the
+     * mapping DDIs have nothing to do. */
+    BOOL                         TiledHost;
 } TRITON12_RESOURCE, *PTRITON12_RESOURCE;
 
 typedef struct TRITON12_QUERYHEAP
@@ -222,5 +244,90 @@ void triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
  * which the runtime's kernel present needs to flip it. */
 BOOL triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
                                 BOOL primary);
+
+/* ---------- tiled resources: standard tile geometry ---------- */
+
+/* One D3D12 tile of a 2D resource.  An "element" is a texel for an
+ * uncompressed format and a 4x4 block for BC, which is the unit the tile
+ * shape is defined in. */
+typedef struct TRITON12_TILE_SHAPE
+{
+    UINT ElemBytes;      /* bytes per element */
+    UINT BlockEdge;      /* texels per element edge: 1, or 4 for BC */
+    UINT ElemW, ElemH;   /* tile extent in elements */
+    UINT TexelW, TexelH; /* the same extent in texels */
+    UINT RowBytes;       /* one element row of the tile */
+} TRITON12_TILE_SHAPE;
+
+static inline void
+t12TileShape(DXGI_FORMAT fmt, TRITON12_TILE_SHAPE *out)
+{
+    UINT elemBytes, blockEdge = 1;
+    switch (fmt) {
+    case DXGI_FORMAT_BC1_TYPELESS: case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB: case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM: case DXGI_FORMAT_BC4_SNORM:
+        elemBytes = 8; blockEdge = 4; break;
+    case DXGI_FORMAT_BC2_TYPELESS: case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB: case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM: case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC5_TYPELESS: case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM: case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16: case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS: case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+        elemBytes = 16; blockEdge = 4; break;
+    case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT: case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT: case DXGI_FORMAT_A8_UNORM:
+        elemBytes = 1; break;
+    case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT: case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT: case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT: case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT: case DXGI_FORMAT_D16_UNORM:
+    case DXGI_FORMAT_B5G6R5_UNORM: case DXGI_FORMAT_B5G5R5A1_UNORM:
+    case DXGI_FORMAT_B4G4R4A4_UNORM:
+        elemBytes = 2; break;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+        elemBytes = 16; break;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT: case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT: case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+        elemBytes = 8; break;
+    default:
+        /* The broad 32-bit class (R8G8B8A8*, B8G8R8A8*, R10G10B10A2*,
+         * R11G11B10, R16G16*, R32*, D32_FLOAT, D24S8, ...).  The 96-bit
+         * formats land here too and are wrong for them, but D3D12 has no
+         * standard tile shape for 96 bpp and forbids tiling them. */
+        elemBytes = 4; break;
+    }
+
+    /* A tile holds TILE_SIZE/ElemBytes elements arranged as the squarest
+     * power-of-two rectangle, the wider side first.  That reproduces
+     * D3D12's standard tile-shape table: 256x256 elements at one byte
+     * each, halving alternately down to 64x64 at sixteen. */
+    UINT log2Elems = 0;
+    while (((UINT)D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES >> log2Elems) >
+           elemBytes)
+        log2Elems++;
+
+    out->ElemBytes = elemBytes;
+    out->BlockEdge = blockEdge;
+    out->ElemW = 1u << ((log2Elems + 1u) / 2u);
+    out->ElemH = 1u << (log2Elems / 2u);
+    out->TexelW = out->ElemW * blockEdge;
+    out->TexelH = out->ElemH * blockEdge;
+    out->RowBytes = out->ElemW * elemBytes;
+}
 
 #endif /* TRITON12_H */

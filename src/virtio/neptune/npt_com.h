@@ -277,4 +277,14 @@ HRESULT
 npt_com_send_query_interface(struct npt_device *dev, uint64_t src_id,
                              const GUID *iid, uint64_t guest_id);
 
+/*
+ * The ring this object's commands are submitted on and, when out_seqno is
+ * non-NULL, the seqno the host's decode position must reach for everything
+ * submitted on that ring so far to have been applied.  Out of line because
+ * Triton's D3D12 files cannot include this header: they take the SDK's
+ * d3d12.h, whose types collide with the wire protocol's own declarations.
+ */
+struct npt_ring *
+npt_com_object_ring_seqno(void *self, uint32_t *out_seqno);
+
 #endif /* NPT_COM_H */

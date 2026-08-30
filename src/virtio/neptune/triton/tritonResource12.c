@@ -75,11 +75,12 @@ t12ResourceDesc(const D3D12DDIARG_CREATERESOURCE_0003 *pR,
     } else if (pR->Layout == D3D12DDI_TL_ROW_MAJOR) {
         pDesc->Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     } else {
-        /* UNDEFINED, and BOTH 64KB tiled layouts: reserved (tiled)
-         * resources are served by the committed-backing shim, so the
-         * inner device sees a plain optimal-layout texture -- passing a
-         * tiled layout through would ask the backend for real sparse
-         * support it does not have. */
+        /* UNDEFINED, and BOTH 64KB tiled layouts: the inner device sees
+         * a plain optimal-layout texture.  A reserved resource is either
+         * re-created with the tiled layout by the reserved path in
+         * t12CreateHeapAndResource (host sparse backing) or fully backed
+         * by the committed shim; a placed/committed resource that merely
+         * asked for a 64 KB layout has no swizzle to honour here. */
         pDesc->Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     }
 
@@ -303,8 +304,8 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
                     h->pResource = r->pResource;
                     h->Desc = hd;
                     r->pPlaceHeap = h->pHeap;
-                    TR_LOG("12.CreateHeapAndResource(heap+buf): size=%llu "
-                           "heapFlags=0x%x state=0x%x -> 0x%08lx",
+                    TR_LOG("12.CreateHeapAndResource(heap+buf): heap=%p size=%llu "
+                           "heapFlags=0x%x state=0x%x -> 0x%08lx", (void *)h,
                            (unsigned long long)hd.SizeInBytes,
                            (unsigned)pHeapDesc->Flags,
                            (unsigned)pResDesc->InitialResourceState,
@@ -355,8 +356,8 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
             p->pDev, &desc, &IID_ID3D12Heap, (void **)&h->pHeap);
         if (SUCCEEDED(hr))
             h->Desc = desc;
-        TR_LOG("12.CreateHeapAndResource(heap): size=%llu flags=0x%x -> 0x%08lx",
-               (unsigned long long)pHeapDesc->ByteSize,
+        TR_LOG("12.CreateHeapAndResource(heap): heap=%p size=%llu flags=0x%x -> 0x%08lx",
+               (void *)h, (unsigned long long)pHeapDesc->ByteSize,
                (unsigned)pHeapDesc->Flags, (unsigned long)hr);
         return hr;
     }
@@ -374,12 +375,52 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
             pResDesc->ReuseBufferGPUVA.BaseAddress.UMD.hResource.pDrvPrivate;
         const UINT64 off =
             pResDesc->ReuseBufferGPUVA.BaseAddress.UMD.Offset;
+        /* A 64 KB tiled layout does not by itself mean a reserved
+         * resource: a PLACED resource may ask for
+         * 64KB_UNDEFINED_SWIZZLE too -- aliasing transient render
+         * targets in one heap is the common case -- and it arrives with
+         * the same NULL heap desc.  What separates them is the
+         * placement base: a reserved resource has no heap behind it
+         * (hResource NULL) and gets its memory only through
+         * UpdateTileMappings; a placed one is backed by its heap and is
+         * never mapped, so treating it as reserved leaves it unmapped
+         * and reading zero. */
         const BOOL tiled =
-            pResDesc->Layout == D3D12DDI_TL_64KB_TILE_UNDEFINED_SWIZZLE ||
-            pResDesc->Layout == D3D12DDI_TL_64KB_TILE_STANDARD_SWIZZLE;
+            (pResDesc->Layout == D3D12DDI_TL_64KB_TILE_UNDEFINED_SWIZZLE ||
+             pResDesc->Layout == D3D12DDI_TL_64KB_TILE_STANDARD_SWIZZLE) &&
+            base == NULL;
         D3D12_RESOURCE_DESC desc;
         t12ResourceDesc(pResDesc, &desc);
         HRESULT hr;
+        if (tiled && p->HostTiledTier >= 1) {
+            /* Reserved (tiled) resource, host has sparse backing: forward
+             * the reserved create as-is.  Only the tiles the app maps
+             * (t12UpdateTileMappings -> host) get memory; unmapped tiles
+             * read zero.  Host RAM is then the app's tile-pool budget
+             * instead of the textures' virtual size. */
+            D3D12_RESOURCE_DESC rdesc = desc;
+            rdesc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+            hr = ID3D12Device_CreateReservedResource(
+                p->pDev, &rdesc,
+                (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
+                pClear, &IID_ID3D12Resource, (void **)&r->pResource);
+            if (SUCCEEDED(hr) && r->pResource) {
+                r->TiledHost = TRUE;
+                TR_LOG("12.CreateHeapAndResource(reserved): res=%p type=%d "
+                       "w=%llu h=%u fmt=%d mips=%u arr=%u state=0x%x -> 0x%08lx",
+                       (void *)r, (int)pResDesc->ResourceType,
+                       (unsigned long long)pResDesc->Width,
+                       (unsigned)pResDesc->Height, (int)pResDesc->Format,
+                       (unsigned)pResDesc->MipLevels,
+                       (unsigned)pResDesc->DepthOrArraySize,
+                       (unsigned)pResDesc->InitialResourceState,
+                       (unsigned long)hr);
+                return hr;
+            }
+            TR_LOG("12.CreateHeapAndResource(reserved): host create failed "
+                   "0x%08lx; committed-backing fallback", (unsigned long)hr);
+            r->pResource = NULL;
+        }
         if (tiled) {
             /* Reserved (tiled) resource: committed-backing shim.  The
              * whole resource is backed by a zero-initialized committed
@@ -388,7 +429,7 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
              * UpdateTileMappings/CopyTileMappings are queue-side no-ops
              * and CopyTiles becomes region copies.  Cost: full physical
              * backing up front -- the opposite of the feature's purpose,
-             * but the only shape the backend supports. */
+             * and the only shape a host without sparse backing supports. */
             D3D12_HEAP_PROPERTIES props;
             memset(&props, 0, sizeof(props));
             props.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -396,9 +437,9 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
                 p->pDev, &props, D3D12_HEAP_FLAG_NONE, &desc,
                 (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
                 pClear, &IID_ID3D12Resource, (void **)&r->pResource);
-            TR_LOG("12.CreateHeapAndResource(reserved->committed): type=%d "
+            TR_LOG("12.CreateHeapAndResource(reserved->committed): res=%p type=%d "
                    "w=%llu h=%u fmt=%d mips=%u state=0x%x -> 0x%08lx",
-                   (int)pResDesc->ResourceType,
+                   (void *)r, (int)pResDesc->ResourceType,
                    (unsigned long long)pResDesc->Width,
                    (unsigned)pResDesc->Height, (int)pResDesc->Format,
                    (unsigned)pResDesc->MipLevels,
@@ -462,6 +503,70 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
         }
         h->pResource = NULL;
     }
+}
+
+/* ---------- tiled resources: mip packing ---------- */
+
+/* Extent of mip `level`, floored at one texel. */
+static UINT64
+t12MipExtent(UINT64 base, UINT level)
+{
+    const UINT64 v = base >> level;
+    return v ? v : 1;
+}
+
+/* pfnGetMipPacking: which trailing mips of a tiled resource share one
+ * tile run, and how many tiles that run costs.  A mip at least one tile
+ * wide and one tile tall is "standard" and owns whole tiles; everything
+ * below that is packed together, because a tile is the smallest unit
+ * either side can map.  Reporting the tail as packed lets the runtime
+ * address it as one region -- per-mip addressing of a sub-tile mip is
+ * not something the host's sparse translation can honour, and it charges
+ * a whole tile per mip for a tail that fits in one.
+ *
+ * D3D12 defines packed mips per array slice, so the count is not scaled
+ * by the array size; a volume texture's packed run does repeat per depth
+ * slice. */
+VOID APIENTRY
+triton12GetMipPacking(D3D12DDI_HDEVICE hDevice, D3D12DDI_HRESOURCE hRes,
+                      UINT *pNumPackedMips, UINT *pNumTilesForPackedMips)
+{
+    PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hRes.pDrvPrivate;
+    (void)hDevice;
+    UINT packed = 0, tiles = 0;
+    if (r && r->Desc.ResourceType != D3D12DDI_RT_BUFFER) {
+        TRITON12_TILE_SHAPE tile;
+        t12TileShape((DXGI_FORMAT)r->Desc.Format, &tile);
+        const UINT mips = r->Desc.MipLevels ? r->Desc.MipLevels : 1;
+
+        UINT standard = 0;
+        while (standard < mips &&
+               t12MipExtent(r->Desc.Width, standard) >= tile.TexelW &&
+               t12MipExtent(r->Desc.Height, standard) >= tile.TexelH)
+            standard++;
+        packed = mips - standard;
+
+        if (packed) {
+            UINT64 bytes = 0;
+            for (UINT m = standard; m < mips; m++) {
+                const UINT64 w = t12MipExtent(r->Desc.Width, m);
+                const UINT64 h = t12MipExtent(r->Desc.Height, m);
+                bytes += ((w + tile.BlockEdge - 1) / tile.BlockEdge) *
+                         ((h + tile.BlockEdge - 1) / tile.BlockEdge) *
+                         tile.ElemBytes;
+            }
+            const UINT64 tileBytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+            tiles = (UINT)((bytes + tileBytes - 1) / tileBytes);
+            if (!tiles)
+                tiles = 1;
+            if (r->Desc.ResourceType == D3D12DDI_RT_TEXTURE3D)
+                tiles *= r->Desc.DepthOrArraySize ? r->Desc.DepthOrArraySize : 1;
+        }
+    }
+    if (pNumPackedMips) *pNumPackedMips = packed;
+    if (pNumTilesForPackedMips) *pNumTilesForPackedMips = tiles;
+    TR_LOG_HOT("12.GetMipPacking: res=%p mips=%u -> packed=%u tiles=%u",
+               (void *)r, r ? (unsigned)r->Desc.MipLevels : 0u, packed, tiles);
 }
 
 /* ---------- map ---------- */

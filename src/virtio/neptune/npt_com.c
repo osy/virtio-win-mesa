@@ -340,6 +340,15 @@ npt_com_family_aux(void *self, void (*aux_destroy)(void *aux))
 
 static void npt_com_release_dc_sc_ring(struct npt_device *dev);
 
+struct npt_ring *
+npt_com_object_ring_seqno(void *self, uint32_t *out_seqno)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   if (out_seqno)
+      *out_seqno = ring ? npt_ring_seqno_now(ring) : 0;
+   return ring;
+}
+
 void
 npt_com_pin_queue_ring(void *self, bool direct)
 {

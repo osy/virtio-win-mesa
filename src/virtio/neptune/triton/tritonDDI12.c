@@ -14,6 +14,7 @@
 #include "triton12.h"
 #include "triton_log.h"
 #include "tritonSharedBridge.h"
+#include "npt_env.h"
 
 /* npt_device.h can't be included here: its vendored protocol DirectX
  * types collide with the SDK headers this TU already pulls. */
@@ -67,6 +68,23 @@ triton12CreateDevice(D3D12DDI_HADAPTER hAdapter,
     }
     p->pDev = dev;
     TR_LOG("12.CreateDevice: inner Neptune ID3D12Device up (%p)", (void *)dev);
+
+    /* Host tiled-resource support, which picks the reserved-resource
+     * path in tritonResource12.c: a nonzero tier means the host honours
+     * CreateReservedResource + UpdateTileMappings with real sparse
+     * backing. */
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS opts;
+        memset(&opts, 0, sizeof(opts));
+        p->HostTiledTier = 0;
+        if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(
+                dev, D3D12_FEATURE_D3D12_OPTIONS, &opts, sizeof(opts))))
+            p->HostTiledTier = (UINT)opts.TiledResourcesTier;
+        TR_LOG("12.CreateDevice: host TiledResourcesTier=%u -> reserved resources %s",
+               p->HostTiledTier,
+               p->HostTiledTier ? "FORWARDED (sparse host backing)"
+                                : "committed-backing shim");
+    }
 
     /* Queue registry lock, for cross-queue submission ordering.  Initialised
      * here rather than lazily on first queue create: CreateCommandQueue is
@@ -879,6 +897,9 @@ t12MsaaQuality(PTRITON12_DEVICE p, DXGI_FORMAT Format, UINT SampleCount)
     return n;
 }
 
+VOID APIENTRY triton12GetMipPacking(D3D12DDI_HDEVICE, D3D12DDI_HRESOURCE,
+                                    UINT *, UINT *); /* tritonResource12.c */
+
 static VOID APIENTRY
 triton12CheckFormatSupport(D3D12DDI_HDEVICE hDevice, DXGI_FORMAT Format,
                            UINT *pOut)
@@ -1116,6 +1137,7 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
                 (D3D12DDI_DEVICE_FUNCS_CORE_0022 *)pTable;
             t->pfnCheckFormatSupport             = triton12CheckFormatSupport;
             t->pfnCheckMultisampleQualityLevels  = triton12CheckMultisampleQualityLevels;
+            t->pfnGetMipPacking                  = triton12GetMipPacking;
             t->pfnQueryNodeMap                   = triton12QueryNodeMap;
             triton12InstallDescriptorFuncs(t);
             triton12InstallResourceFuncs(t);

@@ -22,8 +22,19 @@
 extern BOOL npt_d3d12_ecl_gate_arm(void *fence_wrapper, UINT64 value,
                                    UINT64 *kmd_token_out);
 
+/* Ring identity + decode position for the tile-mapping edge below.  Declared
+ * here for the same reason as the gate above: npt_com.h / npt_ring.h carry
+ * the wire protocol's own DirectX type declarations, which collide with the
+ * SDK d3d12.h this file needs. */
+struct npt_ring;
+extern struct npt_ring *npt_com_object_ring_seqno(void *self,
+                                                  UINT32 *out_seqno);
+extern UINT32 npt_ring_wait_seqno(struct npt_ring *ring, UINT32 seqno);
+
 static VOID APIENTRY t12DestroyCommandQueue(D3D12DDI_HDEVICE hDevice,
                                             D3D12DDI_HCOMMANDQUEUE hQueue);
+/* Defined with the tile-mapping entry points at the end of this file. */
+static void t12TileMapOrder(PTRITON12_QUEUE q);
 
 static D3D12_COMMAND_LIST_TYPE
 t12QueueFlagsToApiType(D3D12DDI_COMMAND_QUEUE_FLAGS Flags)
@@ -176,6 +187,16 @@ t12DestroyCommandQueue(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDQUEUE hQueue)
             }
             break;
         }
+        LeaveCriticalSection(&p->QueueLock);
+    }
+
+    /* The edge names this queue's ring, which dies with the queue's COM
+     * wrapper below; drop it before it can dangle. */
+    if (p && p->QueueLockInit && q->pQueue) {
+        struct npt_ring *ring = npt_com_object_ring_seqno(q->pQueue, NULL);
+        EnterCriticalSection(&p->QueueLock);
+        if (p->TileMapRing == ring)
+            p->TileMapRing = NULL;
         LeaveCriticalSection(&p->QueueLock);
     }
 
@@ -401,6 +422,8 @@ t12ExecuteCommandLists(D3D12DDI_HCOMMANDQUEUE hQueue, UINT Count,
     /* Before the batch reaches the host, not after: the wait has to be on the
      * host queue's timeline ahead of this batch's work. */
     t12OrderAgainstSiblings(q);
+    /* Likewise for tile mappings this batch may consume. */
+    t12TileMapOrder(q);
 
     ID3D12CommandList *stackLists[8];
     ID3D12CommandList **lists = stackLists;
@@ -431,6 +454,10 @@ t12SignalFence(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDIARG_FENCE_OPERATION *pOp)
     PTRITON12_FENCE f = pOp ? (PTRITON12_FENCE)pOp->Fence.pDrvPrivate : NULL;
     if (!q || !q->pQueue || !f || !f->pFence)
         return;
+
+    /* A signal is what another queue waits on, so it must not reach the
+     * host ahead of a tile mapping the waiter's work will consume. */
+    t12TileMapOrder(q);
 
     /* Forward to the inner queue so the host GPU timeline carries the
      * signal.  No CPU wait here: the runtime services app fences through
@@ -466,10 +493,68 @@ triton12InstallQueueDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t)
     t->pfnDestroyCommandQueue         = t12DestroyCommandQueue;
 }
 
-/* Tile mappings are deliberate no-ops: reserved resources are served by
- * the committed-backing shim (tritonResource12.c), which backs the whole
- * resource at create -- there is nothing to map or unmap, and tier-2
- * "everything mapped, reads-zero" semantics hold by construction. */
+/* Tile mappings.  A reserved resource the host backs sparsely
+ * (r->TiledHost, see tritonResource12.c) gets UpdateTileMappings and
+ * CopyTileMappings forwarded: the host maps sparse-heap tiles for the
+ * named regions and unmapped tiles read zero.  A resource on the
+ * committed-backing shim is fully backed at create, so for it these are
+ * deliberate no-ops.
+ *
+ * The DDI structs are layout-identical to the API ones (the SDK's public
+ * {X,Y,Z,Subresource} / {NumTiles,UseBox,Width,Height,Depth} PODs and a
+ * UINT flag enum), so the arrays pass through by cast. */
+C_ASSERT(sizeof(D3D12DDI_TILED_RESOURCE_COORDINATE) == sizeof(D3D12_TILED_RESOURCE_COORDINATE));
+C_ASSERT(sizeof(D3D12DDI_TILE_REGION_SIZE) == sizeof(D3D12_TILE_REGION_SIZE));
+C_ASSERT(sizeof(D3D12DDI_TILE_RANGE_FLAGS) == sizeof(D3D12_TILE_RANGE_FLAGS));
+
+/* The wire UpdateTileMappings is fire-and-forget and nothing downstream
+ * orders it: an app fence placed after it retires on the KMD, which says
+ * nothing about the host, and t12OrderAgainstSiblings only edges sibling
+ * queues against this queue's ECL drains.  A copy queue's tile fills can
+ * therefore reach the host before the map does and land on a tile that is
+ * still unmapped (seen as black terrain).
+ *
+ * The host applies the mapping when the queue's ring decodes the command,
+ * and publishes its decode position into that ring's shared memory.  So
+ * record where the update sits, and have anything that could consume it
+ * from a DIFFERENT ring wait for that position first: the wait is a
+ * shared-memory read, and by the time a consumer reaches it the host has
+ * almost always decoded past it already.  Work submitted on the mapping
+ * queue itself is behind the update in its own ring and needs nothing.
+ *
+ * Unmaps carry an edge too.  Reading an unmapped tile is undefined, so an
+ * unmap racing dependent work needs no ordering of its own -- but a later
+ * map of the same tiles from another queue does, and the edge is the only
+ * thing that orders it against the unmap. */
+static void
+t12TileMapPublish(PTRITON12_QUEUE q)
+{
+    PTRITON12_DEVICE p = q->pDev;
+    UINT32 seqno = 0;
+    struct npt_ring *ring = npt_com_object_ring_seqno(q->pQueue, &seqno);
+    if (!p || !p->QueueLockInit || !ring)
+        return;
+    EnterCriticalSection(&p->QueueLock);
+    p->TileMapRing = ring;
+    p->TileMapSeqno = seqno;
+    LeaveCriticalSection(&p->QueueLock);
+}
+
+static void
+t12TileMapOrder(PTRITON12_QUEUE q)
+{
+    PTRITON12_DEVICE p = q->pDev;
+    if (!p || !p->QueueLockInit)
+        return;
+    EnterCriticalSection(&p->QueueLock);
+    struct npt_ring *edge = p->TileMapRing;
+    const UINT32 seqno = p->TileMapSeqno;
+    LeaveCriticalSection(&p->QueueLock);
+    if (!edge || edge == npt_com_object_ring_seqno(q->pQueue, NULL))
+        return;
+    npt_ring_wait_seqno(edge, seqno);
+}
+
 static VOID APIENTRY
 t12UpdateTileMappings(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDI_HRESOURCE hRes,
                       UINT NumRegions,
@@ -481,9 +566,28 @@ t12UpdateTileMappings(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDI_HRESOURCE hRes,
                       const UINT *pRangeTileCounts,
                       D3D12DDI_TILE_MAPPING_FLAGS Flags)
 {
-    (void)hQueue; (void)hRes; (void)pCoords; (void)pSizes; (void)hPool;
-    (void)pRangeFlags; (void)pHeapStartOffsets; (void)pRangeTileCounts;
-    (void)Flags;
+    PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hRes.pDrvPrivate;
+    PTRITON12_HEAP h = (PTRITON12_HEAP)hPool.pDrvPrivate;
+    PTRITON12_QUEUE q = (PTRITON12_QUEUE)hQueue.pDrvPrivate;
+    if (r && r->TiledHost && r->pResource && q && q->pQueue) {
+        static LONG onceF;
+        if (!InterlockedExchange(&onceF, 1))
+            TR_LOG("12.UpdateTileMappings: forwarding to the host (sparse "
+                   "backing; regions=%u ranges=%u)", NumRegions, NumRanges);
+        /* Against a pending edge from another queue, so mappings apply in
+         * the order the app issued them. */
+        t12TileMapOrder(q);
+        ID3D12CommandQueue_UpdateTileMappings(
+            q->pQueue, r->pResource, NumRegions,
+            (const D3D12_TILED_RESOURCE_COORDINATE *)pCoords,
+            (const D3D12_TILE_REGION_SIZE *)pSizes,
+            (h && h->pHeap) ? h->pHeap : NULL, NumRanges,
+            (const D3D12_TILE_RANGE_FLAGS *)pRangeFlags,
+            pHeapStartOffsets, pRangeTileCounts,
+            (D3D12_TILE_MAPPING_FLAGS)Flags);
+        t12TileMapPublish(q);
+        return;
+    }
     static LONG once;
     if (!InterlockedExchange(&once, 1))
         TR_LOG("12.UpdateTileMappings: no-op (committed-backing shim; "
@@ -498,8 +602,23 @@ t12CopyTileMappings(D3D12DDI_HCOMMANDQUEUE hQueue, D3D12DDI_HRESOURCE hDst,
                     const D3D12DDI_TILE_REGION_SIZE *pSize,
                     D3D12DDI_TILE_MAPPING_FLAGS Flags)
 {
-    (void)hQueue; (void)hDst; (void)pDstCoord; (void)hSrc; (void)pSrcCoord;
-    (void)pSize; (void)Flags;
+    PTRITON12_RESOURCE d = (PTRITON12_RESOURCE)hDst.pDrvPrivate;
+    PTRITON12_RESOURCE s = (PTRITON12_RESOURCE)hSrc.pDrvPrivate;
+    PTRITON12_QUEUE q = (PTRITON12_QUEUE)hQueue.pDrvPrivate;
+    if (d && d->TiledHost && s && s->TiledHost && q && q->pQueue) {
+        static LONG onceF;
+        if (!InterlockedExchange(&onceF, 1))
+            TR_LOG("12.CopyTileMappings: forwarding to the host (sparse backing)");
+        t12TileMapOrder(q);
+        ID3D12CommandQueue_CopyTileMappings(
+            q->pQueue, d->pResource,
+            (const D3D12_TILED_RESOURCE_COORDINATE *)pDstCoord, s->pResource,
+            (const D3D12_TILED_RESOURCE_COORDINATE *)pSrcCoord,
+            (const D3D12_TILE_REGION_SIZE *)pSize,
+            (D3D12_TILE_MAPPING_FLAGS)Flags);
+        t12TileMapPublish(q);
+        return;
+    }
     static LONG once;
     if (!InterlockedExchange(&once, 1))
         TR_LOG("12.CopyTileMappings: no-op (committed-backing shim)");
