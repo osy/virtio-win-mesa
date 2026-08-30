@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2026 Turing Software LLC
  * SPDX-License-Identifier: MIT
  *
@@ -19,6 +19,7 @@
 #include "tritonDxgi.h"
 #include "tritonPresent.h"
 #include "tritonSharedBridge.h"
+#include "tritonHostCaps.h"
 
 /* Statically linked from src/virtio/neptune/npt_entry_d3d11.c.  The
  * function pulls in the protocol-generated COM machinery internally;
@@ -875,10 +876,27 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
      * Triton works with. */
     ID3D11Device        *raw_dev = NULL;
     ID3D11DeviceContext *raw_ctx = NULL;
-    HRESULT hr = npt_d3d11_create_device_internal(
-        NULL /* pAdapter */, D3D_DRIVER_TYPE_HARDWARE, NULL,
-        0 /* Flags */, &requested, 1, D3D11_SDK_VERSION,
-        &raw_dev, &p->FeatureLevel, &raw_ctx);
+    HRESULT hr = S_OK;
+    /* The caps snapshot (GetCaps) already stood up a device at the
+     * host's highest level; adopt it when it covers the requested level
+     * rather than create a second host device.  A later CreateDevice on
+     * the same adapter creates its own. */
+    if (pAdapter->pCapsDev && requested <= pAdapter->CapsFeatureLevel) {
+        raw_dev = (ID3D11Device *)InterlockedExchangePointer(
+            (PVOID volatile *)&pAdapter->pCapsDev, NULL);
+        if (raw_dev) {
+            raw_ctx = (ID3D11DeviceContext *)InterlockedExchangePointer(
+                (PVOID volatile *)&pAdapter->pCapsCtx, NULL);
+            p->FeatureLevel = requested;
+            TR_LOG("CreateDevice: adopting the caps-snapshot device (%p, host fl 0x%x)",
+                   (void *)raw_dev, (unsigned)pAdapter->CapsFeatureLevel);
+        }
+    }
+    if (!raw_dev)
+        hr = npt_d3d11_create_device_internal(
+            NULL /* pAdapter */, D3D_DRIVER_TYPE_HARDWARE, NULL,
+            0 /* Flags */, &requested, 1, D3D11_SDK_VERSION,
+            &raw_dev, &p->FeatureLevel, &raw_ctx);
     if (FAILED(hr) || !raw_dev || !raw_ctx) {
         TR_LOG("CreateDevice: npt_d3d11_create_device_internal failed 0x%08lx", hr);
         if (raw_dev) ID3D11Device_Release(raw_dev);
@@ -960,8 +978,15 @@ static HRESULT APIENTRY tritonCloseAdapter(D3D10DDI_HADAPTER hAdapter)
 {
     PTRITON_ADAPTER pAdapter = (PTRITON_ADAPTER)(hAdapter.pDrvPrivate);
     TR_LOG("CloseAdapter");
-    if (pAdapter)
+    if (pAdapter) {
+        if (pAdapter->pCapsCtx)
+            ID3D11DeviceContext_Release(pAdapter->pCapsCtx);
+        if (pAdapter->pCapsDev)
+            ID3D11Device_Release(pAdapter->pCapsDev);
+        if (pAdapter->pHostCaps11)
+            HeapFree(GetProcessHeap(), 0, pAdapter->pHostCaps11);
         HeapFree(GetProcessHeap(), 0, pAdapter);
+    }
     return S_OK;
 }
 
@@ -1038,67 +1063,147 @@ static HRESULT APIENTRY tritonGetSupportedVersions(D3D10DDI_HADAPTER hAdapter,
     return S_OK;
 }
 
+/* ---------- adapter-scope host caps ---------- */
+
+static BOOL CALLBACK tritonHostCapsInit(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once; (void)ctx;
+    PTRITON_ADAPTER pAdapter = (PTRITON_ADAPTER)param;
+    struct triton_host_caps11 *s = (struct triton_host_caps11 *)HeapAlloc(
+        GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*s));
+    if (!s)
+        return TRUE;
+    ID3D11Device *dev = NULL;
+    ID3D11DeviceContext *devCtx = NULL;
+    tritonHostCaps11Snapshot(s, &dev, &devCtx);
+    pAdapter->pCapsDev = dev;
+    pAdapter->pCapsCtx = devCtx;
+    pAdapter->CapsFeatureLevel = s->featureLevel;
+    pAdapter->pHostCaps11 = s;
+    return TRUE;
+}
+
+static const struct triton_host_caps11 *tritonHostCaps(PTRITON_ADAPTER pAdapter)
+{
+    static const struct triton_host_caps11 kNone;
+    if (!pAdapter)
+        return &kNone;
+    InitOnceExecuteOnce(&pAdapter->HostCapsOnce, tritonHostCapsInit,
+                        pAdapter, NULL);
+    return pAdapter->pHostCaps11 ? pAdapter->pHostCaps11 : &kNone;
+}
+
+#define HC11(bit) ((hc->have & TRITON_HC11_##bit) != 0)
+#define CAP11_HOST(name, lv, bit, hv) \
+    TRITON_CAP_HOST("d3d11", name, lv, HC11(bit), hv)
+#define CAP11_FIXED(name, lv, bit, hv, v, why) \
+    TRITON_CAP_FIXED("d3d11", name, lv, HC11(bit), hv, v, why)
+#define CAP11_TODO(name, lv, bit, hv, v, why) \
+    TRITON_CAP_TODO("d3d11", name, lv, HC11(bit), hv, v, why)
+
 static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
                                       const D3D10_2DDIARG_GETCAPS *pArgs)
 {
-    (void)hAdapter;
+    PTRITON_ADAPTER pAdapter = (PTRITON_ADAPTER)hAdapter.pDrvPrivate;
     TR_LOG("GetCaps: Type=%d", pArgs->Type);
     if (!pArgs->pData || !pArgs->DataSize) return S_OK;
     ZeroMemory(pArgs->pData, pArgs->DataSize);
 
+    const struct triton_host_caps11 *hc = tritonHostCaps(pAdapter);
+
     switch (pArgs->Type) {
     case D3D11DDICAPS_THREADING: {
+        /* Not a reporting gap: without COMMANDLISTS the runtime emulates
+         * deferred contexts in software, but claiming FREETHREADED +
+         * COMMANDLISTS needs the UMD to be safe for concurrent creates
+         * and to implement driver command lists.  A claim without that is
+         * a data race, not a wrong pixel. */
         D3D11DDI_THREADING_CAPS *pCaps = (D3D11DDI_THREADING_CAPS *)pArgs->pData;
-        pCaps->Caps = 0; /* no driver-concurrent creates, no commandlists */
+        UINT hostBits = 0;
+        if (hc->threading.DriverConcurrentCreates) hostBits |= D3D11DDICAPS_FREETHREADED;
+        if (hc->threading.DriverCommandLists) hostBits |= D3D11DDICAPS_COMMANDLISTS_BUILD_2;
+        CAP11_TODO("THREADING.Caps", pCaps->Caps, THREADING, hostBits, 0,
+                   "UMD thread-safety for concurrent creates + driver command lists");
         break;
     }
     case D3D11DDICAPS_SHADER: {
-        D3D11DDI_SHADER_CAPS *pCaps = (D3D11DDI_SHADER_CAPS *)pArgs->pData;
         /* The 0x10/0x20/0x40 bits are what back the runtime's OPTIONS2
          * PSSpecifiedStencilRef / TypedUAVLoadAdditionalFormats / ROVs
          * answers (OPTIONS2 at DDI level carries only the conservative-
-         * rasterization tier).  All three are backed by the host.  The
-         * typed-UAV-load claim is backed per-format by UAV_READS in
-         * tritonTranslateFormatSupport -- keep the two in sync. */
-        pCaps->Caps = D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X |
-                      D3D11DDICAPS_SHADER_SPECIFIED_STENCIL_REF |
-                      D3D11DDICAPS_SHADER_TYPED_UAV_LOAD_ADDITIONAL_FORMATS |
-                      D3D11DDICAPS_SHADER_ROVS;
+         * rasterization tier).  The typed-UAV-load claim is backed per
+         * format by UAV_READS in tritonTranslateFormatSupport -- keep the
+         * two in sync. */
+        D3D11DDI_SHADER_CAPS *pCaps = (D3D11DDI_SHADER_CAPS *)pArgs->pData;
+        BOOL b;
+#define SHADER_BIT(name, bit, hv, flag)                                       \
+        do {                                                                   \
+            b = FALSE;                                                         \
+            CAP11_HOST(name, b, bit, hv);                                      \
+            if (b) pCaps->Caps |= (flag);                                      \
+        } while (0)
+        SHADER_BIT("SHADER.Doubles", DOUBLES,
+                   hc->doubles.DoublePrecisionFloatShaderOps,
+                   D3D11DDICAPS_SHADER_DOUBLES);
+        SHADER_BIT("SHADER.ComputePlusRawAndStructuredBuffersInShader4x", D3D10X,
+                   hc->d3d10x.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x,
+                   D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X);
+        SHADER_BIT("SHADER.SpecifiedStencilRef", OPTIONS2,
+                   hc->options2.PSSpecifiedStencilRefSupported,
+                   D3D11DDICAPS_SHADER_SPECIFIED_STENCIL_REF);
+        SHADER_BIT("SHADER.TypedUAVLoadAdditionalFormats", OPTIONS2,
+                   hc->options2.TypedUAVLoadAdditionalFormats,
+                   D3D11DDICAPS_SHADER_TYPED_UAV_LOAD_ADDITIONAL_FORMATS);
+        SHADER_BIT("SHADER.ROVs", OPTIONS2, hc->options2.ROVsSupported,
+                   D3D11DDICAPS_SHADER_ROVS);
+#undef SHADER_BIT
         break;
     }
     case D3D11_1DDICAPS_D3D11_OPTIONS: {
         D3D11_1DDI_D3D11_OPTIONS_DATA *pCaps = (D3D11_1DDI_D3D11_OPTIONS_DATA *)pArgs->pData;
-        pCaps->OutputMergerLogicOp      = TRUE;   /* required for 11.1 */
-        pCaps->AssignDebugBinarySupport = FALSE;
+        /* Required for the 11.1 pipeline level; the host backs it. */
+        CAP11_HOST("D3D11_OPTIONS.OutputMergerLogicOp", pCaps->OutputMergerLogicOp,
+                   OPTIONS, hc->options.OutputMergerLogicOp);
+        CAP11_FIXED("D3D11_OPTIONS.AssignDebugBinarySupport",
+                    pCaps->AssignDebugBinarySupport, OPTIONS, 0, FALSE,
+                    "no debug-binary DDI");
         break;
     }
     case D3D11_1DDICAPS_ARCHITECTURE_INFO: {
         /* DDI struct (d3d10umddi.h), not the layout-identical KMD
          * D3DDDICAPS_ARCHITECTURE_INFO.
          *
-         * Deliberately FALSE even when the host capset carries
-         * TRITON_HOSTCAP_TBDR: reporting TRUE switches D2D, DWM and XAML
-         * onto tile-deferred rendering strategies this stack does not
-         * execute correctly end to end, which costs text labels and
-         * title bars in Explorer and the Start menu.  The capset bit
-         * stays as the host-truth record; revisit once those paths are
-         * validated. */
+         * Deliberately FALSE even when the host is tile-based (the capset
+         * carries TRITON_HOSTCAP_TBDR for DXMT): reporting TRUE switches
+         * D2D, DWM and XAML onto tile-deferred rendering strategies this
+         * stack does not execute correctly end to end, which costs text
+         * labels and title bars in Explorer and the Start menu.  The
+         * ledger keeps the host-truth record; revisit once those paths
+         * are validated. */
         D3D11_1DDI_ARCHITECTURE_INFO_DATA *pCaps =
             (D3D11_1DDI_ARCHITECTURE_INFO_DATA *)pArgs->pData;
-        pCaps->TileBasedDeferredRenderer = FALSE;
+        struct triton_adapter_probe probe;
+        tritonSharedBridgeAdapterProbe(&probe);
+        const BOOL hostTbdr = (probe.caps_flags & TRITON_HOSTCAP_TBDR) ||
+                              (HC11(ARCH) && hc->arch.TileBasedDeferredRenderer);
+        TRITON_CAP_TODO("d3d11", "ARCHITECTURE_INFO.TileBasedDeferredRenderer",
+                        pCaps->TileBasedDeferredRenderer, TRUE, hostTbdr, FALSE,
+                        "validate tile-deferred D2D/DWM/XAML paths before reporting TRUE");
         break;
     }
     case D3D11_1DDICAPS_SHADER_MIN_PRECISION_SUPPORT: {
         /* DDI struct (d3d10umddi.h), not the KMD
-         * D3DDDICAPS_SHADER_MIN_PRECISION_SUPPORT — same 8 bytes but
+         * D3DDDICAPS_SHADER_MIN_PRECISION_SUPPORT -- same 8 bytes but
          * different fields.  Both host backends report 16-bit minimum
          * precision for every stage (half is ~2x on Apple GPUs); without
          * this the runtime promotes min16float to fp32 before the DXBC
-         * ever reaches the host. */
+         * ever reaches the host.  The DDI and API flag encodings agree
+         * (10_BIT = 1, 16_BIT = 2). */
         D3D11_DDI_SHADER_MIN_PRECISION_SUPPORT_DATA *pCaps =
             (D3D11_DDI_SHADER_MIN_PRECISION_SUPPORT_DATA *)pArgs->pData;
-        pCaps->PixelShaderMinPrecision    = D3D11_DDI_SHADER_MIN_PRECISION_16_BIT;
-        pCaps->AllOtherStagesMinPrecision = D3D11_DDI_SHADER_MIN_PRECISION_16_BIT;
+        CAP11_HOST("SHADER_MIN_PRECISION.PixelShader", pCaps->PixelShaderMinPrecision,
+                   MINPREC, hc->minPrec.PixelShaderMinPrecision);
+        CAP11_HOST("SHADER_MIN_PRECISION.AllOtherStages", pCaps->AllOtherStagesMinPrecision,
+                   MINPREC, hc->minPrec.AllOtherShaderStagesMinPrecision);
         break;
     }
     case D3D11DDICAPS_3DPIPELINESUPPORT: {
@@ -1106,13 +1211,45 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
         /* D3D feature levels are strict supersets: an 11.0-capable device
          * must also report 10.1/10.0. Advertising 11.x alone is an invalid
          * mask and the runtime rejects the adapter (falling back to WARP).
-         * The host backend satisfies 10.x as a subset of its 11.x support,
-         * so report the contiguous range. */
-        pCaps->Caps =
-            D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0) |
-            D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_1) |
-            D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_11_0) |
-            D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11_1DDI_3DPIPELINELEVEL_11_1);
+         * The range runs from 10.0 to the level the host device came up
+         * at, capped at 11.1: the 12_x pipeline levels are D3D12's. */
+        UINT hostFL = (UINT)hc->featureLevel;
+        UINT top = 0;
+        TRITON_CAP_HOST("d3d11", "3DPIPELINESUPPORT.HighestFeatureLevel", top,
+                        hc->probed,
+                        hostFL > (UINT)D3D_FEATURE_LEVEL_11_1 ? (UINT)D3D_FEATURE_LEVEL_11_1 : hostFL);
+        pCaps->Caps = D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0);
+        if (top >= (UINT)D3D_FEATURE_LEVEL_10_1)
+            pCaps->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_1);
+        if (top >= (UINT)D3D_FEATURE_LEVEL_11_0)
+            pCaps->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_11_0);
+        if (top >= (UINT)D3D_FEATURE_LEVEL_11_1)
+            pCaps->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11_1DDI_3DPIPELINELEVEL_11_1);
+        break;
+    }
+    case D3DWDDM1_3DDICAPS_D3D11_OPTIONS1: {
+        /* Tiled resources need the WDDM 1.3 tile-mapping DDI entry
+         * points, which are not implemented; the flags stay clear
+         * whatever the host's tier.  The field is a cumulative
+         * D3DWDDM1_3DDI_TILED_RESOURCES_SUPPORT_FLAG bitmask (tier N =
+         * (1 << N) - 1), not the API's ordinal tier, so the host tier
+         * is encoded as flags before it enters the ledger. */
+        D3DWDDM1_3DDI_D3D11_OPTIONS_DATA1 *pCaps =
+            (D3DWDDM1_3DDI_D3D11_OPTIONS_DATA1 *)pArgs->pData;
+        CAP11_TODO("D3D11_OPTIONS1.TiledResourcesSupportFlags",
+                   pCaps->TiledResourcesSupportFlags, OPTIONS2,
+                   (1u << hc->options2.TiledResourcesTier) - 1, 0,
+                   "D3D11 tiled-resource DDI (UpdateTileMappings etc.) not implemented");
+        break;
+    }
+    case D3DWDDM2_0DDICAPS_D3D11_OPTIONS2: {
+        /* Only the conservative-rasterization tier lives at DDI level;
+         * the rest of the API OPTIONS2 struct is SHADER caps + runtime. */
+        D3DWDDM2_0DDI_D3D11_OPTIONS2_DATA *pCaps =
+            (D3DWDDM2_0DDI_D3D11_OPTIONS2_DATA *)pArgs->pData;
+        CAP11_HOST("D3D11_OPTIONS2.ConservativeRasterizationTier",
+                   pCaps->ConservativeRasterizationTier, OPTIONS2,
+                   hc->options2.ConservativeRasterizationTier);
         break;
     }
     case D3DWDDM2_0DDICAPS_MEMORY_ARCHITECTURE: {
@@ -1123,8 +1260,12 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
          * the same KMD. */
         D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *pCaps =
             (D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *)pArgs->pData;
-        pCaps->UMA = TRUE;
-        pCaps->CacheCoherent = FALSE;
+        CAP11_FIXED("MEMORY_ARCHITECTURE.UMA", pCaps->UMA, OPTIONS2,
+                    hc->options2.UnifiedMemoryArchitecture, TRUE,
+                    "KMD segment model: guest blobs live in host system memory");
+        CAP11_FIXED("MEMORY_ARCHITECTURE.CacheCoherent", pCaps->CacheCoherent,
+                    OPTIONS2, 0, FALSE,
+                    "BAR-mapped blob access has no GPU cache coherency contract");
         break;
     }
     case D3DWDDM2_0DDICAPS_GPUVA_CAPS: {
@@ -1133,16 +1274,20 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
          * fails device create at the WDDM2.x interface. */
         D3DWDDM2_0DDI_GPUVA_CAPS_DATA *pCaps =
             (D3DWDDM2_0DDI_GPUVA_CAPS_DATA *)pArgs->pData;
-        pCaps->MaxGPUVirtualAddressBitsPerResource = 48;
+        CAP11_FIXED("GPUVA.MaxGPUVirtualAddressBitsPerResource",
+                    pCaps->MaxGPUVirtualAddressBitsPerResource, GPUVA,
+                    hc->gpuva.MaxGPUVirtualAddressBitsPerResource, 48,
+                    "KMD GpuMmu VA width; host VAs are not guest VAs");
         break;
     }
     case D3DWDDM2_0DDICAPS_D3D11_OPTIONS3: {
-        /* Both host backends route SV_ViewportArrayIndex /
-         * SV_RenderTargetArrayIndex written by any pre-rasterizer stage
-         * (no geometry-shader round trip needed). */
+        /* Shader-side: the host routes SV_ViewportArrayIndex /
+         * SV_RenderTargetArrayIndex written by any pre-rasterizer stage. */
         D3DWDDM2_0DDI_D3D11_OPTIONS3_DATA *pCaps =
             (D3DWDDM2_0DDI_D3D11_OPTIONS3_DATA *)pArgs->pData;
-        pCaps->VPAndRTArrayIndexFromAnyShaderFeedingRasterizer = TRUE;
+        CAP11_HOST("D3D11_OPTIONS3.VPAndRTArrayIndexFromAnyShaderFeedingRasterizer",
+                   pCaps->VPAndRTArrayIndexFromAnyShaderFeedingRasterizer,
+                   OPTIONS3, hc->options3.VPAndRTArrayIndexFromAnyShaderFeedingRasterizer);
         break;
     }
     case D3DWDDM2_2DDICAPS_SHADERCACHE: {
@@ -1155,21 +1300,26 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
          * device funcs are callable-safe stubs regardless. */
         D3DWDDM2_2DDICAPS_SHADERCACHE_DATA *pCaps =
             (D3DWDDM2_2DDICAPS_SHADERCACHE_DATA *)pArgs->pData;
-        pCaps->RequestRuntimeShaderCache = FALSE;
+        CAP11_FIXED("SHADERCACHE.RequestRuntimeShaderCache",
+                    pCaps->RequestRuntimeShaderCache, SHADERCACHE,
+                    hc->shaderCache.SupportFlags, FALSE,
+                    "shaders compile host-side; a runtime cache of UMD blobs caches nothing");
         break;
     }
     default:
         /* Unhandled cap types keep the zero-filled pData set above, i.e.
-         * "feature off". That covers the WDDM-tier caps an app may query on
-         * the 2.x interfaces — D3DWDDM1_3DDICAPS_D3D11_OPTIONS1 (136) /
-         * _MARKER (137), D3DWDDM2_0DDICAPS_D3D11_OPTIONS2 (143, tier 0) /
-         * _TEXTURE_LAYOUT (149/154, row-major only). Host-conditional
-         * caps that DO have adapter-scope backing come from the capset
-         * caps_flags carried by the adapter probe, not from a device. */
+         * "feature off": D3DWDDM1_3DDICAPS_MARKER (137) and the
+         * D3DWDDM2_xDDICAPS_TEXTURE_LAYOUT / _SWIZZLE_PATTERN family
+         * (row-major only). */
         break;
     }
     return S_OK;
 }
+
+#undef HC11
+#undef CAP11_HOST
+#undef CAP11_FIXED
+#undef CAP11_TODO
 
 /* ---------- OpenAdapter10_2 ---------- */
 

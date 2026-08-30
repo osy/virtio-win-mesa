@@ -17,6 +17,8 @@
 #include <d3d12.h>
 #include <d3d12umddi.h>
 
+struct triton_host_caps12;
+
 typedef struct TRITON12_ADAPTER
 {
     D3D12DDI_HRTADAPTER     hRTAdapter;
@@ -30,6 +32,14 @@ typedef struct TRITON12_ADAPTER
      * latched at OpenAdapter12.  Gates every capability whose backing
      * varies by host backend (DXIL/SM6, FL 12_0). */
     UINT32                  HostCaps;
+    /* Host feature snapshot (tritonHostCaps.h), taken on the first
+     * GetCaps; every host-backed cap answer translates out of it. */
+    INIT_ONCE               HostCapsOnce;
+    struct triton_host_caps12 *pHostCaps12;
+    /* The inner device the snapshot stood up.  The first CreateDevice
+     * adopts it instead of creating the same device again; CloseAdapter
+     * releases it otherwise. */
+    ID3D12Device           *pCapsDev;
 } TRITON12_ADAPTER, *PTRITON12_ADAPTER;
 
 /* Command queues per device tracked for cross-queue ordering.  The cap only

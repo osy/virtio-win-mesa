@@ -41,8 +41,20 @@
 extern "C" {
 #endif
 
+struct triton_host_caps11;
+
 typedef struct TRITON_ADAPTER {
     D3D10DDI_HRTADAPTER          hRTAdapter;
+    /* Host feature snapshot (tritonHostCaps.h), taken on the first
+     * GetCaps; every host-backed cap answer translates out of it. */
+    INIT_ONCE                    HostCapsOnce;
+    struct triton_host_caps11   *pHostCaps11;
+    /* The inner device (+ immediate context, feature level) the snapshot
+     * stood up.  The first CreateDevice whose requested level it covers
+     * adopts it; CloseAdapter releases it otherwise. */
+    ID3D11Device                *pCapsDev;
+    ID3D11DeviceContext         *pCapsCtx;
+    D3D_FEATURE_LEVEL            CapsFeatureLevel;
 } TRITON_ADAPTER, *PTRITON_ADAPTER;
 
 struct TRITON_SHADER;
