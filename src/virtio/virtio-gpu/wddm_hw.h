@@ -102,7 +102,7 @@ typedef struct _VIOGPU_ADAPTERINFO
     {
         UINT Supports3d : 1;
         UINT HasShmem : 1;
-        UINT Wddm2 : 1;    // KMD in WDDM2 (GpuMmu) mode: blob map/unmap uses the BY_ID wire
+        UINT Wddm2 : 1;    // KMD uses GpuMmu: blob map/unmap takes the BY_ID wire
         UINT Reserved : 29;
     } Flags;
     ULONGLONG SupportedCapsetIDs;
@@ -204,11 +204,20 @@ typedef struct _VIOGPU_RES_INFO_REQ
     ULONGLONG BlobId;
     ULONGLONG Size;
 
-    /* WDDM2 out: for mappable blobs the KMD owns shmem placement (VidMm
-     * locks return system staging pages under GpuMmu, never the BAR
-     * window) and maps BAR+offset into the calling process here.  The
-     * UMD uses this VA instead of D3DKMTLock when nonzero; 0 on WDDM 1.3. */
+    // Out: for a mappable blob the KMD owns shmem placement -- VidMm locks
+    // return system staging pages under GpuMmu, never the BAR window -- and
+    // maps BAR+offset into the calling process here.  The UMD must use this VA
+    // instead of D3DKMTLock when it is nonzero.
     ULONGLONG UserVa;
+
+    // In: the creator's allocation lookup cookie.  Handle-based resolution is
+    // unreliable under GpuMmu -- GetHandleData returns NULL and KMT-map
+    // entries race handle reuse, which resolves a RES_INFO onto a different
+    // allocation and adopts its res_id.  Nonzero means the KMD resolves
+    // through its cookie map first.  The cookie names an allocation but does
+    // not authorize it: the KMD still requires the allocation to be open on
+    // the calling device.
+    ULONGLONG LookupCookie;
 } VIOGPU_RES_INFO_REQ;
 #pragma pack()
 
@@ -402,6 +411,32 @@ typedef struct _VIOGPU_CREATE_ALLOCATION_EXCHANGE
 } VIOGPU_CREATE_ALLOCATION_EXCHANGE;
 #pragma pack()
 
+// Allocation private data extended with a KMD lookup cookie.  dxgkrnl stores
+// the create-time private data with the allocation and replays the SAME bytes
+// at every DxgkDdiOpenAllocation, which makes it the only cross-process-stable
+// way to find the driver object once DxgkCbGetHandleData returns NULL and
+// neither the create->open pairing (in-create opens only) nor the KMT-handle
+// map (seeded at first open) can see the allocation.  Presence is signalled by
+// size: KMD-authored standard allocations report sizeof(EX), UMD allocations
+// keep sizeof(VIOGPU_CREATE_ALLOCATION_EXCHANGE) and are unaffected.
+#pragma pack(1)
+typedef struct _VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX
+{
+    VIOGPU_CREATE_ALLOCATION_EXCHANGE Base;
+    ULONGLONG LookupCookie; // nonzero => recorded in the adapter cookie map
+} VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX;
+#pragma pack()
+
+// Cross-process lookup key for TYPE_SHARED allocations (KMD-internal): the
+// UMD-authored exchange carries no trailing cookie, but (create_ctx_id,
+// blob_id) is unique among live shared textures -- the pending blob is
+// staged per transport context under a per-context-monotonic blob_id.
+// Bit 62 namespaces these away from KMD-minted EX cookies (bit 63).
+static __inline ULONGLONG VioGpuSharedTexCookie(ULONG create_ctx_id, ULONGLONG blob_id)
+{
+    return (1ULL << 62) | ((ULONGLONG)create_ctx_id << 44) | (blob_id & ((1ULL << 44) - 1));
+}
+
 // ================= BLIT
 
 #pragma pack(1)
@@ -426,11 +461,12 @@ struct _VIOGPU_BLIT_PRESENT
 #define VIOGPU_CMD_TRANSFER_FROM_HOST 0x3 // Transfer resource to host
 #define VIOGPU_CMD_MAP_BLOB           0x4 // Map blob resource
 #define VIOGPU_CMD_UNMAP_BLOB         0x5 // Unmap blob resource
-
-//#define VIOGPU_CMD_SUBMIT_UM          0x6
-
 #define VIOGPU_CMD_UNMAP_BLOB_BY_ID   0x7 // Unmap blob host mapping by res_id
-#define VIOGPU_CMD_MAP_BLOB_BY_ID     0x8 // Map blob by res_id (no allocation list; WDDM2 virtual contexts)
+                                          // (payload: UINT res_id[]).  Drops the host
+                                          // mapping over a segment range VidMm is
+                                          // freeing, which would otherwise poison
+                                          // whatever blob reuses the range next.
+#define VIOGPU_CMD_MAP_BLOB_BY_ID     0x8 // Map blob by res_id (virtual contexts carry no allocation list)
 #define VIOGPU_CMD_GATE               0x9 // Hold DMA completion until the VIOGPU_ARM_GATE
                                           // token (ULONGLONG body) fires -- KMD-internal,
                                           // never reaches virtio

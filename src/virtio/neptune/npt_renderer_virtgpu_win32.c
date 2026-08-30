@@ -123,6 +123,17 @@ npt_align64(uint64_t v, uint64_t a)
    return (v + a - 1) & ~(a - 1);
 }
 
+/* Unique-per-live-allocation lookup cookie (see wddm_hw.h): makes the
+ * KMD's open->allocation pairing authoritative.  pid<<32 | counter keeps
+ * bits 62/63 clear (KMD namespaces). */
+static uint64_t
+npt_mint_alloc_cookie(void)
+{
+   static volatile LONG counter;
+   return ((uint64_t)GetCurrentProcessId() << 32) |
+          (uint32_t)InterlockedIncrement(&counter);
+}
+
 static NTSTATUS
 virtgpu_render(struct npt_virtgpu *gpu, UINT cmd_offset, UINT cmd_length,
                UINT alloc_count)
@@ -365,7 +376,7 @@ virtgpu_send_cmd_locked(struct npt_virtgpu *gpu, UINT type, UINT flags,
  * - WDDM 1.3: keep the allocation-list wire.  BY_ID is NOT equivalent
  *   there: the allocation reference is what makes VidMm commit the blob's
  *   backing before the DMA executes, and switching 1.3 to BY_ID blacked
- *   the desktop (scanout armed, frames black -- A/B'd 2026-07-17). */
+ *   the desktop: scanout armed, every frame black. */
 static NTSTATUS
 virtgpu_map_blob_op(struct npt_virtgpu *gpu, D3DKMT_HANDLE alloc,
                     uint32_t res_id, UINT type)
@@ -447,14 +458,17 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
       *out_user_va = NULL;
    blob_size = (size_t)npt_align64(blob_size, 4096);
 
-   VIOGPU_CREATE_ALLOCATION_EXCHANGE alloc_priv = {
-      .Type = VIOGPU_RESOURCE_TYPE_BLOB,
-      .OptionsBlob = {
-         .blob_mem = blob_mem,
-         .blob_flags = blob_flags,
-         .blob_id = blob_id,
+   VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX alloc_priv = {
+      .Base = {
+         .Type = VIOGPU_RESOURCE_TYPE_BLOB,
+         .OptionsBlob = {
+            .blob_mem = blob_mem,
+            .blob_flags = blob_flags,
+            .blob_id = blob_id,
+         },
+         .Size = blob_size,
       },
-      .Size = blob_size,
+      .LookupCookie = npt_mint_alloc_cookie(),
    };
    VIOGPU_CREATE_RESOURCE_EXCHANGE res_priv = { 0 };
    D3DDDI_ALLOCATIONINFO alloc_info = {
@@ -465,9 +479,10 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
    const bool is_shareable = !!(blob_flags & VIOGPU_BLOB_FLAG_USE_SHAREABLE);
    const bool is_mappable = !!(blob_flags & VIOGPU_BLOB_FLAG_USE_MAPPABLE);
 
-   if (!virtgpu_drain(gpu))
-      return STATUS_UNSUCCESSFUL;
-
+   /* No drain: creates ride concurrently with in-flight DMA (WDDM's
+    * normal model).  The KMD's open->allocation pairing is authoritative
+    * via LookupCookie, and the RES_INFO retry below tolerates a create
+    * still pending on the asynchronous ctrl queue. */
    D3DKMT_CREATEALLOCATION alloc = {
       .hDevice = gpu->device,
       .pPrivateDriverData = &res_priv,
@@ -488,10 +503,6 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
    *out_alloc = alloc_info.hAllocation;
    *out_res_kmt = alloc.hResource;
 
-   if (!virtgpu_drain(gpu)) {
-      status = STATUS_UNSUCCESSFUL;
-      goto fail_destroy;
-   }
 
    /* On a WDDM2 (GpuMmu) KMD the RES_INFO escape returns UserVa: the
     * KMD owns the shmem placement and maps BAR+offset into this process
@@ -500,20 +511,39 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
    VIOGPU_ESCAPE res_info = {
       .Type = VIOGPU_RES_INFO,
       .DataLength = sizeof(res_info.ResourceInfo),
-      .ResourceInfo = { .ResHandle = *out_alloc },
+      .ResourceInfo = {
+         .ResHandle = *out_alloc,
+         /* Authoritative identity: handle resolution raced handle reuse
+          * and once bound this blob to another allocation's res_id. */
+         .LookupCookie = alloc_priv.LookupCookie,
+      },
    };
-   status = virtgpu_escape(gpu, &res_info);
-   if (!NT_SUCCESS(status)) {
-      npt_log("virtgpu: RES_INFO escape failed 0x%lx", status);
-      goto fail_destroy;
+   /* The KMD issues RESOURCE_CREATE_BLOB from the in-create open, but the
+    * virtio ctrl queue is asynchronous and virtgpu_drain only flushes the
+    * D3DKMT scheduler -- immediately after CreateAllocation the blob can
+    * legitimately still be pending.  Retry briefly instead of failing the
+    * whole device create, which otherwise fails nondeterministically
+    * with "failed to create ring". */
+   for (int attempt = 0;; attempt++) {
+      status = virtgpu_escape(gpu, &res_info);
+      if (!NT_SUCCESS(status)) {
+         npt_log("virtgpu: RES_INFO escape failed 0x%lx", status);
+         goto fail_destroy;
+      }
+      if (res_info.ResourceInfo.IsBlob && res_info.ResourceInfo.IsCreated)
+         break;
+      if (attempt >= 100) {
+         npt_log("virtgpu: RES_INFO reports blob not created (gave up after %d tries)",
+                 attempt + 1);
+         status = STATUS_INVALID_PARAMETER;
+         goto fail_destroy;
+      }
+      if (attempt == 0)
+         npt_log("virtgpu: RES_INFO blob not created yet -- retrying");
+      Sleep(1);
    }
    if (out_user_va)
       *out_user_va = (void *)(uintptr_t)res_info.ResourceInfo.UserVa;
-   if (!res_info.ResourceInfo.IsBlob || !res_info.ResourceInfo.IsCreated) {
-      npt_log("virtgpu: RES_INFO reports blob not created");
-      status = STATUS_INVALID_PARAMETER;
-      goto fail_destroy;
-   }
    *out_res_id = res_info.ResourceInfo.Id;
 
    if (is_mappable) {
@@ -561,12 +591,15 @@ npt_vgw32_import_res(struct npt_renderer *r, uint32_t res_id, uint64_t size,
 {
    struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
 
-   VIOGPU_CREATE_ALLOCATION_EXCHANGE alloc_priv = {
-      .Type = VIOGPU_RESOURCE_TYPE_IMPORT,
-      .OptionsImport = {
-         .res_id = res_id,
+   VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX alloc_priv = {
+      .Base = {
+         .Type = VIOGPU_RESOURCE_TYPE_IMPORT,
+         .OptionsImport = {
+            .res_id = res_id,
+         },
+         .Size = npt_align64(size ? size : 4096, 4096),
       },
-      .Size = npt_align64(size ? size : 4096, 4096),
+      .LookupCookie = npt_mint_alloc_cookie(),
    };
    VIOGPU_CREATE_RESOURCE_EXCHANGE res_priv = { 0 };
    D3DDDI_ALLOCATIONINFO alloc_info = {
