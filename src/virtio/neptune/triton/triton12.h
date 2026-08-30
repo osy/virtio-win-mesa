@@ -109,6 +109,10 @@ typedef struct TRITON12_HEAP
      * placed-resource create in this heap can rebuild inner-API
      * arguments without a wire GetDesc round-trip. */
     D3D12_HEAP_DESC              Desc;
+    /* Residency-only placeholder for a heap created without a covering
+     * buffer; 0 when the heap+buffer shape carried the allocation on the
+     * buffer resource instead. */
+    D3DKMT_HANDLE                hKMAllocation;
 } TRITON12_HEAP, *PTRITON12_HEAP;
 
 typedef struct TRITON12_RESOURCE
@@ -141,6 +145,10 @@ typedef struct TRITON12_RESOURCE
      * forwarded for it.  FALSE means committed backing, where the
      * mapping DDIs have nothing to do. */
     BOOL                         TiledHost;
+    /* hKMAllocation is the residency-only placeholder from
+     * triton12RegisterResidencyAlloc rather than a shared blob: it names no
+     * memory and must never be handed to the present path. */
+    BOOL                         ResidencyOnlyAlloc;
 } TRITON12_RESOURCE, *PTRITON12_RESOURCE;
 
 typedef struct TRITON12_QUERYHEAP
@@ -269,6 +277,17 @@ void triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
  * allocation is still registered against r's runtime handle. */
 BOOL triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
                                 BOOL primary, ID3D12Resource *pSurf);
+
+/* Give a resource a KM allocation that names no memory, so runtime-serviced
+ * residency operations accept it (see VIOGPU_BLOB_FLAG_RESIDENCY_ONLY in
+ * wddm_hw.h).  Returns FALSE when the resource already has one or the
+ * allocation callback is unavailable. */
+BOOL triton12RegisterResidencyAlloc(PTRITON12_DEVICE p, PTRITON12_RESOURCE r);
+
+/* The bare allocation, for objects with no TRITON12_RESOURCE (standalone
+ * heaps).  Returns 0 on failure. */
+D3DKMT_HANDLE triton12AllocResidencyOnly(PTRITON12_DEVICE p,
+                                         HANDLE hRTResource);
 
 /* ---------- tiled resources: standard tile geometry ---------- */
 

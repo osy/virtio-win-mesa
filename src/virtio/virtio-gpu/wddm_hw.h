@@ -329,6 +329,12 @@ typedef struct _VIOGPU_RESOURCE_3D_OPTIONS
 #define VIOGPU_BLOB_FLAG_USE_SHAREABLE    0x0002
 //#define VIOGPU_BLOB_FLAG_USE_CROSS_DEVICE 0x0004
 #define VIOGPU_BLOB_FLAG_PINNED           0x0008
+// Blob that exists only so its resource owns a kernel allocation: no res_id is
+// minted for it, RESOURCE_CREATE_BLOB is never issued, and neither is the
+// RESOURCE_UNREF at destroy.  ID3D12Device1::SetResidencyPriority is serviced
+// inside the D3D12 runtime, which rejects an object owning no allocation with
+// E_INVALIDARG without ever consulting the driver.
+#define VIOGPU_BLOB_FLAG_RESIDENCY_ONLY   0x0010
 #pragma pack(1)
 typedef struct _VIOGPU_RESOURCE_BLOB_OPTIONS
 {

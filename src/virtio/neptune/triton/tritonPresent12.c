@@ -142,6 +142,83 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
     return TRUE;
 }
 
+/* ---------- residency-only KM allocation ---------- */
+
+/* Unique-per-live-allocation cookie (wddm_hw.h): pid<<32 | counter keeps
+ * bits 62/63 clear for the KMD's namespaces; bit 31 of the counter word
+ * separates this minter from the transport's (npt_mint_alloc_cookie) in
+ * the same process. */
+static ULONGLONG
+t12MintAllocCookie(void)
+{
+    static volatile LONG counter;
+    return ((ULONGLONG)GetCurrentProcessId() << 32) | 0x80000000ull |
+           ((ULONG)InterlockedIncrement(&counter) & 0x7fffffffu);
+}
+
+D3DKMT_HANDLE
+triton12AllocResidencyOnly(PTRITON12_DEVICE p, HANDLE hRTResource)
+{
+    if (!p || !hRTResource)
+        return 0;
+    if (!p->pUMCallbacks || !p->pUMCallbacks->pfnAllocateCb)
+        return 0;
+
+    t12EnsureRuntimeCtx(p);
+
+    /* The EX form carries a lookup cookie, which is the only way the KMD
+     * pairs this allocation's in-create open with the right object: a
+     * plain exchange falls back to its KMT-handle map, and dxgkrnl reuses
+     * handle values while a deferred-release allocation still owns the
+     * old binding, so the open lands on the wrong, still-live allocation
+     * and its eventual teardown frees the device-allocation dxgkrnl holds
+     * for this one (bugcheck 0x3B in VioGpu3DCloseAllocation).  Thousands
+     * of these come and go per frame, which is what makes the reuse
+     * window real. */
+    VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX ax;
+    memset(&ax, 0, sizeof(ax));
+    ax.Base.Type = VIOGPU_RESOURCE_TYPE_BLOB;
+    /* RESIDENCY_ONLY keeps the KMD from minting a res_id or creating a host
+     * resource for this allocation; one page of guest address space is the
+     * whole cost, and nothing ever renders with it. */
+    ax.Base.OptionsBlob.blob_mem   = VIOGPU_BLOB_MEM_GUEST;
+    ax.Base.OptionsBlob.blob_flags = VIOGPU_BLOB_FLAG_RESIDENCY_ONLY;
+    ax.Base.OptionsBlob.blob_id    = 0;
+    ax.Base.Size                   = 4096;
+    ax.LookupCookie                = t12MintAllocCookie();
+
+    D3D12DDI_ALLOCATION_INFO_0022 ai;
+    memset(&ai, 0, sizeof(ai));
+    ai.pPrivateDriverData    = &ax;
+    ai.PrivateDriverDataSize = sizeof(ax);
+
+    D3D12DDICB_ALLOCATE_0022 cb;
+    memset(&cb, 0, sizeof(cb));
+    cb.hResource       = hRTResource;
+    cb.NumAllocations  = 1;
+    cb.pAllocationInfo = &ai;
+
+    HRESULT hr = p->pUMCallbacks->pfnAllocateCb(p->hRTDevice, &cb);
+    if (FAILED(hr) || !ai.hAllocation) {
+        TR_LOG("12.residency: pfnAllocateCb failed hr=0x%08lx",
+               (unsigned long)hr);
+        return 0;
+    }
+    return ai.hAllocation;
+}
+
+BOOL
+triton12RegisterResidencyAlloc(PTRITON12_DEVICE p, PTRITON12_RESOURCE r)
+{
+    if (!p || !r || r->hKMAllocation)
+        return FALSE;
+    r->hKMAllocation = triton12AllocResidencyOnly(p, r->hRTResource.handle);
+    if (!r->hKMAllocation)
+        return FALSE;
+    r->ResidencyOnlyAlloc = TRUE;
+    return TRUE;
+}
+
 /* ---------- lazy KM allocation on demand ----------
  *
  * No DDI flag marks swapchain backbuffers at create time (they arrive
@@ -159,8 +236,17 @@ t12CheckResourceAllocationHandle(D3D12DDI_HDEVICE hDevice,
     PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hResource.pDrvPrivate;
     if (!p || !r)
         return 0;
-    if (!r->hKMAllocation)
-        triton12RegisterSharedBlob(p, r, FALSE, NULL);
+    /* Replace a residency-only placeholder with a real export; the runtime
+     * frees the orphaned placeholder with the resource. */
+    if (!r->hKMAllocation || r->ResidencyOnlyAlloc) {
+        if (triton12RegisterSharedBlob(p, r, FALSE, NULL))
+            r->ResidencyOnlyAlloc = FALSE;
+    }
+    /* A placeholder that survived the export retry names no memory: report
+     * no allocation, so a swapchain create fails cleanly instead of
+     * presenting it. */
+    if (r->ResidencyOnlyAlloc)
+        return 0;
     TR_LOG("12.CheckResourceAllocationHandle: r=%p -> 0x%x", (void *)r,
            r->hKMAllocation);
     return r->hKMAllocation;

@@ -225,7 +225,7 @@ t12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
 }
 
 static HRESULT APIENTRY
-t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
+t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                          const D3D12DDIARG_CREATEHEAP_0001 *pHeapDesc,
                          D3D12DDI_HHEAP hHeap,
                          D3D12DDI_HRTRESOURCE hRTResource,
@@ -556,6 +556,43 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
     }
 
     return E_INVALIDARG;
+}
+
+/* Heaps and committed resources need a kernel allocation whether or not
+ * they are presentable: ID3D12Device1::SetResidencyPriority is serviced
+ * inside the D3D12 runtime, which returns E_INVALIDARG for an object that
+ * owns none without consulting the driver.  Resources created here live on
+ * the host, so only the presentable ones get an allocation from the
+ * shared-blob export; every other heap-desc create gets the memory-less
+ * placeholder.  Placed and reserved resources are left without one: they
+ * own no allocation on any driver -- residency belongs to their heap. */
+static HRESULT APIENTRY
+t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
+                         const D3D12DDIARG_CREATEHEAP_0001 *pHeapDesc,
+                         D3D12DDI_HHEAP hHeap,
+                         D3D12DDI_HRTRESOURCE hRTResource,
+                         const D3D12DDIARG_CREATERESOURCE_0003 *pResDesc,
+                         const D3D12DDI_CLEAR_VALUES *pClearValues,
+                         D3D12DDI_HRESOURCE hResource)
+{
+    const HRESULT hr = t12CreateHeapAndResourceCore(
+        hDevice, pHeapDesc, hHeap, hRTResource, pResDesc, pClearValues,
+        hResource);
+    if (SUCCEEDED(hr) && pHeapDesc) {
+        PTRITON12_DEVICE p = triton12Device(hDevice);
+        PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hResource.pDrvPrivate;
+        PTRITON12_HEAP h = (PTRITON12_HEAP)hHeap.pDrvPrivate;
+        if (p && r && r->pResource) {
+            if (!r->hKMAllocation)
+                triton12RegisterResidencyAlloc(p, r);
+        } else if (p && h && h->pHeap && !h->hKMAllocation) {
+            /* Heap-only create: no covering buffer rode along, so the
+             * heap carries the placeholder itself. */
+            h->hKMAllocation =
+                triton12AllocResidencyOnly(p, hRTResource.handle);
+        }
+    }
+    return hr;
 }
 
 static VOID APIENTRY
