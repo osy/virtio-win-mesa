@@ -20,6 +20,145 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* == CPU-window trimming ===================================================
+ * Shmem-backed heaps are the one consumer that can fill the fixed,
+ * never-evicted store their windows are carved from (the hostmem BAR
+ * under the WDDM2 KMD, shared with the transport): titles hold gigabytes
+ * of write-once staging heaps live across a load, far past the store.
+ * The CPU window is only needed while a Map is outstanding -- the host
+ * GPU reaches the heap through its own mapping -- so heaps whose shmems
+ * are window_reclaimable register here and the trimmer returns unmapped
+ * windows to the store when an allocation wants room.  Trimming is
+ * reactive only: in the common case a window is established once and
+ * never moves.  Heaps on permanent-window shmems (wine, vtest, WDDM 1.3
+ * locks -- see npt_renderer_shmem) never register and carry none of the
+ * bookkeeping.
+ *
+ * Locking: registry mutex, then per-heap map_mtx by TRYLOCK only -- a
+ * held map_mtx means the heap is mid-Map (or mid-restore, which may block
+ * on the renderer's submission lock while a transport allocation holding
+ * it waits on the trimmer), and skipping it is both correct and the
+ * deadlock break. */
+
+static _Atomic int g_heap_trim_state; /* see NPT_CALL_ONCE */
+static mtx_t g_heap_trim_mtx;
+static struct list_head g_heap_trim_list;
+
+static void
+heap_trim_init(void)
+{
+   mtx_init(&g_heap_trim_mtx, mtx_plain);
+   list_inithead(&g_heap_trim_list);
+}
+
+/* The tail of the store bulk staging may not consume: kept for the
+ * allocations that have no fallback (ring upload growth, map-shadow pool
+ * chunks) and for other processes' transport.  Staging has the host-heap
+ * fallback, so the cost of the ceiling is a slower create, never a
+ * failure. */
+#define NPT_SHMEM_BULK_RESERVE (512ull << 20)
+
+static uint64_t
+npt_d3d12_heap_trim(struct npt_renderer *renderer, uint64_t want)
+{
+   uint64_t freed = 0;
+   NPT_CALL_ONCE(g_heap_trim_state, heap_trim_init());
+   mtx_lock(&g_heap_trim_mtx);
+   list_for_each_entry (struct npt_d3d12_shmem_heap, h, &g_heap_trim_list,
+                        trim_link) {
+      if (h->renderer != renderer)
+         continue;
+      if (mtx_trylock(&h->map_mtx) != thrd_success)
+         continue;
+      if (h->active_maps == 0 && h->shmem != NULL &&
+          h->shmem->mmap_ptr != NULL &&
+          npt_renderer_shmem_window_release(renderer, h->shmem))
+         freed += h->size;
+      mtx_unlock(&h->map_mtx);
+      if (freed >= want)
+         break;
+   }
+   mtx_unlock(&g_heap_trim_mtx);
+   if (freed)
+      npt_log("d3d12_heap: trimmed %" PRIu64 " bytes of unmapped heap "
+              "windows", freed);
+   return freed;
+}
+
+static void
+heap_trim_register(struct npt_d3d12_shmem_heap *h,
+                   struct npt_renderer *renderer)
+{
+   h->renderer = renderer;
+   if (!h->shmem->window_reclaimable)
+      return;
+   NPT_CALL_ONCE(g_heap_trim_state, heap_trim_init());
+   mtx_init(&h->map_mtx, mtx_plain);
+   h->active_maps = 0;
+   mtx_lock(&g_heap_trim_mtx);
+   list_addtail(&h->trim_link, &g_heap_trim_list);
+   /* Publish the trimmer so transport allocations can retry through it
+    * (idempotent: always the same function). */
+   renderer->shmem_trim = npt_d3d12_heap_trim;
+   mtx_unlock(&g_heap_trim_mtx);
+   h->registered = true;
+}
+
+static void
+heap_trim_unregister(struct npt_d3d12_shmem_heap *h)
+{
+   if (!h->registered)
+      return;
+   mtx_lock(&g_heap_trim_mtx);
+   list_del(&h->trim_link);
+   mtx_unlock(&g_heap_trim_mtx);
+   mtx_destroy(&h->map_mtx);
+   h->registered = false;
+}
+
+void *
+npt_d3d12_heap_map_acquire(struct npt_d3d12_shmem_heap *h)
+{
+   void *ptr = NULL;
+   if (h == NULL || h->shmem == NULL)
+      return NULL;
+   if (!h->registered)
+      return h->shmem->mmap_ptr; /* permanent window */
+   mtx_lock(&h->map_mtx);
+   if (h->shmem->mmap_ptr == NULL &&
+       !npt_renderer_shmem_window_restore(h->renderer, h->shmem) &&
+       h->renderer->shmem_trim != NULL) {
+      /* The store is full of resident windows: free just enough and
+       * retry, then everything releasable -- the first pass can free
+       * enough bytes without freeing enough CONTIGUOUS bytes.  The
+       * trimmer skips this heap (map_mtx is held), and restore may
+       * sleep on host round trips, which is fine under map_mtx. */
+      if (h->renderer->shmem_trim(h->renderer, h->size) > 0)
+         npt_renderer_shmem_window_restore(h->renderer, h->shmem);
+      if (h->shmem->mmap_ptr == NULL &&
+          h->renderer->shmem_trim(h->renderer, UINT64_MAX) > 0)
+         npt_renderer_shmem_window_restore(h->renderer, h->shmem);
+   }
+   if (h->shmem->mmap_ptr != NULL) {
+      h->active_maps++;
+      ptr = h->shmem->mmap_ptr;
+   }
+   mtx_unlock(&h->map_mtx);
+   return ptr;
+}
+
+void
+npt_d3d12_heap_map_release(struct npt_d3d12_shmem_heap *h)
+{
+   if (h == NULL || !h->registered)
+      return;
+   mtx_lock(&h->map_mtx);
+   assert(h->active_maps > 0);
+   if (h->active_maps > 0)
+      h->active_maps--;
+   mtx_unlock(&h->map_mtx);
+}
+
 static const GUID *const heap12_tiers[] = {
    &NPT_IID_ID3D12Heap, &NPT_IID_ID3D12Heap1, NULL,
 };
@@ -45,6 +184,7 @@ npt_d3d12_heap_shmem_free(struct npt_renderer *renderer,
 {
    if (!h)
       return;
+   heap_trim_unregister(h);
    /* Reaper-deferred blob destroy: COM_RELEASE for the heap was
     * already queued (npt_com_destroy runs before aux_destroy), and the
     * host defers the munmap while the import is live, so out-of-order
@@ -87,6 +227,26 @@ npt_d3d12_heap_create_shmem_backed(void *device_wrapper, const GUID *riid,
    if (!h)
       return NULL;
 
+   /* Bulk ceiling: the store has no eviction, so staging that would eat
+    * into the transport reserve first reclaims its own unmapped windows
+    * and, when everything left is pinned, degrades to the callers'
+    * host-heap fallback instead of starving the ring and pool. */
+   uint64_t st_total = 0, st_used = 0;
+   if (npt_renderer_shmem_info(dev->renderer, &st_total, &st_used) &&
+       st_total > NPT_SHMEM_BULK_RESERVE &&
+       st_used + size > st_total - NPT_SHMEM_BULK_RESERVE) {
+      npt_d3d12_heap_trim(dev->renderer,
+                          st_used + size - (st_total - NPT_SHMEM_BULK_RESERVE));
+      if (npt_renderer_shmem_info(dev->renderer, &st_total, &st_used) &&
+          st_used + size > st_total - NPT_SHMEM_BULK_RESERVE) {
+         npt_log("d3d12_heap: store near capacity (%" PRIu64 "/%" PRIu64
+                 "); %" PRIu64 "-byte staging heap degrades to the "
+                 "host-heap path", st_used, st_total, size);
+         free(h);
+         return NULL;
+      }
+   }
+
    h->shmem = npt_renderer_shmem_create(dev->renderer, (size_t)size);
    if (!h->shmem) {
       npt_log("d3d12_heap: shmem create (%" PRIu64 " bytes) failed", size);
@@ -94,6 +254,7 @@ npt_d3d12_heap_create_shmem_backed(void *device_wrapper, const GUID *riid,
       return NULL;
    }
    h->size = size;
+   heap_trim_register(h, dev->renderer);
 
    /* The blob was just created on the KMD/context path; the host ring
     * thread may not have observed the resource-table insert yet.

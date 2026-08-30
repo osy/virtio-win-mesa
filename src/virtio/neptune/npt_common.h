@@ -34,6 +34,7 @@ enum { thrd_success = 0, thrd_error = -1 };
 static inline int mtx_init(mtx_t *m, int type) { (void)type; InitializeCriticalSection(m); return 0; }
 static inline void mtx_destroy(mtx_t *m) { DeleteCriticalSection(m); }
 static inline int mtx_lock(mtx_t *m) { EnterCriticalSection(m); return 0; }
+static inline int mtx_trylock(mtx_t *m) { return TryEnterCriticalSection(m) ? thrd_success : thrd_error; }
 static inline int mtx_unlock(mtx_t *m) { LeaveCriticalSection(m); return 0; }
 static inline void thrd_yield(void) { SwitchToThread(); }
 typedef CONDITION_VARIABLE cnd_t;

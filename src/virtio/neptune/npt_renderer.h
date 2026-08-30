@@ -52,6 +52,15 @@ struct npt_renderer_shmem {
    uint32_t res_id;
    size_t size;
    void *mmap_ptr;
+   /* The backend can return this shmem's CPU window to its store and
+    * re-establish it later (shmem_ops.window_release/window_restore).
+    * Set only where releasing the window actually recovers store
+    * capacity: the WDDM2 KMD's BAR windows.  Guest-side unmap of a
+    * memfd (vtest), a DRM vram mapping (wine virtgpu, whose kernel
+    * frees the hostmem carveout only at object destroy), or a VidMm
+    * lock (WDDM 1.3) frees nothing, so those windows are permanent and
+    * the flag stays clear. */
+   bool window_reclaimable;
 };
 
 struct npt_renderer_info {
@@ -87,6 +96,24 @@ struct npt_renderer_shmem_ops {
                                         size_t size);
    void (*destroy)(struct npt_renderer *renderer,
                    struct npt_renderer_shmem *shmem);
+
+   /* Occupancy of the store shmems are carved from (the hostmem BAR on
+    * virtgpu-win32).  false = no accounting available. */
+   bool (*info)(struct npt_renderer *renderer, uint64_t *out_total,
+                uint64_t *out_used);
+
+   /* Release / re-establish a shmem's CPU window while the blob and the
+    * host memory behind it stay untouched (the host GPU reaches the blob
+    * through its own mapping, never the window).  Legal only for shmems
+    * marked window_reclaimable and only while nothing reads or writes
+    * mmap_ptr: release NULLs mmap_ptr and returns the window to the
+    * store; restore repoints mmap_ptr, possibly at a DIFFERENT address.
+    * Renderers whose create never sets window_reclaimable leave the ops
+    * NULL and every window is permanent. */
+   bool (*window_release)(struct npt_renderer *renderer,
+                          struct npt_renderer_shmem *shmem);
+   bool (*window_restore)(struct npt_renderer *renderer,
+                          struct npt_renderer_shmem *shmem);
 };
 
 struct npt_renderer_ops {
@@ -200,6 +227,13 @@ struct npt_renderer {
    struct npt_renderer_ops ops;
    struct npt_renderer_shmem_ops shmem_ops;
 
+   /* Releases CPU windows nothing has mapped (npt_d3d12_heap.c registers
+    * its trimmer) so a full store can serve a new allocation.  Returns
+    * the bytes returned to the store.  MUST NOT enter the renderer's
+    * submission lock: it runs under it when a transport allocation
+    * retries (see npt_renderer_shmem_create). */
+   uint64_t (*shmem_trim)(struct npt_renderer *renderer, uint64_t want);
+
    /* Set (never cleared) when a ring blob CPU mapping is observed torn
     * down in place -- a guest WDDM TDR removes the whole D3DKMT device
     * and every blob mapping of it reads as the zero page from then on.
@@ -269,7 +303,41 @@ npt_renderer_submit_cmd_sync(struct npt_renderer *renderer,
 static inline struct npt_renderer_shmem *
 npt_renderer_shmem_create(struct npt_renderer *renderer, size_t size)
 {
-   return renderer->shmem_ops.create(renderer, size);
+   struct npt_renderer_shmem *s = renderer->shmem_ops.create(renderer, size);
+   if (s != NULL || renderer->shmem_trim == NULL)
+      return s;
+   /* The store ran dry: reclaim unmapped heap windows and retry.  A
+    * second pass releases everything releasable -- the first pass frees
+    * `size` bytes but not necessarily `size` CONTIGUOUS bytes. */
+   if (renderer->shmem_trim(renderer, size) > 0)
+      s = renderer->shmem_ops.create(renderer, size);
+   if (s == NULL && renderer->shmem_trim(renderer, UINT64_MAX) > 0)
+      s = renderer->shmem_ops.create(renderer, size);
+   return s;
+}
+
+static inline bool
+npt_renderer_shmem_info(struct npt_renderer *renderer, uint64_t *out_total,
+                        uint64_t *out_used)
+{
+   return renderer->shmem_ops.info != NULL &&
+          renderer->shmem_ops.info(renderer, out_total, out_used);
+}
+
+static inline bool
+npt_renderer_shmem_window_release(struct npt_renderer *renderer,
+                                  struct npt_renderer_shmem *shmem)
+{
+   return renderer->shmem_ops.window_release != NULL &&
+          renderer->shmem_ops.window_release(renderer, shmem);
+}
+
+static inline bool
+npt_renderer_shmem_window_restore(struct npt_renderer *renderer,
+                                  struct npt_renderer_shmem *shmem)
+{
+   return renderer->shmem_ops.window_restore != NULL &&
+          renderer->shmem_ops.window_restore(renderer, shmem);
 }
 
 static inline void

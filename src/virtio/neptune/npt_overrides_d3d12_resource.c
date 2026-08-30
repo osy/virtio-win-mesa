@@ -10,9 +10,10 @@
  *
  * Persistent map: resources on shmem-backed heaps (npt_d3d12_heap.c --
  * UPLOAD/READBACK/CPU-CUSTOM buffers) carry {shmem_heap, heap_offset} in
- * their aux, so Map returns shmem_base + heap_offset with no wire
- * traffic at all (the host imported the same pages as the heap's device
- * memory) and Unmap is a local no-op.
+ * their aux, so Map returns window_base + heap_offset (the host imported
+ * the same pages as the heap's device memory) and Unmap only unpins the
+ * window.  Wire traffic happens only when Map must re-establish a window
+ * the trimmer reclaimed.
  *
  * Sync map: everything else.  Map is a synchronous MAP_RESOURCE round
  * trip -- the host maps the resource and copies its current contents
@@ -232,6 +233,14 @@ npt_d3d12_resource_aux_destroy(void *aux_raw)
    struct npt_d3d12_resource_aux *aux = aux_raw;
    sync_map_list_remove(aux);
    npt_d3d_map_ring_fini(&aux->map_ring);
+   /* A persistently-mapped resource may die without a final Unmap (legal
+    * per D3D12); its window pins die with it. */
+   if (aux->shmem_heap != NULL) {
+      while (aux->map_count > 0) {
+         aux->map_count--;
+         npt_d3d12_heap_map_release(aux->shmem_heap);
+      }
+   }
    /* COM_RELEASE for the resource was queued by npt_com_destroy before
     * this runs, so the host drops the placed resource before the heap:
     * the heap's release (possibly triggered here) then frees the
@@ -386,15 +395,26 @@ res12_Map_override(void *self, UINT Subresource,
       return NPT_E_NOTIMPL;
 
    /* Persistent-map fast path: the host GPU aliases the shmem pages
-    * (VK_EXT_external_memory_host heap import), so the mapping is
-    * always live -- no wire traffic, persistent maps just work. */
+    * (VK_EXT_external_memory_host heap import), so no wire traffic per
+    * access.  The CPU window is pinned per Map and cached across map
+    * cycles; a window the trimmer reclaimed is re-established here
+    * (npt_d3d12_heap.c), possibly at a different address -- which D3D12
+    * permits across map spans. */
    if (aux->shmem_heap) {
       if (Subresource != 0)
          return NPT_E_INVALIDARG;
+      uint8_t *base = npt_d3d12_heap_map_acquire(aux->shmem_heap);
+      if (base == NULL) {
+         /* Store exhausted by pinned windows.  E_OUTOFMEMORY for the
+          * same reason as the texture arm below: it is what the runtime
+          * itself reports when no CPU address can be produced. */
+         npt_log("ID3D12Resource::Map: no CPU window for a %" PRIu64
+                 "-byte heap (store exhausted)", aux->shmem_heap->size);
+         return NPT_E_OUTOFMEMORY;
+      }
       aux->map_count++;
       if (ppData)
-         *ppData = (uint8_t *)npt_d3d12_shmem_heap_ptr(aux->shmem_heap) +
-                   aux->heap_offset;
+         *ppData = base + aux->heap_offset;
       return NPT_S_OK;
    }
 
@@ -490,8 +510,10 @@ res12_Unmap_override(void *self, UINT Subresource,
       return;
    }
    if (aux->shmem_heap) {
-      /* Persistent-map fast path: local bookkeeping only. */
+      /* Persistent-map fast path: drop the window pin; the window itself
+       * stays cached until the trimmer wants it. */
       aux->map_count--;
+      npt_d3d12_heap_map_release(aux->shmem_heap);
       return;
    }
    if (aux->cpu_layout_map) {

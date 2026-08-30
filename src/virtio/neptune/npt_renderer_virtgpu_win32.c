@@ -48,6 +48,14 @@ struct npt_virtgpu_shmem {
    /* mmap_ptr came from the WDDM2 KMD's RES_INFO mapping rather than
     * D3DKMTLock; the KMD tears it down at allocation destroy. */
    bool kmd_mapped;
+   /* Create-time allocation lookup cookie: the authoritative identity
+    * for the RES_INFO / RES_RELEASE_WINDOW escapes (handle-based
+    * resolution races handle reuse). */
+   uint64_t cookie;
+   /* The CPU window is released (mmap_ptr NULL, BAR window returned to
+    * the store); window_restore rebuilds it.  Only ever true on the
+    * kmd_mapped (WDDM2) path. */
+   bool window_released;
 };
 
 struct npt_virtgpu {
@@ -92,6 +100,11 @@ struct npt_virtgpu {
    /* KMD runs in WDDM2 (GpuMmu) mode -- from VIOGPU_ADAPTERINFO.  Wire
     * selection for blob map/unmap depends on it, see virtgpu_map_blob_op. */
    bool wddm2;
+
+   /* KMD implements the shmem window escapes -- probed once via
+    * VIOGPU_SHMEM_INFO (0 unprobed, 1 yes, -1 no).  Racing first probes
+    * store the same verdict; last-write-wins is benign. */
+   int shmem_reclaim_state;
 
    /* Kernel context is virtual (D3DKMTCreateContextVirtual) and commands
     * ride D3DKMTSubmitCommand private data instead of the Render command
@@ -452,7 +465,7 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
                              uint64_t blob_id, uint32_t *out_res_id,
                              D3DKMT_HANDLE *out_alloc,
                              D3DKMT_HANDLE *out_res_kmt,
-                             void **out_user_va)
+                             void **out_user_va, uint64_t *out_cookie)
 {
    if (out_user_va)
       *out_user_va = NULL;
@@ -544,6 +557,8 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
    }
    if (out_user_va)
       *out_user_va = (void *)(uintptr_t)res_info.ResourceInfo.UserVa;
+   if (out_cookie)
+      *out_cookie = alloc_priv.LookupCookie;
    *out_res_id = res_info.ResourceInfo.Id;
 
    if (is_mappable) {
@@ -650,6 +665,23 @@ npt_vgw32_release_import_res(struct npt_renderer *r, uint32_t alloc,
                                  (D3DKMT_HANDLE)res_kmt);
 }
 
+static bool
+npt_vgw32_shmem_info(struct npt_renderer *r, uint64_t *out_total,
+                     uint64_t *out_used);
+
+/* SHMEM_INFO and RES_RELEASE_WINDOW ship in the same KMD revision, so
+ * one probe covers both escapes. */
+static bool
+virtgpu_shmem_reclaim_supported(struct npt_virtgpu *gpu)
+{
+   if (!gpu->shmem_reclaim_state) {
+      uint64_t total, used;
+      gpu->shmem_reclaim_state =
+         npt_vgw32_shmem_info(&gpu->base, &total, &used) ? 1 : -1;
+   }
+   return gpu->shmem_reclaim_state > 0;
+}
+
 static struct npt_renderer_shmem *
 npt_vgw32_shmem_create(struct npt_renderer *r, size_t size)
 {
@@ -660,10 +692,11 @@ npt_vgw32_shmem_create(struct npt_renderer *r, size_t size)
    D3DKMT_HANDLE alloc = 0, res_kmt = 0;
    uint32_t res_id = 0;
    void *kmd_va = NULL;
+   uint64_t cookie = 0;
    NTSTATUS status = virtgpu_resource_create_blob(
       gpu, VIOGPU_BLOB_MEM_HOST3D,
       VIOGPU_BLOB_FLAG_USE_MAPPABLE,
-      alloc_size, 0, &res_id, &alloc, &res_kmt, &kmd_va);
+      alloc_size, 0, &res_id, &alloc, &res_kmt, &kmd_va, &cookie);
    if (!NT_SUCCESS(status))
       return NULL;
 
@@ -695,7 +728,110 @@ npt_vgw32_shmem_create(struct npt_renderer *r, size_t size)
    s->alloc = alloc;
    s->res_kmt = res_kmt;
    s->kmd_mapped = kmd_va != NULL;
+   s->cookie = cookie;
+   s->window_released = false;
+   /* Only KMD-placed BAR windows can be returned to the store; a VidMm
+    * lock (1.3 path) frees nothing on unlock. */
+   s->base.window_reclaimable =
+      s->kmd_mapped && virtgpu_shmem_reclaim_supported(gpu);
    return &s->base;
+}
+
+static bool
+npt_vgw32_shmem_info(struct npt_renderer *r, uint64_t *out_total,
+                     uint64_t *out_used)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   VIOGPU_ESCAPE esc = {
+      .Type = VIOGPU_SHMEM_INFO,
+      .DataLength = sizeof(esc.ShmemInfo),
+   };
+   if (!NT_SUCCESS(virtgpu_escape(gpu, &esc)) || !esc.ShmemInfo.TotalBytes)
+      return false; /* older KMD, or no shmem window */
+   *out_total = esc.ShmemInfo.TotalBytes;
+   *out_used = esc.ShmemInfo.UsedBytes;
+   return true;
+}
+
+/* Give the shmem's BAR window back to the store while the blob (and the
+ * host D3D12 heap imported over it) lives on.  Caller guarantees nothing
+ * touches mmap_ptr concurrently.  MUST NOT take gpu->cs: the trimmer runs
+ * under it when a transport allocation retries. */
+static bool
+npt_vgw32_shmem_window_release(struct npt_renderer *r,
+                               struct npt_renderer_shmem *_s)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   struct npt_virtgpu_shmem *s = (struct npt_virtgpu_shmem *)_s;
+   if (!s->kmd_mapped || s->window_released)
+      return false;
+
+   VIOGPU_ESCAPE esc = {
+      .Type = VIOGPU_RES_RELEASE_WINDOW,
+      .DataLength = sizeof(esc.ResRelease),
+      .ResRelease = {
+         .ResHandle = s->alloc,
+         .LookupCookie = s->cookie,
+      },
+   };
+   NTSTATUS status = virtgpu_escape(gpu, &esc);
+   if (!NT_SUCCESS(status)) {
+      npt_log("virtgpu: window release (res %u) failed 0x%lx",
+              s->base.res_id, status);
+      return false;
+   }
+   s->base.mmap_ptr = NULL;
+   s->window_released = true;
+   return true;
+}
+
+/* Re-establish a released window: RES_INFO re-places the blob and maps a
+ * fresh UserVa (the address may differ -- D3D12 promises map addresses
+ * only within one nested-map span), then MAP_BLOB rebuilds the host-side
+ * mapping behind it. */
+static bool
+npt_vgw32_shmem_window_restore(struct npt_renderer *r,
+                               struct npt_renderer_shmem *_s)
+{
+   struct npt_virtgpu *gpu = (struct npt_virtgpu *)r;
+   struct npt_virtgpu_shmem *s = (struct npt_virtgpu_shmem *)_s;
+   if (!s->window_released)
+      return true;
+
+   VIOGPU_ESCAPE res_info = {
+      .Type = VIOGPU_RES_INFO,
+      .DataLength = sizeof(res_info.ResourceInfo),
+      .ResourceInfo = {
+         .ResHandle = s->alloc,
+         .LookupCookie = s->cookie,
+      },
+   };
+   NTSTATUS status = virtgpu_escape(gpu, &res_info);
+   if (!NT_SUCCESS(status) || !res_info.ResourceInfo.UserVa) {
+      npt_log("virtgpu: window restore RES_INFO (res %u) failed 0x%lx",
+              s->base.res_id, status);
+      return false;
+   }
+   status = virtgpu_map_blob_op(gpu, s->alloc, s->base.res_id,
+                                VIOGPU_CMD_MAP_BLOB);
+   if (!NT_SUCCESS(status)) {
+      npt_log("virtgpu: window restore MAP_BLOB (res %u) failed 0x%lx",
+              s->base.res_id, status);
+      /* Undo so the window is not left placed-but-unbacked. */
+      VIOGPU_ESCAPE rel = {
+         .Type = VIOGPU_RES_RELEASE_WINDOW,
+         .DataLength = sizeof(rel.ResRelease),
+         .ResRelease = {
+            .ResHandle = s->alloc,
+            .LookupCookie = s->cookie,
+         },
+      };
+      virtgpu_escape(gpu, &rel);
+      return false;
+   }
+   s->base.mmap_ptr = (void *)(uintptr_t)res_info.ResourceInfo.UserVa;
+   s->window_released = false;
+   return true;
 }
 
 static void
@@ -708,7 +844,11 @@ npt_vgw32_shmem_destroy(struct npt_renderer *r, struct npt_renderer_shmem *_s)
 
    if (!s->kmd_mapped)
       virtgpu_unlock(gpu, s->alloc);
-   virtgpu_map_blob_op(gpu, s->alloc, s->base.res_id, VIOGPU_CMD_UNMAP_BLOB);
+   /* A released window already queued its host unmap (the KMD's Mapped
+    * flag makes a second one a no-op anyway; skipping saves the packet
+    * round trip). */
+   if (!s->window_released)
+      virtgpu_map_blob_op(gpu, s->alloc, s->base.res_id, VIOGPU_CMD_UNMAP_BLOB);
    virtgpu_resource_destroy_blob(gpu, s->alloc, s->res_kmt);
    free(s);
 }
@@ -1172,6 +1312,9 @@ npt_renderer_create_virtgpu(void)
 
    gpu->base.shmem_ops.create = npt_vgw32_shmem_create;
    gpu->base.shmem_ops.destroy = npt_vgw32_shmem_destroy;
+   gpu->base.shmem_ops.info = npt_vgw32_shmem_info;
+   gpu->base.shmem_ops.window_release = npt_vgw32_shmem_window_release;
+   gpu->base.shmem_ops.window_restore = npt_vgw32_shmem_window_restore;
 
    npt_log("virtgpu: renderer ready (wire=0x%08x, caps=0x%08x, max_timeline=%u)",
            capset.wire_format_version, capset.caps_flags,

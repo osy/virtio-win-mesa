@@ -19,18 +19,39 @@
 #include "npt_com.h"
 #include "npt_renderer.h"
 
+#include "util/list.h"
+
 /* Dedicated blob (not pool-sub-allocated: import is at heap
  * granularity and the blob must outlive the host import). */
 struct npt_d3d12_shmem_heap {
    struct npt_renderer_shmem *shmem;
    uint64_t size;
+   struct npt_renderer *renderer;
+
+   /* CPU-window lifecycle.  The window (shmem->mmap_ptr) is resident
+    * while any Map is outstanding and stays cached afterwards; the
+    * trimmer returns cached windows to the store under pressure, and
+    * the next Map re-establishes one (see npt_d3d12_heap_map_acquire).
+    * map_mtx guards active_maps and every window state transition. */
+   mtx_t map_mtx;
+   uint32_t active_maps;
+
+   /* Entry in the process-wide trim registry (npt_d3d12_heap.c).  Only
+    * heaps on window_reclaimable shmems register; only registered heaps
+    * hold map_mtx/trim_link, and an unregistered heap's window is
+    * permanent. */
+   struct list_head trim_link;
+   bool registered;
 };
 
-static inline void *
-npt_d3d12_shmem_heap_ptr(const struct npt_d3d12_shmem_heap *h)
-{
-   return (h && h->shmem) ? h->shmem->mmap_ptr : NULL;
-}
+/* Pin the heap's CPU window for one Map: re-establishes a trimmed window
+ * (trimming resident ones for room if the store is full) and returns its
+ * base, or NULL when every window is pinned and the store is exhausted.
+ * Balanced by npt_d3d12_heap_map_release at Unmap.  The window may only
+ * be read or written between the two calls -- outside a pin the trimmer
+ * is free to take it. */
+void *npt_d3d12_heap_map_acquire(struct npt_d3d12_shmem_heap *h);
+void npt_d3d12_heap_map_release(struct npt_d3d12_shmem_heap *h);
 
 /* Aux attached to every ID3D12Heap{,1} wrapper.  shmem_heap is NULL
  * for ordinary (host-allocated) heaps. */
