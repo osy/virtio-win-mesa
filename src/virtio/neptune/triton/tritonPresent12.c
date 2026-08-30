@@ -19,6 +19,9 @@
 #include "triton_log.h"
 
 #include "npt_env.h"
+#include "npt_common.h"   /* npt_log: stderr mirrors for rare present-path
+                           * failures, so launcher-spawned games (no ODS
+                           * listener) still leave evidence */
 #include "tritonPresentTiming.h"
 
 static HRESULT
@@ -51,11 +54,13 @@ t12EnsureRuntimeCtx(PTRITON12_DEVICE p)
 
 BOOL
 triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
-                           BOOL primary)
+                           BOOL primary, ID3D12Resource *pSurf)
 {
     /* D3D12 leaves the legacy D3DDDI_DEVICECALLBACKS.pfnAllocateCb NULL;
      * allocation rides the corelayer callback instead. */
-    if (!p->pUMCallbacks || !p->pUMCallbacks->pfnAllocateCb || !r->pResource)
+    if (!pSurf)
+        pSurf = r->pResource;
+    if (!p->pUMCallbacks || !p->pUMCallbacks->pfnAllocateCb || !pSurf)
         return FALSE;
 
     t12EnsureRuntimeCtx(p);
@@ -67,7 +72,7 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
 
     struct triton_shared_texture_desc exp;
     memset(&exp, 0, sizeof(exp));
-    if (!tritonSharedBridgeExportBlob(r->pResource, &exp)) {
+    if (!tritonSharedBridgeExportBlob(pSurf, &exp)) {
         TR_LOG("12.shared: export failed %llux%u fmt=%d",
                (unsigned long long)r->Desc.Width, r->Desc.Height,
                (int)r->Desc.Format);
@@ -155,7 +160,7 @@ t12CheckResourceAllocationHandle(D3D12DDI_HDEVICE hDevice,
     if (!p || !r)
         return 0;
     if (!r->hKMAllocation)
-        triton12RegisterSharedBlob(p, r, FALSE);
+        triton12RegisterSharedBlob(p, r, FALSE, NULL);
     TR_LOG("12.CheckResourceAllocationHandle: r=%p -> 0x%x", (void *)r,
            r->hKMAllocation);
     return r->hKMAllocation;
@@ -226,6 +231,116 @@ t12PtAccount(double sig, double arm, double wait, BOOL already, BOOL gated,
     }
 }
 
+/* ---------- companion present copy ----------
+ *
+ * Companion-backed back buffers (tritonResource12.c) render into a NATIVE
+ * host texture; the KM allocation the runtime's kernel present names is the
+ * shared linear companion.  Copy the finished frame into it here, on the
+ * presenting queue, BEFORE the drain-fence arm in t12Present: the arm's
+ * signal is then queued behind this copy, so both the CPU wait and the KMD
+ * packet gate that key on it stay GPU-true for the copy too -- the
+ * compositor must never sample a mid-copy companion.
+ *
+ * The DDI's own AddedGpuWork/hCommandList mechanism cannot be used for
+ * this: the runtime executes that list only after pfnPresent returns,
+ * which is after the arm -- the copy would land outside the gate.
+ *
+ * Both resources sit in COMMON (PRESENT == COMMON) and the copy relies on
+ * implicit state promotion; present-copy-test in d3dmetal-native verifies
+ * the host accepts exactly this shape (native optimally-tiled source,
+ * substituted linear dest, no barriers).
+ *
+ * Failure policy: any failure skips the copy for this frame -- the
+ * compositor shows the previous frame's companion contents, which beats
+ * tearing down the present.  A rig build failure latches CopyRigDead. */
+static void
+t12PresentCompanionCopy(PTRITON12_QUEUE q, PTRITON12_RESOURCE src)
+{
+    PTRITON12_DEVICE p = q->pDev;
+    UINT i;
+    if (q->CopyRigDead || !p || !p->pDev)
+        return;
+
+    if (!q->pCopyList) {
+        for (i = 0; i < TRITON12_COPY_RING; i++) {
+            if (FAILED(ID3D12Device_CreateCommandAllocator(
+                    p->pDev, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    &IID_ID3D12CommandAllocator,
+                    (void **)&q->pCopyAlloc[i])))
+                break;
+        }
+        if (i == TRITON12_COPY_RING &&
+            SUCCEEDED(ID3D12Device_CreateCommandList(
+                p->pDev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                q->pCopyAlloc[0], NULL, &IID_ID3D12GraphicsCommandList,
+                (void **)&q->pCopyList)))
+            ID3D12GraphicsCommandList_Close(q->pCopyList);
+        if (!q->pCopyList) {
+            for (i = 0; i < TRITON12_COPY_RING; i++) {
+                if (q->pCopyAlloc[i]) {
+                    ID3D12CommandAllocator_Release(q->pCopyAlloc[i]);
+                    q->pCopyAlloc[i] = NULL;
+                }
+            }
+            q->CopyRigDead = TRUE;
+            TR_LOG("12.CompanionCopy: rig build FAILED; presents on this "
+                   "queue will show stale companions");
+            npt_log("companion-copy rig build FAILED (queue %p)", (void *)q);
+            return;
+        }
+        TR_LOG("12.CompanionCopy: rig built (ring=%d)", TRITON12_COPY_RING);
+    }
+
+    /* Reuse gate: the drain value stamped at this allocator's last use
+     * must have completed, or its list is still in flight and Reset would
+     * pull the commands out from under the GPU.  With a ring of 4 and the
+     * present pacing depth this is virtually never waited on. */
+    const UINT idx = q->CopyIdx++ % TRITON12_COPY_RING;
+    if (q->pDrainFence && q->CopyAllocValue[idx]) {
+        const ULONGLONG deadline = GetTickCount64() + 1000;
+        while (ID3D12Fence_GetCompletedValue(q->pDrainFence) <
+               q->CopyAllocValue[idx]) {
+            if (GetTickCount64() >= deadline) {
+                TR_LOG("12.CompanionCopy: allocator %u still in flight "
+                       "after 1s; skipping copy this frame", idx);
+                npt_log("companion-copy allocator %u STUCK 1s (v=%llu done=%llu)",
+                        idx, (unsigned long long)q->CopyAllocValue[idx],
+                        (unsigned long long)
+                            ID3D12Fence_GetCompletedValue(q->pDrainFence));
+                return;
+            }
+            Sleep(1);
+        }
+    }
+
+    if (FAILED(ID3D12CommandAllocator_Reset(q->pCopyAlloc[idx])) ||
+        FAILED(ID3D12GraphicsCommandList_Reset(q->pCopyList,
+                                               q->pCopyAlloc[idx], NULL))) {
+        TR_LOG("12.CompanionCopy: list reset FAILED; skipping copy");
+        npt_log("companion-copy list reset FAILED");
+        return;
+    }
+    ID3D12GraphicsCommandList_CopyResource(q->pCopyList, src->pCompanion,
+                                           src->pResource);
+    if (FAILED(ID3D12GraphicsCommandList_Close(q->pCopyList)))
+        return;
+    {
+        ID3D12CommandList *lists[1] = { (ID3D12CommandList *)q->pCopyList };
+        ID3D12CommandQueue_ExecuteCommandLists(q->pQueue, 1, lists);
+    }
+    /* Stamp the allocator with its own drain value so the reuse gate above
+     * has something to key on.  This signal also floors the present arm's
+     * value: the arm increments past it, keeping values monotonic. */
+    if (q->pDrainFence) {
+        const UINT64 v =
+            (UINT64)InterlockedIncrement64((volatile LONG64 *)&q->DrainValue);
+        if (SUCCEEDED(ID3D12CommandQueue_Signal(q->pQueue, q->pDrainFence, v))) {
+            q->CopyAllocValue[idx] = v;
+            t12PublishDrainVisible(q, v);
+        }
+    }
+}
+
 static VOID APIENTRY
 t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
            const D3D12DDIARG_PRESENT_0001 *pArgs, D3D12DDI_PRESENT_0003 *pOut)
@@ -253,6 +368,12 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
 
     static LONG s_presentN;
     LONG n = InterlockedIncrement(&s_presentN);
+
+    /* Companion-backed back buffer: copy the rendered native frame into
+     * the shared companion the KM allocation names, before the arm below
+     * so the GPU-done gate covers the copy. */
+    if (src && src->pCompanion && src->pResource && q->pQueue)
+        t12PresentCompanionCopy(q, src);
 
     /* Arm the render->flip token for this frame, then wait for it.
      *
@@ -358,10 +479,12 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
                    (unsigned long)shr, (unsigned long)ehr, (int)already,
                    (int)gated,
                    timedOut ? " DEADLINE (presented anyway)" : "");
-    } else if (n <= 8) {
-        TR_LOG("12.PresentArm #%ld: SKIPPED (queue=%p fence=%p evt=%p)",
-               (long)n, (void *)q->pQueue, (void *)q->pDrainFence,
-               (void *)q->hPresentArmEvent);
+        if (timedOut)
+            npt_log("present arm DEADLINE #%ld v=%llu done=%llu gated=%d",
+                    (long)n, (unsigned long long)v,
+                    (unsigned long long)
+                        ID3D12Fence_GetCompletedValue(q->pDrainFence),
+                    (int)gated);
     }
 
     if (n <= 8 || (n & 255) == 0)

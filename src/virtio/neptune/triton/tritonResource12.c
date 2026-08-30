@@ -186,6 +186,44 @@ t12ForceRowMajorOnCpuHeap(const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
         pDesc->Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 }
 
+/* Create the present-copy companion for a native simple-2D render target:
+ * a second committed resource with the same desc but the shared/display/
+ * linear-export heap flags (so the host substitutes its linear shm surface
+ * for it), whose blob then backs the KM allocation registered against the
+ * GAME resource's runtime handle.  The companion starts and stays in
+ * COMMON; its only writer is the CopyResource in t12PresentCompanionCopy,
+ * which relies on implicit COMMON-state promotion (verified host-side by
+ * d3dmetal-native's present-copy-test). */
+static BOOL
+t12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
+                   const D3D12_HEAP_PROPERTIES *props,
+                   const D3D12_RESOURCE_DESC *desc)
+{
+    const D3D12_HEAP_FLAGS hf =
+        D3D12_HEAP_FLAG_ALLOW_DISPLAY | D3D12_HEAP_FLAG_SHARED |
+        (D3D12_HEAP_FLAGS)0x40000000u;
+    D3D12_RESOURCE_DESC cd = *desc;
+    HRESULT hr = ID3D12Device_CreateCommittedResource(
+        p->pDev, props, hf, &cd, D3D12_RESOURCE_STATE_COMMON, NULL,
+        &IID_ID3D12Resource, (void **)&r->pCompanion);
+    if (FAILED(hr) || !r->pCompanion) {
+        TR_LOG("12.CreateCompanion: create FAILED 0x%08lx %llux%u fmt=%d",
+               (unsigned long)hr, (unsigned long long)desc->Width,
+               desc->Height, (int)desc->Format);
+        r->pCompanion = NULL;
+        return FALSE;
+    }
+    if (!triton12RegisterSharedBlob(p, r, FALSE, r->pCompanion)) {
+        ID3D12Resource_Release(r->pCompanion);
+        r->pCompanion = NULL;
+        return FALSE;
+    }
+    TR_LOG("12.CreateCompanion: %llux%u fmt=%d alloc=0x%x",
+           (unsigned long long)desc->Width, desc->Height, (int)desc->Format,
+           r->hKMAllocation);
+    return TRUE;
+}
+
 static HRESULT APIENTRY
 t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
                          const D3D12DDIARG_CREATEHEAP_0001 *pHeapDesc,
@@ -250,8 +288,19 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
             t12IsSimpleTexture2D(pResDesc) &&
             !!(pResDesc->Flags & D3D12DDI_RESOURCE_FLAG_0003_RENDER_TARGET);
         const BOOL shared = primary || rtTex;
+        /* Companion mode: an rtTex resource is created NATIVE -- optimally
+         * tiled, never substituted with a linear shm impostor -- and the
+         * KM allocation the swapchain machinery needs is carried by a
+         * same-desc SHARED companion surface created beside it
+         * (t12CreateCompanion).  t12Present copies the frame into the
+         * companion, so what DXGI/DWM consume is unchanged while the
+         * game's ~hundreds of render targets per level load stay native.
+         * Primaries (fullscreen scanout) keep the direct-shared shape: the
+         * scanout consumes their allocation every frame, and their create
+         * already means "this IS the displayed surface". */
+        const BOOL companion = rtTex && !primary;
         D3D12_HEAP_FLAGS hf = D3D12_HEAP_FLAG_NONE;
-        if (shared) {
+        if (shared && !companion) {
             /* Presentable: SHARED so the host can CreateSharedHandle the
              * resource for the blob export, plus the host's private
              * EXPORT_LINEAR_DMABUF flag -- without it the native shared
@@ -339,8 +388,34 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
             /* pfnMapHeap arrives on the implicit heap's handle. */
             h->pResource = r->pResource;
         }
-        if (SUCCEEDED(hr) && shared)
-            triton12RegisterSharedBlob(p, r, primary);
+        if (SUCCEEDED(hr) && shared) {
+            if (companion) {
+                if (!t12CreateCompanion(p, r, &props, &desc)) {
+                    /* Companion build failed: fall back to an eager
+                     * direct share so the swapchain still works -- the
+                     * resource becomes an impostor, which renders. */
+                    TR_LOG("12.CreateHeapAndResource: companion FAILED for "
+                           "%llux%u fmt=%d; falling back to direct share",
+                           (unsigned long long)desc.Width, desc.Height,
+                           (int)desc.Format);
+                    ID3D12Resource_Release(r->pResource);
+                    r->pResource = NULL;
+                    hf = D3D12_HEAP_FLAG_ALLOW_DISPLAY |
+                         D3D12_HEAP_FLAG_SHARED |
+                         (D3D12_HEAP_FLAGS)0x40000000u;
+                    hr = ID3D12Device_CreateCommittedResource(
+                        p->pDev, &props, hf, &desc,
+                        (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
+                        pClear, &IID_ID3D12Resource, (void **)&r->pResource);
+                    if (h)
+                        h->pResource = r->pResource;
+                    if (SUCCEEDED(hr))
+                        triton12RegisterSharedBlob(p, r, primary, NULL);
+                }
+            } else {
+                triton12RegisterSharedBlob(p, r, primary, NULL);
+            }
+        }
         return hr;
     }
 
@@ -490,6 +565,10 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
     PTRITON12_HEAP h = (PTRITON12_HEAP)hHeap.pDrvPrivate;
     PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hResource.pDrvPrivate;
     (void)hDevice;
+    if (r && r->pCompanion) {
+        ID3D12Resource_Release(r->pCompanion);
+        r->pCompanion = NULL;
+    }
     if (r && r->pResource) {
         ID3D12Resource_Release(r->pResource);
         r->pResource = NULL;

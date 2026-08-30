@@ -126,6 +126,14 @@ typedef struct TRITON12_RESOURCE
      * runtime's kernel present flips.  Presentable resources only. */
     D3D12DDI_HRTRESOURCE         hRTResource;
     D3DKMT_HANDLE                hKMAllocation;
+    /* Present-copy companion.  Simple-2D render targets are created as
+     * NATIVE host textures; hKMAllocation names this same-desc SHARED
+     * linear surface instead, created beside them purely so the swapchain
+     * machinery has a KM allocation to hold.  t12Present copies the
+     * rendered frame into it before the drain-fence arm, so consumers
+     * (DWM, scanout) sample a GPU-complete frame.  NULL for buffers,
+     * primaries (still shared directly) and non-RT textures. */
+    ID3D12Resource              *pCompanion;
     /* Cached host GPU VA (pfnCheckResourceVirtualAddress). */
     UINT64                       GpuVa;
     /* Reserved (tiled) resource created on the host with
@@ -192,6 +200,19 @@ typedef struct TRITON12_QUEUE
      * run. */
     UINT                         Slot;
     UINT64                       XQueueSeen[TRITON12_MAX_QUEUES];
+    /* Present-copy rig (companion resources, tritonPresent12.c): one list
+     * re-recorded against a small allocator ring.  A ring rather than one
+     * allocator because a KMD-gated present returns with its copy still
+     * in flight; CopyAllocValue[i] is the drain-fence value whose
+     * completion proves allocator i's list has executed and it is safe to
+     * Reset.  Built lazily at the first companion present; presents on a
+     * queue are runtime-serialised, so no lock. */
+#define TRITON12_COPY_RING 4
+    ID3D12CommandAllocator      *pCopyAlloc[TRITON12_COPY_RING];
+    UINT64                       CopyAllocValue[TRITON12_COPY_RING];
+    ID3D12GraphicsCommandList   *pCopyList;
+    UINT                         CopyIdx;
+    BOOL                         CopyRigDead; /* build failed; don't retry */
 } TRITON12_QUEUE, *PTRITON12_QUEUE;
 
 /* Publish DrainVisible after a drain Signal has been issued.  Monotonic:
@@ -241,9 +262,13 @@ void triton12InstallPresentDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
 void triton12InstallQueryDeviceFuncs(D3D12DDI_DEVICE_FUNCS_CORE_0022 *t);
 
 /* Give a presentable committed resource its shared-blob KM allocation,
- * which the runtime's kernel present needs to flip it. */
+ * which the runtime's kernel present needs to flip it.  pSurf is the host
+ * surface whose blob backs the allocation: NULL exports r->pResource
+ * itself (the resource IS the shared surface — primaries), non-NULL
+ * exports that surface instead (the present-copy companion) while the
+ * allocation is still registered against r's runtime handle. */
 BOOL triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
-                                BOOL primary);
+                                BOOL primary, ID3D12Resource *pSurf);
 
 /* ---------- tiled resources: standard tile geometry ---------- */
 

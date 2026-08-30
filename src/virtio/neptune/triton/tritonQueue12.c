@@ -208,6 +208,16 @@ t12DestroyCommandQueue(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDQUEUE hQueue)
         p->pUMCallbacks->pfnDestroyContextCb(q->hRTCommandQueue, &dc);
         q->hKMContext = NULL;
     }
+    if (q->pCopyList) {
+        ID3D12GraphicsCommandList_Release(q->pCopyList);
+        q->pCopyList = NULL;
+    }
+    for (UINT ci = 0; ci < TRITON12_COPY_RING; ci++) {
+        if (q->pCopyAlloc[ci]) {
+            ID3D12CommandAllocator_Release(q->pCopyAlloc[ci]);
+            q->pCopyAlloc[ci] = NULL;
+        }
+    }
     if (q->pDrainFence) {
         ID3D12Fence_Release(q->pDrainFence);
         q->pDrainFence = NULL;
