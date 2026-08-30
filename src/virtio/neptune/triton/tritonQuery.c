@@ -377,6 +377,28 @@ static UINT tritonMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format, UINT Sample
     return n;
 }
 
+/* Family MSAA maximum regardless of the member's own target exemption:
+ * what the family's real targets can do.  Read-only depth views need this
+ * for MULTISAMPLE_LOAD -- they can never BE an MSAA target (they report 0
+ * from tritonMsaaQuality), but they are the only way to READ one, so
+ * their load capability follows the family. */
+static UINT tritonMsaaFamilyQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format,
+                                    UINT SampleCount)
+{
+    const DXGI_FORMAT *group = tritonMsaaGroup(Format);
+    if (!group)
+        return tritonNativeMsaaQuality(pD, Format, SampleCount);
+    UINT famMax = 0;
+    for (unsigned j = 0; j < 7 && group[j] != DXGI_FORMAT_UNKNOWN; j++) {
+        if (tritonMsaaForbidden(group[j]))
+            continue;
+        UINT m = tritonNativeMsaaQuality(pD, group[j], SampleCount);
+        if (m > famMax)
+            famMax = m;
+    }
+    return famMax;
+}
+
 static UINT tritonTranslateFormatSupport(UINT s1, UINT s2)
 {
     UINT caps = 0;
@@ -463,6 +485,18 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
         if (!msaaTargetable)
             *pOut &= ~(UINT)D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
     }
+
+    /* MULTISAMPLE_LOAD: the WDDM2.x device DDI's finalization validates the
+     * depth-stencil families from format-support bits alone, with no
+     * CheckMultisampleQualityLevels call.  The X-padded read-view formats
+     * can never be MSAA targets, but they are the only way to READ an MSAA
+     * depth resource, so they must carry MULTISAMPLE_LOAD whenever their
+     * family multisamples; and every MSAA target is itself loadable. */
+    if (*pOut & D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET)
+        *pOut |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_LOAD;
+    else if (tritonMsaaReadOnlyDepthView(Format) &&
+             tritonMsaaFamilyQuality(pD, Format, 4) > 0)
+        *pOut |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_LOAD;
 
     TR_LOG_HOT("CheckFormatSupport fmt=%u -> ddi=0x%08x (host s1=0x%08x s2=0x%08x)",
            (UINT)Format, *pOut, s1, s2);

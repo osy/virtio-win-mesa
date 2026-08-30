@@ -212,6 +212,11 @@ tritonRegisterSharedBlob(PTRITON_DEVICE pD, PTRITON_RESOURCE r,
     }
     r->hKMAllocation = ai.hAllocation;
     r->IsShared      = TRUE;
+    /* WDDM2: the allocation is not resident at create, and the OS's
+     * redirected blt-model present references it as its source -- without
+     * a residency request that present is rejected and hangs the device.
+     * No-op on WDDM 1.3 (see tritonPresentRequestResidency). */
+    tritonPresentRequestResidency(pD, ai.hAllocation);
     TR_LOG("shared: exporter blob_id=0x%llx alloc=0x%x %ux%u primary=%d "
            "pitch=%llu", o->blob_id, ai.hAllocation, r->Width, r->Height,
            primary, o->planes[0].pitch);
@@ -1136,17 +1141,31 @@ tritonSetHardwareProtectionState(D3D10DDI_HDEVICE hDev, BOOL flag)
 }
 
 /* WDDM 2.1: sync-token acquire/release for cross-process shared-resource
- * handoff. D3D11's analogue is IDXGIKeyedMutex / ID3D11Multithread, which
- * apps drive directly through DXGI, not the UMD. */
+ * handoff.  From the 2.1 interface up the runtime stops flushing around
+ * shared/redirection surfaces itself and delegates producer-side
+ * publication to pfnReleaseResource, so Release must flush the device's
+ * pending work: the surface contents have to be submitted (and
+ * host-ordered) before the consumer's acquire, or DWM composes whatever
+ * bytes the surface happens to hold.
+ *
+ * Acquire needs no wait of its own: submissions execute in order on the
+ * host ring, and dxgkrnl serializes the cross-process handoff on the KM
+ * sync token before scheduling the acquirer. */
 
 void APIENTRY
 tritonAcquireResource(D3D10DDI_HDEVICE hDev, D3D10DDI_HRESOURCE hRes, HANDLE h)
 {
-    TR_STUB("AcquireResource (no D3D11 equivalent)");
+    (void)hDev;
+    (void)hRes;
+    (void)h;
 }
 
 void APIENTRY
 tritonReleaseResource(D3D10DDI_HDEVICE hDev, D3D10DDI_HRESOURCE hRes, HANDLE h)
 {
-    TR_STUB("ReleaseResource (no D3D11 equivalent)");
+    PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDev.pDrvPrivate);
+    (void)hRes;
+    (void)h;
+    if (pD && pD->pCtx1)
+        ID3D11DeviceContext1_Flush(pD->pCtx1);
 }

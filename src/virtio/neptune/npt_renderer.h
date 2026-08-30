@@ -191,7 +191,7 @@ struct npt_renderer {
     * and every blob mapping of it reads as the zero page from then on.
     * Every ring wait loop bails on it instead of spinning forever on
     * zeros; submits fail; the runtime's own device-removed handling
-    * tears the device down.  See HANDOFF-fs-ring-wedge-tdr-2026-07-08. */
+    * tears the device down. */
    _Atomic uint32_t lost;
 };
 
@@ -212,6 +212,25 @@ npt_renderer_create_vtest(void);
 
 struct npt_renderer *
 npt_renderer_create_virtgpu(void);
+
+/* Adapter-scope capability probe (win32 virtgpu only).  The D3D11 UMD's
+ * GetSupportedVersions runs before any device -- and therefore before the
+ * transport -- exists, so the advertised DDI versions come from a
+ * standalone one-shot D3DKMT probe of the KMD mode and host capset,
+ * latched process-wide. */
+struct npt_adapter_probe {
+   /* Adapter is viogpu3d with 3D + shmem + the Neptune capset. */
+   bool viogpu;
+   /* KMD runs in WDDM2 (GpuMmu) mode. */
+   bool wddm2;
+   /* Host capset fetched and wire format matches. */
+   bool host_ok;
+   /* NPT_CAPSET_CAP_* bits from the host capset. */
+   uint32_t caps_flags;
+};
+
+const struct npt_adapter_probe *
+npt_adapter_probe(void);
 
 static inline void
 npt_renderer_destroy(struct npt_renderer *renderer)

@@ -15,6 +15,7 @@
 #include "npt_common.h"
 #include "npt_device.h"
 #include "npt_dispatch.h"
+#include "npt_env.h"
 #include "npt_renderer.h"
 #include "npt_shared_texture.h"
 #include "npt_transport_defs.h"
@@ -25,6 +26,19 @@
  * field, so only the plane-array bound has to agree. */
 _Static_assert(TRITON_SHARED_MAX_PLANES == NPT_SHARED_TEXTURE_MAX_PLANES,
                "shared texture plane count mismatch");
+
+void
+tritonSharedBridgeAdapterProbe(struct triton_adapter_probe *out)
+{
+   const struct npt_adapter_probe *probe = npt_adapter_probe();
+   out->viogpu = probe->viogpu;
+   out->wddm2 = probe->wddm2;
+   out->host_ok = probe->host_ok;
+   out->caps_flags = probe->caps_flags;
+   npt_env_init();
+   out->no_wddm2_ddi = NPT_DEBUG(NO_WDDM2_DDI);
+   out->wddm2_0_only = NPT_DEBUG(WDDM2_0_ONLY);
+}
 
 bool
 tritonSharedBridgeExportBlob(void *pResourceWrapper,

@@ -99,6 +99,18 @@ typedef struct TRITON_DEVICE {
     HANDLE                                           hKMContext;
     PFNDDXGIDDI_PRESENTCB                            pfnPresentCb;
 
+    /* WDDM2 paging queue for explicit residency requests
+     * (tritonPresentRequestResidency), created lazily on the first
+     * allocation.  hPagingQueue==0 with PagingQueueTried set means the
+     * runtime/KMD pair has no GpuMmu residency model (WDDM 1.3) and
+     * requests are no-ops.  Creation is guarded by kmCtxLock.
+     * PagingFenceVa is the paging queue's monitored-fence value CPU VA
+     * (from D3DDDICB_CREATEPAGINGQUEUE) -- polled when MakeResident
+     * returns E_PENDING to wait out the queued residency operation. */
+    D3DKMT_HANDLE                                    hPagingQueue;
+    volatile const UINT64                           *PagingFenceVa;
+    BOOL                                             PagingQueueTried;
+
     /* Set once tritonPresentEnsureRuntimeCtx has SUCCESSFULLY issued
      * VIOGPU_CTX_INIT for this device, giving its KMD context a valid virtio
      * context for RESOURCE_CREATE_BLOB / CTX_ATTACH_RESOURCE.  A failed

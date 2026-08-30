@@ -24,6 +24,23 @@ extern "C" {
 
 #define TRITON_SHARED_MAX_PLANES 4
 
+/* Adapter-scope capability probe for DDI version selection (mirror of
+ * the transport's npt_adapter_probe; caps_flags carries NPT_CAPSET_CAP_*
+ * bits).  Runs a one-shot D3DKMT probe on first call and latches the
+ * result process-wide. */
+struct triton_adapter_probe {
+   bool viogpu;
+   bool wddm2;
+   bool host_ok;
+   uint32_t caps_flags;
+   /* NPT_DEBUG policy bits, resolved here so the Triton TUs need not
+    * reach the npt env machinery. */
+   bool no_wddm2_ddi;
+   bool wddm2_0_only;
+};
+
+void tritonSharedBridgeAdapterProbe(struct triton_adapter_probe *out);
+
 /* Wire-neutral texture description; Triton converts to/from the WDDM
  * private-data struct (VIOGPU_RESOURCE_SHARED_TEXTURE_OPTIONS). */
 struct triton_shared_texture_desc {

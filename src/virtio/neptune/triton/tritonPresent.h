@@ -34,6 +34,12 @@ void tritonPresentEnsureRuntimeCtx(PTRITON_DEVICE pD);
 /* Issue a VIOGPU escape on the runtime device. */
 HRESULT tritonPresentEscape(PTRITON_DEVICE pD, VIOGPU_ESCAPE *esc);
 
+/* WDDM2 explicit residency: request residency for a KM allocation this
+ * device created, so an OS-built present blt may reference it.  No-op
+ * (self-gating) on WDDM 1.3.  See tritonPresent.c for the contract. */
+void tritonPresentRequestResidency(PTRITON_DEVICE pD,
+                                   D3DKMT_HANDLE hAllocation);
+
 #ifdef __cplusplus
 }
 #endif

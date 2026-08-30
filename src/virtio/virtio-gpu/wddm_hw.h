@@ -102,7 +102,8 @@ typedef struct _VIOGPU_ADAPTERINFO
     {
         UINT Supports3d : 1;
         UINT HasShmem : 1;
-        UINT Reserved : 30;
+        UINT Wddm2 : 1;    // KMD in WDDM2 (GpuMmu) mode: blob map/unmap uses the BY_ID wire
+        UINT Reserved : 29;
     } Flags;
     ULONGLONG SupportedCapsetIDs;
     LUID AdapterLuid;
@@ -202,6 +203,12 @@ typedef struct _VIOGPU_RES_INFO_REQ
     ULONG BlobMem;
     ULONGLONG BlobId;
     ULONGLONG Size;
+
+    /* WDDM2 out: for mappable blobs the KMD owns shmem placement (VidMm
+     * locks return system staging pages under GpuMmu, never the BAR
+     * window) and maps BAR+offset into the calling process here.  The
+     * UMD uses this VA instead of D3DKMTLock when nonzero; 0 on WDDM 1.3. */
+    ULONGLONG UserVa;
 } VIOGPU_RES_INFO_REQ;
 #pragma pack()
 
@@ -420,6 +427,10 @@ struct _VIOGPU_BLIT_PRESENT
 #define VIOGPU_CMD_MAP_BLOB           0x4 // Map blob resource
 #define VIOGPU_CMD_UNMAP_BLOB         0x5 // Unmap blob resource
 
+//#define VIOGPU_CMD_SUBMIT_UM          0x6
+
+#define VIOGPU_CMD_UNMAP_BLOB_BY_ID   0x7 // Unmap blob host mapping by res_id
+#define VIOGPU_CMD_MAP_BLOB_BY_ID     0x8 // Map blob by res_id (no allocation list; WDDM2 virtual contexts)
 #define VIOGPU_CMD_GATE               0x9 // Hold DMA completion until the VIOGPU_ARM_GATE
                                           // token (ULONGLONG body) fires -- KMD-internal,
                                           // never reaches virtio

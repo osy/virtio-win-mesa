@@ -1145,6 +1145,28 @@ tritonDxgiReclaimResources(DXGI_DDI_ARG_RECLAIMRESOURCES *pArgs)
    return S_OK;
 }
 
+/* DXGI 1.5 variants: the offer gains D3DDDI_OFFER_FLAGS (still advisory
+ * here) and the reclaim reports a per-resource D3DDDI_RECLAIM_RESULT
+ * instead of a BOOL. */
+static HRESULT APIENTRY
+tritonDxgiOfferResources1(DXGI_DDI_ARG_OFFERRESOURCES1 *pArgs)
+{
+   (void)pArgs;
+   return S_OK;
+}
+
+static HRESULT APIENTRY
+tritonDxgiReclaimResources1(DXGI_DDI_ARG_RECLAIMRESOURCES1 *pArgs)
+{
+   if (!pArgs) return E_INVALIDARG;
+   /* No resources are ever discarded, so every reclaim finds the content
+    * intact. */
+   if (pArgs->pResults)
+      for (UINT i = 0; i < pArgs->Resources; i++)
+         pArgs->pResults[i] = D3DDDI_RECLAIM_RESULT_OK;
+   return S_OK;
+}
+
 static HRESULT APIENTRY
 tritonDxgiPresent1(DXGI_DDI_ARG_PRESENT1 *pArgs)
 {
@@ -1192,12 +1214,45 @@ tritonDxgiPresent1(DXGI_DDI_ARG_PRESENT1 *pArgs)
 }
 
 static HRESULT APIENTRY
+tritonDxgiPresent1_6_1(DXGI1_6_1_DDI_ARG_PRESENT *pArgs)
+{
+   /* DXGI1_6_1_DDI_ARG_PRESENT is DXGI_DDI_ARG_PRESENT1 with the trailing
+    * UINT Reserved repurposed as DXGI_DDI_MODE_ROTATION RotationHint
+    * (dxgiddi.h) -- every field this driver reads is at the same offset,
+    * and the hint (advisory pre-rotation) is ignored like Reserved was. */
+   return tritonDxgiPresent1((DXGI_DDI_ARG_PRESENT1 *)pArgs);
+}
+
+static HRESULT APIENTRY
 tritonDxgiCheckPresentDurationSupport(DXGI_DDI_ARG_CHECKPRESENTDURATIONSUPPORT *pArgs)
 {
    if (!pArgs) return E_INVALIDARG;
    /* No custom present-duration support — runtime falls back to vblank. */
    pArgs->ClosestSmallerDuration = 0;
    pArgs->ClosestLargerDuration  = 0;
+   return S_OK;
+}
+
+static HRESULT APIENTRY
+tritonDxgiTrimResidencySet(DXGI_DDI_ARG_TRIMRESIDENCYSET *pArgs)
+{
+   (void)pArgs;
+   /* The WDDM2 residency contract: the OS asks the driver to shrink its
+    * device residency set under memory pressure.  The only residency this
+    * driver holds is the per-allocation request made at create time
+    * (tritonPresentRequestResidency) so the OS's redirected blt-model
+    * present may reference the allocation; evicting one would make its
+    * window unpresentable, so there is nothing safely trimmable. */
+   return S_OK;
+}
+
+static HRESULT APIENTRY
+tritonDxgiCheckMultiplaneOverlayColorSpaceSupport(
+   DXGI_DDI_ARG_CHECKMULTIPLANEOVERLAYCOLORSPACESUPPORT *pArgs)
+{
+   if (!pArgs) return E_INVALIDARG;
+   /* MPO is unsupported (caps entries are NULL), so no colorspace is. */
+   pArgs->Supported = FALSE;
    return S_OK;
 }
 
@@ -1267,6 +1322,44 @@ triton_fill_1_3(DXGI1_3_DDI_BASE_FUNCTIONS *p)
    p->pfnCheckPresentDurationSupport   = tritonDxgiCheckPresentDurationSupport;
 }
 
+/* The 1.4 table is the 1.3 prefix plus the WDDM2.0 entries. */
+static void
+triton_fill_1_4(DXGI1_4_DDI_BASE_FUNCTIONS *p)
+{
+   triton_fill_1_3((DXGI1_3_DDI_BASE_FUNCTIONS *)p);
+   p->pfnTrimResidencySet = tritonDxgiTrimResidencySet;
+   p->pfnCheckMultiplaneOverlayColorSpaceSupport =
+      tritonDxgiCheckMultiplaneOverlayColorSpaceSupport;
+   /* NULL like the other MPO entries; see triton_fill_1_2. */
+   p->pfnPresentMultiplaneOverlay1 = NULL;
+}
+
+/* The 1.5 table (WDDM 2.1+, also handed to WDDM 2.2 pre-build-5 callers as
+ * "1.6") is the 1.4 layout with the offer slot RETYPED to
+ * pfnOfferResources1 (DXGI_DDI_ARG_OFFERRESOURCES1) and a trailing
+ * pfnReclaimResources1 (D3DDDI_RECLAIM_RESULT out-array) appended.
+ * Installing the 1.4 filler here would put an OFFERRESOURCES-typed handler
+ * in an OFFERRESOURCES1 slot and leave pfnReclaimResources1 unwritten. */
+static void
+triton_fill_1_5(DXGI1_5_DDI_BASE_FUNCTIONS *p)
+{
+   triton_fill_1_4((DXGI1_4_DDI_BASE_FUNCTIONS *)p);
+   p->pfnOfferResources1   = tritonDxgiOfferResources1;
+   p->pfnReclaimResources1 = tritonDxgiReclaimResources1;
+}
+
+/* The 1.6.1 table (WDDM 2.2 build >= 5 -- always selected once
+ * D3DWDDM2_2_DDI_SUPPORTED is advertised, since its BUILD_VERSION is 5) is
+ * the 1.5 layout with pfnPresent1 and pfnPresentMultiplaneOverlay1 retyped
+ * to the 1.6.1 arg structs. */
+static void
+triton_fill_1_6_1(DXGI1_6_1_DDI_BASE_FUNCTIONS *p)
+{
+   triton_fill_1_5((DXGI1_5_DDI_BASE_FUNCTIONS *)p);
+   p->pfnPresent1                  = tritonDxgiPresent1_6_1;
+   p->pfnPresentMultiplaneOverlay1 = NULL; /* MPO unsupported */
+}
+
 void
 tritonInstallDXGIFuncs(PTRITON_DEVICE pD,
                        const D3D10DDIARG_CREATEDEVICE *pArgs)
@@ -1286,8 +1379,22 @@ tritonInstallDXGIFuncs(PTRITON_DEVICE pD,
 
    /* Pick the tier matching the runtime-requested DDI interface.  The
     * SDK overlays the version-specific pointers as a union inside
-    * DXGI_DDI_BASE_ARGS, so the chosen field aliases the same storage. */
-   if (IS_DXGI1_3_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {
+    * DXGI_DDI_BASE_ARGS, so the chosen field aliases the same storage.
+    * ORDER MATTERS: the IS_* macros are >= comparisons, so the highest
+    * tier must be tested first (IS_DXGI1_4 is already true at WDDM 2.1+,
+    * where the runtime actually supplies a 1.5 or 1.6.1 struct). */
+   if (IS_DXGI1_6_1_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {
+      triton_fill_1_6_1(pArgs->DXGIBaseDDI.pDXGIDDIBaseFunctions6_1);
+      TR_LOG("InstallDXGIFuncs: tier DXGI1_6_1");
+   } else if (IS_DXGI1_5_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {
+      /* Also covers IS_DXGI1_6 (WDDM 2.2 build < 5), which reuses the
+       * 1.5 struct via pDXGIDDIBaseFunctions6. */
+      triton_fill_1_5(pArgs->DXGIBaseDDI.pDXGIDDIBaseFunctions6);
+      TR_LOG("InstallDXGIFuncs: tier DXGI1_5");
+   } else if (IS_DXGI1_4_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {
+      triton_fill_1_4(pArgs->DXGIBaseDDI.pDXGIDDIBaseFunctions5);
+      TR_LOG("InstallDXGIFuncs: tier DXGI1_4");
+   } else if (IS_DXGI1_3_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {
       triton_fill_1_3(pArgs->DXGIBaseDDI.pDXGIDDIBaseFunctions4);
       TR_LOG("InstallDXGIFuncs: tier DXGI1_3");
    } else if (IS_DXGI1_2_BASE_FUNCTIONS(pArgs->Interface, pArgs->Version)) {

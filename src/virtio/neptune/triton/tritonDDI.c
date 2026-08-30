@@ -18,6 +18,7 @@
 #include "npt_common.h"
 #include "tritonDxgi.h"
 #include "tritonPresent.h"
+#include "tritonSharedBridge.h"
 
 /* Statically linked from src/virtio/neptune/npt_entry_d3d11.c.  The
  * function pulls in the protocol-generated COM machinery internally;
@@ -599,6 +600,48 @@ static void tritonFillWDDM2_1DeviceFuncs(D3DWDDM2_1DDI_DEVICEFUNCS *p)
     p->pfnReleaseResource     = (PFND3DWDDM2_1DDI_SYNC_TOKEN)tritonReleaseResource;
 }
 
+/* WDDM 2.2 shader-cache-session stubs.  The runtime only drives these when
+ * the driver requests a runtime cache (D3DWDDM2_2DDICAPS_SHADERCACHE,
+ * answered FALSE -- compilation happens host-side and both backends keep
+ * their own caches), but the entries must be callable-safe regardless. */
+static SIZE_T APIENTRY tritonCalcPrivateShaderCacheSessionSize(D3D10DDI_HDEVICE hDevice)
+{
+    (void)hDevice;
+    return sizeof(void *); /* smallest non-zero private size */
+}
+
+static VOID APIENTRY tritonCreateShaderCacheSession(D3D10DDI_HDEVICE hDevice,
+                                                    D3DWDDM2_2DDI_HCACHESESSION hSession,
+                                                    D3DWDDM2_2DDI_HRTCACHESESSION hRTSession)
+{
+    (void)hDevice; (void)hSession; (void)hRTSession;
+}
+
+static VOID APIENTRY tritonDestroyShaderCacheSession(D3D10DDI_HDEVICE hDevice,
+                                                     D3DWDDM2_2DDI_HCACHESESSION hSession)
+{
+    (void)hDevice; (void)hSession;
+}
+
+static VOID APIENTRY tritonSetShaderCacheSession(D3D10DDI_HDEVICE hDevice,
+                                                 D3DWDDM2_2DDI_HCACHESESSION hSession)
+{
+    (void)hDevice; (void)hSession;
+}
+
+/* The 2.2 struct is the 2.1 layout with pfnRelocateDeviceFuncs retyped and
+ * the four shader-cache-session entries appended. */
+static void tritonFillWDDM2_2DeviceFuncs(D3DWDDM2_2DDI_DEVICEFUNCS *p)
+{
+    tritonFillWDDM2_1DeviceFuncs((D3DWDDM2_1DDI_DEVICEFUNCS *)(p));
+
+    p->pfnRelocateDeviceFuncs = (PFND3DWDDM2_2DDI_RELOCATEDEVICEFUNCS)TR_STUB_V;
+    p->pfnCalcPrivateShaderCacheSessionSize = tritonCalcPrivateShaderCacheSessionSize;
+    p->pfnCreateShaderCacheSession          = tritonCreateShaderCacheSession;
+    p->pfnDestroyShaderCacheSession         = tritonDestroyShaderCacheSession;
+    p->pfnSetShaderCacheSession             = tritonSetShaderCacheSession;
+}
+
 /* ---------- DestroyDevice ---------- */
 
 static void APIENTRY tritonDestroyDevice(D3D10DDI_HDEVICE hDevice)
@@ -660,6 +703,17 @@ static void APIENTRY tritonDestroyDevice(D3D10DDI_HDEVICE hDevice)
         p->hKMContext = NULL;
         if (p->presentLockInit)
             LeaveCriticalSection(&p->kmCtxLock);
+    }
+
+    /* Tear down the WDDM2 paging queue (tritonPresentRequestResidency);
+     * the residency requests it granted die with this device's
+     * allocations. */
+    if (p->hPagingQueue && p->KTCallbacks.pfnDestroyPagingQueueCb) {
+        D3DDDI_DESTROYPAGINGQUEUE dpq;
+        memset(&dpq, 0, sizeof(dpq));
+        dpq.hPagingQueue = p->hPagingQueue;
+        p->KTCallbacks.pfnDestroyPagingQueueCb(p->hRTDevice.handle, &dpq);
+        p->hPagingQueue = 0;
     }
 
     /* Release the lazily-created present-fence objects under presentLock,
@@ -749,6 +803,14 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
     case D3DWDDM2_1_DDI_INTERFACE_VERSION:
         tritonFillWDDM2_1DeviceFuncs(pArgs->pWDDM2_1DeviceFuncs);
         pArgs->pWDDM2_1DeviceFuncs->pfnDestroyDevice = tritonDestroyDevice;
+        break;
+    case D3DWDDM2_2_DDI_INTERFACE_VERSION:
+    case D3DWDDM2_3_DDI_INTERFACE_VERSION:
+        /* 2.3 has no device-funcs struct of its own -- the
+         * D3D10DDIARG_CREATEDEVICE union goes straight from
+         * pWDDM2_2DeviceFuncs to pWDDM2_6DeviceFuncs. */
+        tritonFillWDDM2_2DeviceFuncs(pArgs->pWDDM2_2DeviceFuncs);
+        pArgs->pWDDM2_2DeviceFuncs->pfnDestroyDevice = tritonDestroyDevice;
         break;
     default:
         TR_LOG("CreateDevice: unsupported interface 0x%08x", pArgs->Interface);
@@ -860,12 +922,8 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
            p->pDev2 ? "yes" : "no", p->pDev3 ? "yes" : "no",
            p->pCtx2 ? "yes" : "no", p->pCtx3 ? "yes" : "no");
 
-    /* The present kernel context (pfnCreateContextCb) is created lazily on
-     * the first present (tritonPresentEnsureKernelContext), not here: some
-     * runtimes probe-create the device and creating a kernel context during
-     * that probe makes them reject/retry the adapter.  Wire DXGI runtime
-     * callbacks once the D3D11 device is up; this also records pfnPresentCb
-     * from the DXGI base callbacks. */
+    /* Wire DXGI runtime callbacks once the D3D11 device is up; this also
+     * records pfnPresentCb from the DXGI base callbacks. */
     tritonInstallDXGIFuncs(p, pArgs);
 
     /* Present-path locks; what each covers is documented on presentLock /
@@ -875,6 +933,18 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
     InitializeCriticalSection(&p->presentLock);
     InitializeCriticalSection(&p->kmCtxLock);
     p->presentLockInit = TRUE;
+
+    /* The kernel context must exist before the runtime's first
+     * dxgkrnl-side operation on it, and those are not all DDI-visible:
+     * ID3D11DeviceContext4::Signal / Wait on a monitored fence never reach
+     * the UMD (there are no fence DDIs), the runtime signals from GPU on
+     * the device's context itself -- and a headless device (no swapchain,
+     * no primary; the EOS overlay's in-game D3D11 device is one) fails
+     * that with E_INVALIDARG when the context is still missing.  Create
+     * it up front on the WDDM2 (virtual) path; the legacy path keeps its
+     * lazy creation on the first present. */
+    if (p->KTCallbacks.pfnCreateContextVirtualCb)
+        tritonPresentEnsureKernelContext(p);
     return S_OK;
 }
 
@@ -895,30 +965,61 @@ static HRESULT APIENTRY tritonCloseAdapter(D3D10DDI_HADAPTER hAdapter)
     return S_OK;
 }
 
+/* Capability-driven DDI version ladder.  The ceiling depends on state
+ * only a kernel probe can see -- the KMD's WDDM mode and the host capset
+ * -- and GetSupportedVersions runs before any device (and therefore any
+ * transport) exists, so the probe is a latched one-shot D3DKMT query
+ * (tritonSharedBridgeAdapterProbe).
+ *
+ * WDDM2.x needs the KMD in WDDM2 (GpuMmu) mode: the runtime's device
+ * finalization enforces the depth-stencil-family MSAA consistency rule
+ * (satisfied via MULTISAMPLE_LOAD reporting, see tritonQuery.c) and
+ * queries GPU-VA caps that must match the KMD's GpuMmu configuration.
+ * The KMD reports WDDMv2.2 unconditionally, so the full 2.0-2.3 range
+ * is offered whenever the probe sees WDDM2 (dxgkrnl validates each tier's
+ * features -- offer/reclaim v2, sync tokens, shader-cache sessions --
+ * against the KMD's reported version, satisfied at 2.2).  The runtime
+ * picks the highest; NPT_DEBUG=wddm2_0_only clamps for triage.
+ *
+ * The 2.3 UMD DDI is deliberately offered ABOVE the KMD's 2.2: it adds no
+ * device-funcs entry and no kernel-visible feature (same struct as 2.2),
+ * but the runtime's per-format requirement tables
+ * (CD3D11FormatHelper::TypedUnorderedAccessViewSupport) only consult the
+ * driver's typed-UAV format bits at driverVersion >= 7 (= the 2.3 DDI); at
+ * 2.2 and below BGRA8 typed UAV is table-blocked outright, which is what
+ * killed FFXIV Dawntrail's CreateTexture2D(B8G8R8A8, SR|RT|UAV).  The KMD
+ * side must NOT follow (2.3 kernel interface = mandatory MPO3 flip DDI ->
+ * bugcheck 0xD1; see viogpu3d driver.cpp).  2.3 reuses the 2.2
+ * device-funcs struct wholesale (no pWDDM2_3DeviceFuncs union member). */
+static UINT32 tritonSelectVersions(UINT64 *pVersions)
+{
+    struct triton_adapter_probe probe;
+    tritonSharedBridgeAdapterProbe(&probe);
+
+    UINT32 n = 0;
+    pVersions[n++] = D3D11_0_DDI_SUPPORTED;
+    pVersions[n++] = D3D11_1_DDI_SUPPORTED;
+    if (!probe.viogpu || probe.no_wddm2_ddi)
+        return n;
+    pVersions[n++] = D3DWDDM1_3_DDI_SUPPORTED;
+    if (probe.wddm2 && probe.host_ok) {
+        pVersions[n++] = D3DWDDM2_0_DDI_SUPPORTED;
+        if (!probe.wddm2_0_only) {
+            pVersions[n++] = D3DWDDM2_1_DDI_SUPPORTED;
+            pVersions[n++] = D3DWDDM2_2_DDI_SUPPORTED;
+            pVersions[n++] = D3DWDDM2_3_DDI_SUPPORTED;
+        }
+    }
+    return n;
+}
+
 static HRESULT APIENTRY tritonGetSupportedVersions(D3D10DDI_HADAPTER hAdapter,
                                                    UINT32 *puEntries,
                                                    UINT64 *pSupportedDDIInterfaceVersions)
 {
     (void)hAdapter;
-    static const UINT64 kSupportedVersions[] = {
-        D3D11_0_DDI_SUPPORTED,
-        D3D11_1_DDI_SUPPORTED,
-        /* Top out at the D3D11.1 device DDI.  At the WDDM2.x device interface
-         * the D3D11 runtime enforces, during device finalization, a depth-
-         * stencil-family MSAA consistency rule that this COM-forwarding driver
-         * cannot satisfy: it validates the MULTISAMPLE_RENDERTARGET format-
-         * support bit on the X-padded depth-read/stencil-read VIEW formats
-         * (e.g. R32_FLOAT_X8X24_TYPELESS) by format support alone, with no
-         * CheckMultisampleQualityLevels call -- and rejects the device whether
-         * the bit is set (a non-target claiming an MSAA target) or clear
-         * (mismatch with the typeless parent).  The D3D11.1 device DDI instead
-         * drives MSAA via CheckMultisampleQualityLevels, which we report
-         * consistently, so device creation finalizes.  D3D11.1 still provides
-         * the flip-model present DWM needs; advertising WDDM2.x would also
-         * require GPU virtual addressing this virtual GPU does not
-         * implement. */
-    };
-    const UINT32 kCount = sizeof(kSupportedVersions) / sizeof(kSupportedVersions[0]);
+    UINT64 versions[8];
+    const UINT32 kCount = tritonSelectVersions(versions);
 
     if (!puEntries)
         return E_INVALIDARG;
@@ -930,8 +1031,10 @@ static HRESULT APIENTRY tritonGetSupportedVersions(D3D10DDI_HADAPTER hAdapter,
 
     const UINT32 toCopy = (*puEntries < kCount) ? *puEntries : kCount;
     for (UINT32 i = 0; i < toCopy; ++i)
-        pSupportedDDIInterfaceVersions[i] = kSupportedVersions[i];
+        pSupportedDDIInterfaceVersions[i] = versions[i];
     *puEntries = toCopy;
+    TR_LOG("GetSupportedVersions: %u entries (ceiling 0x%08x)",
+           toCopy, (UINT32)(versions[kCount - 1] >> 32));
     return S_OK;
 }
 
@@ -993,15 +1096,49 @@ static HRESULT APIENTRY tritonGetCaps(D3D10DDI_HADAPTER hAdapter,
             D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11_1DDI_3DPIPELINELEVEL_11_1);
         break;
     }
+    case D3DWDDM2_0DDICAPS_MEMORY_ARCHITECTURE: {
+        /* Virtual GPU over host system memory: UMA.  Not CacheCoherent --
+         * the KMD's GpuMmu is bookkeeping-only and blob CPU access rides
+         * the KMD-owned BAR mapping, so no coherency contract with GPU
+         * caches can be promised.  Mirrors the accepted D3D12 answer on
+         * the same KMD. */
+        D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *pCaps =
+            (D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *)pArgs->pData;
+        pCaps->UMA = TRUE;
+        pCaps->CacheCoherent = FALSE;
+        break;
+    }
+    case D3DWDDM2_0DDICAPS_GPUVA_CAPS: {
+        /* Must match the KMD's DXGK_GPUMMUCAPS.VirtualAddressBitCount (48)
+         * and the D3D12 UMD's MaxGPUVirtualAddressBitsPerResource; zero
+         * fails device create at the WDDM2.x interface. */
+        D3DWDDM2_0DDI_GPUVA_CAPS_DATA *pCaps =
+            (D3DWDDM2_0DDI_GPUVA_CAPS_DATA *)pArgs->pData;
+        pCaps->MaxGPUVirtualAddressBitsPerResource = 48;
+        break;
+    }
+    case D3DWDDM2_2DDICAPS_SHADERCACHE: {
+        /* Queried by the runtime once the 2.2 DDI is advertised; the case
+         * must exist (an unhandled type at a new tier is the historical
+         * 0x887a0020 failure shape).  RequestRuntimeShaderCache stays
+         * FALSE: shader compilation happens host-side and both backends
+         * keep their own caches, so a runtime-managed cache of UMD blobs
+         * would cache nothing real.  The session entrypoints in the 2.2
+         * device funcs are callable-safe stubs regardless. */
+        D3DWDDM2_2DDICAPS_SHADERCACHE_DATA *pCaps =
+            (D3DWDDM2_2DDICAPS_SHADERCACHE_DATA *)pArgs->pData;
+        pCaps->RequestRuntimeShaderCache = FALSE;
+        break;
+    }
     default:
         /* Unhandled cap types keep the zero-filled pData set above, i.e.
          * "feature off". That covers the WDDM-tier caps an app may query on
          * the 2.0/2.1 interfaces — D3DWDDM1_3DDICAPS_D3D11_OPTIONS1 (136) /
-         * _MARKER (137), D3DWDDM2_0DDICAPS_D3D11_OPTIONS2 (143) /
-         * _MEMORY_ARCHITECTURE (145) / _D3D11_OPTIONS3 (152) / _GPUVA_CAPS
-         * (153). The host backend's support for these optional features
-         * cannot be probed at adapter scope (no device exists yet), so zero
-         * is the only answer we can back. */
+         * _MARKER (137), D3DWDDM2_0DDICAPS_D3D11_OPTIONS2 (143, tier 0) /
+         * _D3D11_OPTIONS3 (152, FALSE) / _TEXTURE_LAYOUT (149/154, row-
+         * major only). The host backend's support for these optional
+         * features cannot be probed at adapter scope (no device exists
+         * yet), so zero is the only answer we can back. */
         break;
     }
     return S_OK;
