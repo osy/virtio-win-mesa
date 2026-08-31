@@ -238,8 +238,10 @@ struct npt_renderer {
     * the resource's RESOURCE_CREATE_BLOB -- i.e. the res_id is already in
     * the render server's resource table, and a ring command may name the
     * fresh res_id with no ordering roundtrip.  The Windows KMD transport
-    * qualifies: every mappable blob create drains a fenced MAP_BLOB whose
-    * acknowledgement rides the FIFO control queue behind the create.
+    * qualifies: every mappable blob create waits for a fenced MAP_BLOB
+    * whose acknowledgement rides the FIFO control queue behind the create
+    * -- synchronously inside the RES_INFO escape where the KMD owns the
+    * window, otherwise through the drained MAP_BLOB packet.
     * Transports that only queue the create leave this false and pay
     * npt_ring_force_roundtrip. */
    bool shmem_create_host_visible;

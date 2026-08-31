@@ -561,13 +561,16 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
       *out_cookie = alloc_priv.LookupCookie;
    *out_res_id = res_info.ResourceInfo.Id;
 
-   /* The KMD only places the window and maps BAR+offset into this
-    * process; the host-side mapping behind the window is established by
-    * this MAP_BLOB alone.  Its drain also carries an ordering guarantee:
-    * the fenced map is acknowledged on the FIFO control queue behind the
-    * KMD's RESOURCE_CREATE_BLOB, which is what lets the renderer claim
+   /* A KMD-owned window (UserVa != 0) arrives already backed: the RES_INFO
+    * escape maps the blob host-side and waits for the acknowledgement, so
+    * there is no packet to submit and no pipeline drain to wait out.
+    * Without one (WDDM 1.3, D3DKMTLock) the host mapping is established by
+    * this MAP_BLOB, and the drain inside the blob op is what makes it
+    * usable.  Either way the host has acknowledged a map queued behind
+    * this blob's RESOURCE_CREATE_BLOB on the FIFO control queue by the
+    * time this returns, which is what lets the renderer claim
     * shmem_create_host_visible. */
-   if (is_mappable) {
+   if (is_mappable && !res_info.ResourceInfo.UserVa) {
       status = virtgpu_map_blob_op(gpu, *out_alloc, *out_res_id, VIOGPU_CMD_MAP_BLOB);
       if (!NT_SUCCESS(status))
          goto fail_destroy;
@@ -795,10 +798,10 @@ npt_vgw32_shmem_window_release(struct npt_renderer *r,
    return true;
 }
 
-/* Re-establish a released window: RES_INFO re-places the blob and maps a
- * fresh UserVa (the address may differ -- D3D12 promises map addresses
- * only within one nested-map span), then MAP_BLOB rebuilds the host-side
- * mapping behind it. */
+/* Re-establish a released window: RES_INFO re-places the blob, rebuilds
+ * the host-side mapping behind it, and maps a fresh UserVa (the address
+ * may differ -- D3D12 promises map addresses only within one nested-map
+ * span). */
 static bool
 npt_vgw32_shmem_window_restore(struct npt_renderer *r,
                                struct npt_renderer_shmem *_s)
@@ -820,14 +823,9 @@ npt_vgw32_shmem_window_restore(struct npt_renderer *r,
    if (!NT_SUCCESS(status) || !res_info.ResourceInfo.UserVa) {
       npt_log("virtgpu: window restore RES_INFO (res %u) failed 0x%lx",
               s->base.res_id, status);
-      return false;
-   }
-   status = virtgpu_map_blob_op(gpu, s->alloc, s->base.res_id,
-                                VIOGPU_CMD_MAP_BLOB);
-   if (!NT_SUCCESS(status)) {
-      npt_log("virtgpu: window restore MAP_BLOB (res %u) failed 0x%lx",
-              s->base.res_id, status);
-      /* Undo so the window is not left placed-but-unbacked. */
+      /* The escape rebuilds the host mapping as part of the placement and
+       * fails as a unit, but a partial placement would leave the window
+       * held and unbacked -- give it back. */
       VIOGPU_ESCAPE rel = {
          .Type = VIOGPU_RES_RELEASE_WINDOW,
          .DataLength = sizeof(rel.ResRelease),
@@ -1325,9 +1323,11 @@ npt_renderer_create_virtgpu(void)
     * Present path; the renderer helpers NULL-check them. */
 
    gpu->base.shmem_ops.create = npt_vgw32_shmem_create;
-   /* Every mappable blob create drains a fenced MAP_BLOB acknowledged
-    * behind its RESOURCE_CREATE_BLOB on the FIFO control queue, so a
-    * created shmem is host-visible by the time create returns. */
+   /* Every mappable blob create waits for a fenced MAP_BLOB acknowledged
+    * behind its RESOURCE_CREATE_BLOB on the FIFO control queue -- inside
+    * the RES_INFO escape where the KMD owns the window, otherwise through
+    * the drained MAP_BLOB packet -- so a created shmem is host-visible by
+    * the time create returns. */
    gpu->base.shmem_create_host_visible = true;
    gpu->base.shmem_ops.destroy = npt_vgw32_shmem_destroy;
    gpu->base.shmem_ops.info = npt_vgw32_shmem_info;
