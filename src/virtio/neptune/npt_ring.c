@@ -645,17 +645,27 @@ npt_ring_upload_reserve_locked(struct npt_ring *ring, uint32_t size,
  * SUBMIT goes via the sync path so it blocks until QEMU has handed
  * the command to the render server -- which, because the virtqueue
  * preserves order, happens only after any preceding
- * RESOURCE_CREATE_BLOB has reached the resource table.  WAIT goes on
- * the ring so the ring thread stops before processing the EXECUTE /
- * SET_REPLY_STREAM that references the fresh res_id.  Caller holds
- * ring->lock.
+ * RESOURCE_CREATE_BLOB has reached the resource table.  Takes no ring
+ * lock: the wait it pairs with does.
+ *
+ * The submit must be synchronous: the wait must already be satisfied
+ * when the host ring thread reaches it.  An asynchronous submit lets
+ * the ring thread genuinely block in WAIT_VIRTQUEUE_SEQNO -- blocking
+ * EVERY client of that ring -- while the packet carrying the seqno
+ * queues behind the KMD scheduler's bounded set of running commands,
+ * whose completions can themselves need the ring to advance.  Where the
+ * transport already orders the create, the whole roundtrip is skipped
+ * instead (shmem_create_host_visible).
  */
-static void
-npt_ring_roundtrip_locked(struct npt_ring *ring)
+static uint64_t
+npt_ring_roundtrip_submit(struct npt_ring *ring)
 {
-   const uint64_t seqno = ++ring->roundtrip_next;
-
-   npt_profile_record_roundtrip(&ring->profile);
+   /* acq_rel: a thread minting a later seqno is thereby ordered after
+    * this thread's create submission, which the out-of-order wait
+    * argument in npt_ring_force_roundtrip relies on. */
+   const uint64_t seqno =
+      atomic_fetch_add_explicit(&ring->roundtrip_next, 1,
+                                memory_order_acq_rel) + 1;
 
    struct npt_cmd_submit_virtqueue_seqno submit_cmd;
    memset(&submit_cmd, 0, sizeof(submit_cmd));
@@ -667,6 +677,18 @@ npt_ring_roundtrip_locked(struct npt_ring *ring)
    submit_cmd.seqno = seqno;
    npt_renderer_submit_cmd_sync(ring->renderer, &submit_cmd,
                                 sizeof(submit_cmd));
+   return seqno;
+}
+
+/*
+ * WAIT goes on the ring so the ring thread stops before processing the
+ * EXECUTE / SET_REPLY_STREAM that references the fresh res_id.  Caller
+ * holds ring->lock.
+ */
+static void
+npt_ring_roundtrip_wait_locked(struct npt_ring *ring, uint64_t seqno)
+{
+   npt_profile_record_roundtrip(&ring->profile);
 
    struct npt_cmd_wait_virtqueue_seqno wait_cmd;
    memset(&wait_cmd, 0, sizeof(wait_cmd));
@@ -677,6 +699,23 @@ npt_ring_roundtrip_locked(struct npt_ring *ring)
    wait_cmd.ring_id = ring->id;
    wait_cmd.seqno = seqno;
    npt_ring_submit_locked(ring, &wait_cmd, sizeof(wait_cmd));
+}
+
+/* A transport that publishes the create to the host before shmem_create
+ * returns has already established what the roundtrip establishes. */
+static inline bool
+npt_ring_needs_create_roundtrip(const struct npt_ring *ring)
+{
+   return !ring->renderer->shmem_create_host_visible;
+}
+
+/* Caller holds ring->lock (upload-shmem growth, mid-reservation). */
+static void
+npt_ring_roundtrip_locked(struct npt_ring *ring)
+{
+   if (!npt_ring_needs_create_roundtrip(ring))
+      return;
+   npt_ring_roundtrip_wait_locked(ring, npt_ring_roundtrip_submit(ring));
 }
 
 /*
@@ -848,10 +887,17 @@ npt_ring_submit_raw_with_payload(struct npt_ring *ring,
 void
 npt_ring_force_roundtrip(struct npt_ring *ring)
 {
-   if (!ring)
+   if (!ring || !npt_ring_needs_create_roundtrip(ring))
       return;
+   /* Mint and submit outside ring->lock -- every recording thread takes
+    * that lock for every wire command, and the submit is a kernel
+    * transition.  Seqnos can then enter the ring out of order, which is
+    * sound: a seqno is minted only after its own resource create is
+    * queued on the FIFO control queue, so the host observing ANY seqno
+    * >= mine proves my create reached the resource table. */
+   const uint64_t seqno = npt_ring_roundtrip_submit(ring);
    npt_ring_lock_acquire(&ring->lock);
-   npt_ring_roundtrip_locked(ring);
+   npt_ring_roundtrip_wait_locked(ring, seqno);
    npt_ring_unlock_and_notify(ring);
 }
 
@@ -918,13 +964,19 @@ npt_ring_submit_command(struct npt_ring *ring,
       submit->reply_offset = (uint32_t)off;
    }
 
-   npt_ring_lock_acquire(&ring->lock);
-
    /* Fresh shmem: roundtrip so the virtqueue dispatcher's
     * RESOURCE_CREATE_BLOB lands before the ring thread reads
-    * SET_REPLY_STREAM and finds no resource for our res_id. */
-   if (shmem_fresh)
-      npt_ring_roundtrip_locked(ring);
+    * SET_REPLY_STREAM and finds no resource for our res_id.  The submit
+    * half is a kernel transition, so it runs before the lock is taken. */
+   const bool need_roundtrip =
+      shmem_fresh && npt_ring_needs_create_roundtrip(ring);
+   const uint64_t roundtrip_seqno =
+      need_roundtrip ? npt_ring_roundtrip_submit(ring) : 0;
+
+   npt_ring_lock_acquire(&ring->lock);
+
+   if (need_roundtrip)
+      npt_ring_roundtrip_wait_locked(ring, roundtrip_seqno);
 
    if (submit->reply_size) {
       struct npt_cmd_set_reply_stream set_cmd;

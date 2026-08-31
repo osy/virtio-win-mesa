@@ -234,6 +234,16 @@ struct npt_renderer {
     * retries (see npt_renderer_shmem_create). */
    uint64_t (*shmem_trim)(struct npt_renderer *renderer, uint64_t want);
 
+   /* True when shmem_ops.create only returns after the HOST has processed
+    * the resource's RESOURCE_CREATE_BLOB -- i.e. the res_id is already in
+    * the render server's resource table, and a ring command may name the
+    * fresh res_id with no ordering roundtrip.  The Windows KMD transport
+    * qualifies: every mappable blob create drains a fenced MAP_BLOB whose
+    * acknowledgement rides the FIFO control queue behind the create.
+    * Transports that only queue the create leave this false and pay
+    * npt_ring_force_roundtrip. */
+   bool shmem_create_host_visible;
+
    /* Set (never cleared) when a ring blob CPU mapping is observed torn
     * down in place -- a guest WDDM TDR removes the whole D3DKMT device
     * and every blob mapping of it reads as the zero page from then on.

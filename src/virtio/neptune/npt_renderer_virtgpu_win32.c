@@ -561,6 +561,12 @@ virtgpu_resource_create_blob(struct npt_virtgpu *gpu, uint32_t blob_mem,
       *out_cookie = alloc_priv.LookupCookie;
    *out_res_id = res_info.ResourceInfo.Id;
 
+   /* The KMD only places the window and maps BAR+offset into this
+    * process; the host-side mapping behind the window is established by
+    * this MAP_BLOB alone.  Its drain also carries an ordering guarantee:
+    * the fenced map is acknowledged on the FIFO control queue behind the
+    * KMD's RESOURCE_CREATE_BLOB, which is what lets the renderer claim
+    * shmem_create_host_visible. */
    if (is_mappable) {
       status = virtgpu_map_blob_op(gpu, *out_alloc, *out_res_id, VIOGPU_CMD_MAP_BLOB);
       if (!NT_SUCCESS(status))
@@ -593,7 +599,11 @@ virtgpu_resource_destroy_blob(struct npt_virtgpu *gpu,
       npt_log("virtgpu: D3DKMTDestroyAllocation failed 0x%lx", status);
       return status;
    }
-   return virtgpu_drain(gpu) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+   /* DestroyAllocation queues RESOURCE_UNREF on the control queue itself;
+    * a scheduler drain neither orders nor waits for that queue, so there
+    * is nothing to drain for here -- it would only park the reaper behind
+    * whatever DMA the recording threads have in flight. */
+   return STATUS_SUCCESS;
 }
 
 /* Attach an existing VM-global virtio resource to this transport
@@ -844,10 +854,14 @@ npt_vgw32_shmem_destroy(struct npt_renderer *r, struct npt_renderer_shmem *_s)
 
    if (!s->kmd_mapped)
       virtgpu_unlock(gpu, s->alloc);
-   /* A released window already queued its host unmap (the KMD's Mapped
-    * flag makes a second one a no-op anyway; skipping saves the packet
-    * round trip). */
-   if (!s->window_released)
+   /* Drop the host mapping through the release-window escape: it unmaps
+    * synchronously in the KMD and returns the BAR range to the store, so
+    * the reaper pays one host round trip instead of a DMA packet plus the
+    * pipeline drain that waits for it.  A released window has already done
+    * this; a window the escape will not take (no KMD window, or another
+    * process still mapping it) falls back to the packet. */
+   if (!s->window_released &&
+       !npt_vgw32_shmem_window_release(r, &s->base))
       virtgpu_map_blob_op(gpu, s->alloc, s->base.res_id, VIOGPU_CMD_UNMAP_BLOB);
    virtgpu_resource_destroy_blob(gpu, s->alloc, s->res_kmt);
    free(s);
@@ -1311,6 +1325,10 @@ npt_renderer_create_virtgpu(void)
     * Present path; the renderer helpers NULL-check them. */
 
    gpu->base.shmem_ops.create = npt_vgw32_shmem_create;
+   /* Every mappable blob create drains a fenced MAP_BLOB acknowledged
+    * behind its RESOURCE_CREATE_BLOB on the FIFO control queue, so a
+    * created shmem is host-visible by the time create returns. */
+   gpu->base.shmem_create_host_visible = true;
    gpu->base.shmem_ops.destroy = npt_vgw32_shmem_destroy;
    gpu->base.shmem_ops.info = npt_vgw32_shmem_info;
    gpu->base.shmem_ops.window_release = npt_vgw32_shmem_window_release;

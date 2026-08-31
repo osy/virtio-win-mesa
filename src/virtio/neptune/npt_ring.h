@@ -214,8 +214,10 @@ struct npt_ring {
     * fails loudly instead of spinning forever. */
    uint32_t watchdog_misses;
 
-   /* Virtqueue-seqno roundtrip counter; advanced under ring->lock. */
-   uint64_t roundtrip_next;
+   /* Virtqueue-seqno roundtrip counter.  Minted outside ring->lock, so
+    * seqnos can enter the ring out of order; the host stores the maximum
+    * and a wait for an older seqno is already satisfied by a newer one. */
+   _Atomic uint64_t roundtrip_next;
 
    struct npt_profile_ring profile;
 
@@ -276,6 +278,9 @@ npt_ring_submit_raw_with_payload(struct npt_ring *ring,
  * any ring command that names a freshly-created shmem's res_id
  * (e.g. REGISTER_QUERY_FEEDBACK), otherwise the ring thread races
  * the resource-table register.
+ *
+ * A no-op on transports whose shmem create is already host-visible on
+ * return (npt_renderer::shmem_create_host_visible).
  */
 void
 npt_ring_force_roundtrip(struct npt_ring *ring);
