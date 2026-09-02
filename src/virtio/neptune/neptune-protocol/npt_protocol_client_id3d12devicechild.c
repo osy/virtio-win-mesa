@@ -67,24 +67,9 @@ npt_id3d12devicechild_default_GetDevice(void *self, const IID * riid, void ** pp
     void **_orig_ppvDevice = ppvDevice;
     if (ppvDevice)
         ppvDevice = (void **)&_raw_ppvDevice;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),riid,ppvDevice);
-    } else {
-        npt_async_ID3D12DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),riid,ppvDevice);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),riid,ppvDevice);
     if (_orig_ppvDevice) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvDevice)
+        if (_raw_ppvDevice)
             *_orig_ppvDevice = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -93,7 +78,11 @@ npt_id3d12devicechild_default_GetDevice(void *self, const IID * riid, void ** pp
         else
             *_orig_ppvDevice = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 

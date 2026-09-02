@@ -66,24 +66,9 @@ npt_id3d11videodevice_default_CreateVideoDecoder(void *self, const D3D11_VIDEO_D
     ID3D11VideoDecoder **_orig_ppDecoder = ppDecoder;
     if (ppDecoder)
         ppDecoder = (ID3D11VideoDecoder **)&_raw_ppDecoder;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoDecoder(npt_com_self_ring(self),npt_com_self_id(self),pVideoDesc,pConfig,ppDecoder);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoDecoder(npt_com_self_ring(self),npt_com_self_id(self),pVideoDesc,pConfig,ppDecoder);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoDecoder(npt_com_self_ring(self),npt_com_self_id(self),pVideoDesc,pConfig,ppDecoder);
     if (_orig_ppDecoder) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppDecoder)
+        if (_raw_ppDecoder)
             *_orig_ppDecoder = (ID3D11VideoDecoder *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoDecoder,
@@ -92,7 +77,11 @@ npt_id3d11videodevice_default_CreateVideoDecoder(void *self, const D3D11_VIDEO_D
         else
             *_orig_ppDecoder = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -106,24 +95,9 @@ npt_id3d11videodevice_default_CreateVideoProcessor(void *self, ID3D11VideoProces
     ID3D11VideoProcessor **_orig_ppVideoProcessor = ppVideoProcessor;
     if (ppVideoProcessor)
         ppVideoProcessor = (ID3D11VideoProcessor **)&_raw_ppVideoProcessor;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoProcessor(npt_com_self_ring(self),npt_com_self_id(self),pEnum,RateConversionIndex,ppVideoProcessor);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoProcessor(npt_com_self_ring(self),npt_com_self_id(self),pEnum,RateConversionIndex,ppVideoProcessor);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoProcessor(npt_com_self_ring(self),npt_com_self_id(self),pEnum,RateConversionIndex,ppVideoProcessor);
     if (_orig_ppVideoProcessor) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppVideoProcessor)
+        if (_raw_ppVideoProcessor)
             *_orig_ppVideoProcessor = (ID3D11VideoProcessor *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoProcessor,
@@ -132,7 +106,11 @@ npt_id3d11videodevice_default_CreateVideoProcessor(void *self, ID3D11VideoProces
         else
             *_orig_ppVideoProcessor = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -146,24 +124,9 @@ npt_id3d11videodevice_default_CreateAuthenticatedChannel(void *self, D3D11_AUTHE
     ID3D11AuthenticatedChannel **_orig_ppAuthenticatedChannel = ppAuthenticatedChannel;
     if (ppAuthenticatedChannel)
         ppAuthenticatedChannel = (ID3D11AuthenticatedChannel **)&_raw_ppAuthenticatedChannel;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateAuthenticatedChannel(npt_com_self_ring(self),npt_com_self_id(self),ChannelType,ppAuthenticatedChannel);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateAuthenticatedChannel(npt_com_self_ring(self),npt_com_self_id(self),ChannelType,ppAuthenticatedChannel);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateAuthenticatedChannel(npt_com_self_ring(self),npt_com_self_id(self),ChannelType,ppAuthenticatedChannel);
     if (_orig_ppAuthenticatedChannel) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppAuthenticatedChannel)
+        if (_raw_ppAuthenticatedChannel)
             *_orig_ppAuthenticatedChannel = (ID3D11AuthenticatedChannel *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11AuthenticatedChannel,
@@ -172,7 +135,11 @@ npt_id3d11videodevice_default_CreateAuthenticatedChannel(void *self, D3D11_AUTHE
         else
             *_orig_ppAuthenticatedChannel = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -186,24 +153,9 @@ npt_id3d11videodevice_default_CreateCryptoSession(void *self, const GUID * pCryp
     ID3D11CryptoSession **_orig_ppCryptoSession = ppCryptoSession;
     if (ppCryptoSession)
         ppCryptoSession = (ID3D11CryptoSession **)&_raw_ppCryptoSession;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateCryptoSession(npt_com_self_ring(self),npt_com_self_id(self),pCryptoType,pDecoderProfile,pKeyExchangeType,ppCryptoSession);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateCryptoSession(npt_com_self_ring(self),npt_com_self_id(self),pCryptoType,pDecoderProfile,pKeyExchangeType,ppCryptoSession);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateCryptoSession(npt_com_self_ring(self),npt_com_self_id(self),pCryptoType,pDecoderProfile,pKeyExchangeType,ppCryptoSession);
     if (_orig_ppCryptoSession) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppCryptoSession)
+        if (_raw_ppCryptoSession)
             *_orig_ppCryptoSession = (ID3D11CryptoSession *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11CryptoSession,
@@ -212,7 +164,11 @@ npt_id3d11videodevice_default_CreateCryptoSession(void *self, const GUID * pCryp
         else
             *_orig_ppCryptoSession = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -226,24 +182,9 @@ npt_id3d11videodevice_default_CreateVideoDecoderOutputView(void *self, ID3D11Res
     ID3D11VideoDecoderOutputView **_orig_ppVDOVView = ppVDOVView;
     if (ppVDOVView)
         ppVDOVView = (ID3D11VideoDecoderOutputView **)&_raw_ppVDOVView;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoDecoderOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pDesc,ppVDOVView);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoDecoderOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pDesc,ppVDOVView);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoDecoderOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pDesc,ppVDOVView);
     if (_orig_ppVDOVView) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppVDOVView)
+        if (_raw_ppVDOVView)
             *_orig_ppVDOVView = (ID3D11VideoDecoderOutputView *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoDecoderOutputView,
@@ -252,7 +193,11 @@ npt_id3d11videodevice_default_CreateVideoDecoderOutputView(void *self, ID3D11Res
         else
             *_orig_ppVDOVView = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -266,24 +211,9 @@ npt_id3d11videodevice_default_CreateVideoProcessorInputView(void *self, ID3D11Re
     ID3D11VideoProcessorInputView **_orig_ppVPIView = ppVPIView;
     if (ppVPIView)
         ppVPIView = (ID3D11VideoProcessorInputView **)&_raw_ppVPIView;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoProcessorInputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPIView);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoProcessorInputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPIView);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoProcessorInputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPIView);
     if (_orig_ppVPIView) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppVPIView)
+        if (_raw_ppVPIView)
             *_orig_ppVPIView = (ID3D11VideoProcessorInputView *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoProcessorInputView,
@@ -292,7 +222,11 @@ npt_id3d11videodevice_default_CreateVideoProcessorInputView(void *self, ID3D11Re
         else
             *_orig_ppVPIView = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -306,24 +240,9 @@ npt_id3d11videodevice_default_CreateVideoProcessorOutputView(void *self, ID3D11R
     ID3D11VideoProcessorOutputView **_orig_ppVPOView = ppVPOView;
     if (ppVPOView)
         ppVPOView = (ID3D11VideoProcessorOutputView **)&_raw_ppVPOView;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoProcessorOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPOView);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoProcessorOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPOView);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoProcessorOutputView(npt_com_self_ring(self),npt_com_self_id(self),pResource,pEnum,pDesc,ppVPOView);
     if (_orig_ppVPOView) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppVPOView)
+        if (_raw_ppVPOView)
             *_orig_ppVPOView = (ID3D11VideoProcessorOutputView *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoProcessorOutputView,
@@ -332,7 +251,11 @@ npt_id3d11videodevice_default_CreateVideoProcessorOutputView(void *self, ID3D11R
         else
             *_orig_ppVPOView = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -346,24 +269,9 @@ npt_id3d11videodevice_default_CreateVideoProcessorEnumerator(void *self, const D
     ID3D11VideoProcessorEnumerator **_orig_ppEnum = ppEnum;
     if (ppEnum)
         ppEnum = (ID3D11VideoProcessorEnumerator **)&_raw_ppEnum;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11VideoDevice_CreateVideoProcessorEnumerator(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppEnum);
-    } else {
-        npt_async_ID3D11VideoDevice_CreateVideoProcessorEnumerator(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppEnum);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11VideoDevice_CreateVideoProcessorEnumerator(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppEnum);
     if (_orig_ppEnum) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppEnum)
+        if (_raw_ppEnum)
             *_orig_ppEnum = (ID3D11VideoProcessorEnumerator *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11VideoProcessorEnumerator,
@@ -372,7 +280,11 @@ npt_id3d11videodevice_default_CreateVideoProcessorEnumerator(void *self, const D
         else
             *_orig_ppEnum = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 UINT NPT_STDMETHODCALLTYPE

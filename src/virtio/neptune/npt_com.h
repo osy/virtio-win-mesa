@@ -119,15 +119,19 @@ npt_com_self_ring(void *self)
       return com->base.instance_ring;
    struct npt_ring *ring = npt_tls_get_ring(com->base.device);
    /* Per-object cross-ring ordering (see npt_object.h ring_ordered):
-    * when a flagged object's traffic moves to a new ring, drain the
-    * previous ring before the first submission here so the host decodes
-    * this object's commands in call order.  Sequential-use-by-contract
-    * objects only; the exchange is uncontended in valid API use. */
+    * when a flagged object's traffic moves to a new ring, order the new
+    * ring after everything the previous one has published, so the host
+    * decodes this object's commands in call order.  Sequential-use-by-
+    * contract objects only; the exchange is uncontended in valid API
+    * use. */
    if (com->base.ring_ordered && ring) {
       uint64_t prev = atomic_exchange_explicit(
          &com->base.order_ring_id, ring->id, memory_order_acq_rel);
-      if (prev && prev != ring->id)
-         npt_tls_drain_ring_id(com->base.device, prev);
+      if (prev && prev != ring->id) {
+         uint32_t tail;
+         if (npt_tls_ring_tail_by_id(com->base.device, prev, &tail))
+            npt_ring_order_after(ring, prev, tail);
+      }
    }
    return ring;
 }

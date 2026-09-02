@@ -151,6 +151,15 @@ struct npt_ring_layout {
 
 struct npt_device;
 
+#define NPT_RING_EDGE_SEEN_SLOTS 8u
+
+/* A peer ring's published position, as snapshotted for an ordering
+ * edge. */
+struct npt_ring_edge {
+   uint64_t ring_id;
+   uint32_t seqno;
+};
+
 struct npt_ring {
    uint64_t id;
    struct npt_renderer *renderer;
@@ -218,6 +227,15 @@ struct npt_ring {
     * seqnos can enter the ring out of order; the host stores the maximum
     * and a wait for an older seqno is already satisfied by a newer one. */
    _Atomic uint64_t roundtrip_next;
+   /* Highest peer seqno this ring has already been ordered after, per
+    * peer ring: an edge at or below it is redundant (a decode position
+    * only advances).  Written under ring->lock; read without it by the
+    * covered-check, where a stale entry only costs a redundant edge. */
+   struct {
+      _Atomic uint64_t ring_id;
+      _Atomic uint32_t seqno;
+   } edge_seen[NPT_RING_EDGE_SEEN_SLOTS];
+   uint32_t edge_seen_next;
 
    struct npt_profile_ring profile;
 
@@ -238,10 +256,6 @@ npt_ring_create(struct npt_device *device,
 void
 npt_ring_destroy(struct npt_ring *ring);
 
-/* Block until the host has advanced `head` past `cur` (no
- * un-dispatched bytes). */
-void
-npt_ring_wait_all(struct npt_ring *ring);
 
 /* Used for transport commands that must stay ordered with ring
  * commands (notably RESOURCE_UPDATE, which must precede any Draw
@@ -291,25 +305,54 @@ npt_ring_force_roundtrip(struct npt_ring *ring);
 uint32_t
 npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno);
 
-/* The seqno `head` must reach for everything submitted on this ring so
- * far to have been decoded.  Sampled without ring->lock: `cur` only
- * advances, so a value racing a concurrent submitter names a later point
- * in the same stream, never an earlier one.  Relaxed read of a
- * non-atomic field; volatile suppresses MSVC's load-hoisting without
- * requiring full atomic semantics (as in npt_ring_seqno_status). */
+/* The seqno `head` must reach for everything published on this ring so
+ * far to have been decoded.  Reads the shared tail, so it is safe to use
+ * as a peer edge target: every byte below it is already visible to the
+ * host.  A value racing a concurrent submitter names a later point in
+ * the same stream, never an earlier one. */
 static inline uint32_t
 npt_ring_seqno_now(const struct npt_ring *ring)
 {
-   return *(const volatile uint32_t *)&ring->cur;
+   return atomic_load_explicit(ring->tail, memory_order_acquire);
 }
 
+/* Cross-ring ordering.  Every routine below places a WAIT_PEER edge on
+ * `ring` so the HOST decodes nothing further on it until the named peer
+ * ring has decoded past the named seqno; the calling guest thread never
+ * blocks.  Targets are always positions already published on the peer
+ * (its tail, or the seqno a completed submit returned), which keeps
+ * the host's waits satisfiable and the edge graph acyclic.  A target at
+ * or below the position `ring` was last ordered after is dropped. */
+
+/* Order `ring` after peer `target_id` reaching `target_seqno`.  No-op
+ * when target_id is `ring` itself. */
+void
+npt_ring_order_after(struct npt_ring *ring, uint64_t target_id,
+                     uint32_t target_seqno);
+
+/* Same, naming the peer by pointer (for Triton, which cannot see the
+ * struct). */
+void
+npt_ring_order_after_ring(struct npt_ring *ring, const struct npt_ring *target,
+                          uint32_t target_seqno);
+
+/* Order `ring` after everything currently published on every other ring
+ * of its device -- the single-ring FIFO guarantee at this point in the
+ * caller's program order, without the single ring. */
+void
+npt_ring_order_after_all(struct npt_ring *ring);
+
+/* Order `ring` after each listed edge. */
+void
+npt_ring_order_after_edges(struct npt_ring *ring,
+                           const struct npt_ring_edge *edges, uint32_t count);
+
 /*
- * Queue a COM_RELEASE on the device's primary ring.  Routing every
- * release through primary lets the cross-ring drain barrier (waits
- * for TLS / instance rings to dispatch past their tail) cover releases
- * from any ring with a single barrier — closes the UAF window where
- * a release here could race a pending async use of host_id on
- * another thread's ring.
+ * Queue a COM_RELEASE for host_id on the calling thread's ring (primary
+ * when the thread has none).  Ring FIFO orders it after this thread's
+ * own uses of the object; the host defers the release itself until
+ * every other ring has decoded past what was published when the
+ * release arrived, so no guest-side drain is needed.
  */
 void
 npt_ring_send_com_release(struct npt_device *dev, uint64_t host_id);

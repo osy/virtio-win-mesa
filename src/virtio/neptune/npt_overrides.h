@@ -29,6 +29,14 @@ void npt_overrides_d3d12_resource_init(void);
 void npt_overrides_d3d12_fence_init(void);
 void npt_overrides_d3d12_queue_init(void);
 void npt_overrides_d3d12_list_init(void);
+
+/* npt_overrides_d3d12_device.c: before a command that reads the CPU
+ * descriptor at `handle` at decode time, order `ring` after the ring
+ * that last wrote the handle's heap.  See "descriptor heap ordering"
+ * there. */
+struct npt_ring;
+void npt_d3d12_desc_order_read(struct npt_ring *ring, uint64_t handle,
+                               uint32_t count);
 void npt_d3d12_heap_overrides_init(void);
 
 /* Async-Close barrier stamp for ExecuteCommandLists: true when

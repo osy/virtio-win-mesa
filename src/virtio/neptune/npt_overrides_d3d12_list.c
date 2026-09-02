@@ -10,13 +10,10 @@
  * decoded the recording (including Close) before it decodes the
  * submission.  A sync Close stalls every recording thread once per
  * list per frame, which serializes exactly the parallel recording
- * D3D12 is built around.
- *
- * Instead Close encodes async and stamps {ring id, ring seqno} into
- * the list's aux; the ECL override waits each listed ring forward to
- * its stamped seqno (npt_tls_wait_ring_seqno).  By ECL time the host
- * has almost always consumed the recording already, so the wait is a
- * single atomic load instead of a blocking round-trip per Close.
+ * D3D12 is built around.  Instead Close encodes async and stamps
+ * {ring id, ring seqno} into the list's aux; ExecuteBundle orders the
+ * parent's ring after that stamp on the host, and ExecuteCommandLists
+ * orders the queue ring after every ring (npt_overrides_d3d12_queue.c).
  *
  * The reverse direction needs the same care.  ExecuteCommandLists
  * rides the queue's ring; a Reset of the list, or of the allocator
@@ -28,9 +25,10 @@
  * list it carries, on each list's allocator, and on every bundle the
  * list executes together with the bundle's allocator (the runtime
  * validates a bundle's allocator at the parent's execute, not only at
- * ExecuteBundle).  Reset waits each stamped ring forward before its
- * own async dispatch.  Wrapper destruction needs no stamp:
- * COM_RELEASE drains every peer ring before it crosses the wire.
+ * ExecuteBundle).  Reset orders its ring after each stamped ring on
+ * the host before its own async dispatch.  Wrapper destruction needs
+ * no stamp: the host defers a COM_RELEASE until every ring has
+ * decoded past what was published when the release arrived.
  */
 
 #include <stdatomic.h>
@@ -175,11 +173,11 @@ exec_stamps_add(struct npt_d3d12_exec_stamps *s, uint64_t ring_id,
    mtx_unlock(&s->mutex);
 }
 
-/* Wait every stamped submission forward to its seqno, then clear.  A
- * stamp on the calling thread's own ring is skipped: ring FIFO already
+/* Order the caller's ring after every stamped submission, then clear.
+ * A stamp on the calling thread's own ring is skipped: ring FIFO already
  * orders whatever the caller encodes next behind it. */
 static void
-exec_stamps_wait(struct npt_d3d12_exec_stamps *s, void *self)
+exec_stamps_order(struct npt_d3d12_exec_stamps *s, void *self)
 {
    if (!atomic_load_explicit(&s->pending, memory_order_acquire))
       return;
@@ -195,23 +193,62 @@ exec_stamps_wait(struct npt_d3d12_exec_stamps *s, void *self)
    atomic_store_explicit(&s->pending, false, memory_order_relaxed);
    mtx_unlock(&s->mutex);
 
-   struct npt_device *dev = npt_com_self_device(self);
+   struct npt_ring *my_ring = npt_com_self_ring(self);
    if (overflow) {
-      npt_tls_wait_all_rings(dev);
+      npt_ring_order_after_all(my_ring);
       return;
    }
-   struct npt_ring *my_ring = npt_com_self_ring(self);
+   struct npt_ring_edge edges[NPT_D3D12_EXEC_STAMP_SLOTS];
    for (uint32_t i = 0; i < count; i++) {
-      if (!my_ring || my_ring->id != slot[i].ring_id)
-         npt_tls_wait_ring_seqno(dev, slot[i].ring_id, slot[i].seqno);
+      edges[i].ring_id = slot[i].ring_id;
+      edges[i].seqno = slot[i].seqno;
    }
+   npt_ring_order_after_edges(my_ring, edges, count);
 }
 
 /* ---------- command allocator ---------- */
 
+/*
+ * The host validates an allocator's recording state -- one open list at
+ * a time, no Reset while a list records on it -- so CreateCommandList,
+ * list Reset and allocator Reset must decode after the Close (or Reset)
+ * that last changed that state, which may have gone on another
+ * thread's ring.  Each such call records {ring, tail} on the allocator
+ * and the next one orders its own ring after it.
+ */
 struct npt_d3d12_alloc_aux {
    struct npt_d3d12_exec_stamps exec;
+   _Atomic uint64_t state_ring_id;
+   _Atomic uint32_t state_seqno;
 };
+
+static void
+alloc12_note_state_change(struct npt_d3d12_alloc_aux *aux,
+                          struct npt_ring *ring)
+{
+   if (!aux || !ring)
+      return;
+   /* seqno first: a reader that sees the new ring id with the old seqno
+    * orders after less than it should; the other order is always
+    * safe (a later seqno on the old ring is still before this call). */
+   atomic_store_explicit(&aux->state_seqno, npt_ring_seqno_now(ring),
+                         memory_order_relaxed);
+   atomic_store_explicit(&aux->state_ring_id, ring->id, memory_order_release);
+}
+
+static void
+alloc12_order_after_state(struct npt_d3d12_alloc_aux *aux,
+                          struct npt_ring *ring)
+{
+   if (!aux || !ring)
+      return;
+   const uint64_t id =
+      atomic_load_explicit(&aux->state_ring_id, memory_order_acquire);
+   if (id && id != ring->id)
+      npt_ring_order_after(ring, id,
+                           atomic_load_explicit(&aux->state_seqno,
+                                                memory_order_relaxed));
+}
 
 static void npt_d3d12_alloc_aux_destroy(void *aux_raw);
 
@@ -221,6 +258,8 @@ npt_d3d12_alloc_aux_init(struct npt_com_base *com, struct npt_device *dev,
 {
    struct npt_d3d12_alloc_aux *aux = com->aux;
    exec_stamps_init(&aux->exec);
+   atomic_store_explicit(&aux->state_ring_id, 0, memory_order_relaxed);
+   atomic_store_explicit(&aux->state_seqno, 0, memory_order_relaxed);
    com->aux_destroy = npt_d3d12_alloc_aux_destroy;
    (void)dev; (void)host_id;
 }
@@ -243,9 +282,14 @@ static HRESULT NPT_STDMETHODCALLTYPE
 alloc12_Reset_override(void *self)
 {
    struct npt_d3d12_alloc_aux *aux = alloc12_aux(self);
-   if (aux)
-      exec_stamps_wait(&aux->exec, self);
-   return npt_id3d12commandallocator_default_Reset(self);
+   struct npt_ring *ring = npt_com_self_ring(self);
+   if (aux) {
+      exec_stamps_order(&aux->exec, self);
+      alloc12_order_after_state(aux, ring);
+   }
+   HRESULT hr = npt_id3d12commandallocator_default_Reset(self);
+   alloc12_note_state_change(aux, ring);
+   return hr;
 }
 
 /* ---------- graphics command list ---------- */
@@ -392,9 +436,15 @@ dev12_CreateCommandList_override(void *self, UINT nodeMask,
                                  ID3D12PipelineState *pInitialState,
                                  const IID *riid, void **ppCommandList)
 {
+   struct npt_d3d12_alloc_aux *alloc =
+      pCommandAllocator ? alloc12_aux(pCommandAllocator) : NULL;
+   struct npt_ring *ring = npt_com_self_ring(self);
+   alloc12_order_after_state(alloc, ring);
    HRESULT hr = npt_id3d12device_default_CreateCommandList(
       self, nodeMask, type, pCommandAllocator, pInitialState, riid,
       ppCommandList);
+   /* The new list records on the allocator from here. */
+   alloc12_note_state_change(alloc, ring);
    /* A list created this way starts recording without a Reset, so this is
     * the only place its first allocator is observable.  (CreateCommandList1
     * creates the list closed; its allocator arrives with Reset.) */
@@ -411,14 +461,20 @@ list12_Reset_override(void *self, ID3D12CommandAllocator *pAllocator,
                       ID3D12PipelineState *pInitialState)
 {
    struct npt_d3d12_list_aux *aux = list12_aux(self);
+   struct npt_d3d12_alloc_aux *alloc =
+      pAllocator ? alloc12_aux(pAllocator) : NULL;
+   struct npt_ring *ring = npt_com_self_ring(self);
    if (aux) {
-      exec_stamps_wait(&aux->exec, self);
+      exec_stamps_order(&aux->exec, self);
       atomic_store_explicit(&aux->close_pending, false, memory_order_relaxed);
       aux->allocator = pAllocator;
       list12_drop_bundles(aux);
    }
-   return npt_id3d12graphicscommandlist_default_Reset(self, pAllocator,
-                                                       pInitialState);
+   alloc12_order_after_state(alloc, ring);
+   HRESULT hr = npt_id3d12graphicscommandlist_default_Reset(self, pAllocator,
+                                                             pInitialState);
+   alloc12_note_state_change(alloc, ring);
+   return hr;
 }
 
 static void NPT_STDMETHODCALLTYPE
@@ -431,14 +487,11 @@ list12_ExecuteBundle_override(void *self, ID3D12GraphicsCommandList *pBundle)
        * thread's ring: the same barrier ExecuteCommandLists applies. */
       uint64_t ring_id;
       uint32_t seqno;
-      struct npt_device *dev = npt_com_self_device(self);
-      if (npt_d3d12_list_close_barrier(pBundle, &ring_id, &seqno)) {
-         struct npt_ring *my_ring = npt_com_self_ring(self);
-         if (!my_ring || my_ring->id != ring_id)
-            npt_tls_wait_ring_seqno(dev, ring_id, seqno);
-      } else {
-         npt_tls_wait_all_rings(dev);
-      }
+      struct npt_ring *my_ring = npt_com_self_ring(self);
+      if (npt_d3d12_list_close_barrier(pBundle, &ring_id, &seqno))
+         npt_ring_order_after(my_ring, ring_id, seqno);
+      else
+         npt_ring_order_after_all(my_ring);
       list12_track_bundle(aux, pBundle);
    }
    npt_id3d12graphicscommandlist_default_ExecuteBundle(self, pBundle);
@@ -464,17 +517,128 @@ list12_Close_override(void *self)
       aux->close_ring_id = ring->id;
       aux->close_seqno = submit.seqno;
       atomic_store_explicit(&aux->close_pending, true, memory_order_release);
-   } else {
-      /* No aux to stamp: keep the old barrier semantics by draining
-       * this ring before returning. */
-      npt_ring_wait_all(ring);
+      /* The allocator is free for another list once this decodes. */
+      alloc12_note_state_change(
+         aux->allocator ? alloc12_aux(aux->allocator) : NULL, ring);
    }
    return NPT_S_OK;
+}
+
+/* ---------- decode-time CPU descriptor reads ---------- */
+
+/* These read the descriptor when the host records them; order the
+ * list's ring after the ring that last wrote each descriptor's heap
+ * (npt_d3d12_desc_order_read). */
+
+#define NPT_REGISTER_OVERRIDE_D3D12_LIST4_UP(m, f) \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist4, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist5, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist6, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist7, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist8, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist9, m, f); \
+   NPT_REGISTER_OVERRIDE(id3d12graphicscommandlist10, m, f)
+
+static void NPT_STDMETHODCALLTYPE
+list12_OMSetRenderTargets_override(
+   void *self, UINT NumRenderTargetDescriptors,
+   const D3D12_CPU_DESCRIPTOR_HANDLE *pRenderTargetDescriptors,
+   BOOL RTsSingleHandleToDescriptorRange,
+   const D3D12_CPU_DESCRIPTOR_HANDLE *pDepthStencilDescriptor)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   if (pRenderTargetDescriptors) {
+      const UINT n = RTsSingleHandleToDescriptorRange
+                        ? (NumRenderTargetDescriptors ? 1 : 0)
+                        : NumRenderTargetDescriptors;
+      for (UINT i = 0; i < n; i++)
+         npt_d3d12_desc_order_read(ring, pRenderTargetDescriptors[i].ptr, 1);
+   }
+   if (pDepthStencilDescriptor)
+      npt_d3d12_desc_order_read(ring, pDepthStencilDescriptor->ptr, 1);
+   npt_id3d12graphicscommandlist_default_OMSetRenderTargets(
+      self, NumRenderTargetDescriptors, pRenderTargetDescriptors,
+      RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
+}
+
+static void NPT_STDMETHODCALLTYPE
+list12_ClearRenderTargetView_override(
+   void *self, D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetView,
+   const FLOAT *ColorRGBA, UINT NumRects, const D3D12_RECT *pRects)
+{
+   npt_d3d12_desc_order_read(npt_com_self_ring(self), RenderTargetView.ptr, 1);
+   npt_id3d12graphicscommandlist_default_ClearRenderTargetView(
+      self, RenderTargetView, ColorRGBA, NumRects, pRects);
+}
+
+static void NPT_STDMETHODCALLTYPE
+list12_ClearDepthStencilView_override(
+   void *self, D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView,
+   D3D12_CLEAR_FLAGS ClearFlags, FLOAT Depth, UINT8 Stencil, UINT NumRects,
+   const D3D12_RECT *pRects)
+{
+   npt_d3d12_desc_order_read(npt_com_self_ring(self), DepthStencilView.ptr, 1);
+   npt_id3d12graphicscommandlist_default_ClearDepthStencilView(
+      self, DepthStencilView, ClearFlags, Depth, Stencil, NumRects, pRects);
+}
+
+static void NPT_STDMETHODCALLTYPE
+list12_ClearUnorderedAccessViewUint_override(
+   void *self, D3D12_GPU_DESCRIPTOR_HANDLE ViewGPUHandleInCurrentHeap,
+   D3D12_CPU_DESCRIPTOR_HANDLE ViewCPUHandle, ID3D12Resource *pResource,
+   const UINT *Values, UINT NumRects, const D3D12_RECT *pRects)
+{
+   npt_d3d12_desc_order_read(npt_com_self_ring(self), ViewCPUHandle.ptr, 1);
+   npt_id3d12graphicscommandlist_default_ClearUnorderedAccessViewUint(
+      self, ViewGPUHandleInCurrentHeap, ViewCPUHandle, pResource, Values,
+      NumRects, pRects);
+}
+
+static void NPT_STDMETHODCALLTYPE
+list12_ClearUnorderedAccessViewFloat_override(
+   void *self, D3D12_GPU_DESCRIPTOR_HANDLE ViewGPUHandleInCurrentHeap,
+   D3D12_CPU_DESCRIPTOR_HANDLE ViewCPUHandle, ID3D12Resource *pResource,
+   const FLOAT *Values, UINT NumRects, const D3D12_RECT *pRects)
+{
+   npt_d3d12_desc_order_read(npt_com_self_ring(self), ViewCPUHandle.ptr, 1);
+   npt_id3d12graphicscommandlist_default_ClearUnorderedAccessViewFloat(
+      self, ViewGPUHandleInCurrentHeap, ViewCPUHandle, pResource, Values,
+      NumRects, pRects);
+}
+
+static void NPT_STDMETHODCALLTYPE
+list12_BeginRenderPass_override(
+   void *self, UINT NumRenderTargets,
+   const D3D12_RENDER_PASS_RENDER_TARGET_DESC *pRenderTargets,
+   const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *pDepthStencil,
+   D3D12_RENDER_PASS_FLAGS Flags)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   for (UINT i = 0; i < NumRenderTargets && pRenderTargets; i++)
+      npt_d3d12_desc_order_read(ring, pRenderTargets[i].cpuDescriptor.ptr, 1);
+   if (pDepthStencil)
+      npt_d3d12_desc_order_read(ring, pDepthStencil->cpuDescriptor.ptr, 1);
+   npt_id3d12graphicscommandlist4_default_BeginRenderPass(
+      self, NumRenderTargets, pRenderTargets, pDepthStencil, Flags);
 }
 
 void
 npt_overrides_d3d12_list_init(void)
 {
+   NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(OMSetRenderTargets,
+                                        list12_OMSetRenderTargets_override);
+   NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(ClearRenderTargetView,
+                                        list12_ClearRenderTargetView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(ClearDepthStencilView,
+                                        list12_ClearDepthStencilView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(
+      ClearUnorderedAccessViewUint,
+      list12_ClearUnorderedAccessViewUint_override);
+   NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(
+      ClearUnorderedAccessViewFloat,
+      list12_ClearUnorderedAccessViewFloat_override);
+   NPT_REGISTER_OVERRIDE_D3D12_LIST4_UP(BeginRenderPass,
+                                        list12_BeginRenderPass_override);
    NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(Close, list12_Close_override);
    NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(Reset, list12_Reset_override);
    NPT_REGISTER_OVERRIDE_D3D12_LIST_ALL(ExecuteBundle,

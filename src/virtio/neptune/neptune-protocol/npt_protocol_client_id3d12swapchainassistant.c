@@ -76,24 +76,9 @@ npt_id3d12swapchainassistant_default_GetSwapChainObject(void *self, const IID * 
     void **_orig_ppv = ppv;
     if (ppv)
         ppv = (void **)&_raw_ppv;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12SwapChainAssistant_GetSwapChainObject(npt_com_self_ring(self),npt_com_self_id(self),riid,ppv);
-    } else {
-        npt_async_ID3D12SwapChainAssistant_GetSwapChainObject(npt_com_self_ring(self),npt_com_self_id(self),riid,ppv);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12SwapChainAssistant_GetSwapChainObject(npt_com_self_ring(self),npt_com_self_id(self),riid,ppv);
     if (_orig_ppv) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppv)
+        if (_raw_ppv)
             *_orig_ppv = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -102,7 +87,11 @@ npt_id3d12swapchainassistant_default_GetSwapChainObject(void *self, const IID * 
         else
             *_orig_ppv = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -120,24 +109,9 @@ npt_id3d12swapchainassistant_default_GetCurrentResourceAndCommandQueue(void *sel
     void **_orig_ppvQueue = ppvQueue;
     if (ppvQueue)
         ppvQueue = (void **)&_raw_ppvQueue;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12SwapChainAssistant_GetCurrentResourceAndCommandQueue(npt_com_self_ring(self),npt_com_self_id(self),riidResource,ppvResource,riidQueue,ppvQueue);
-    } else {
-        npt_async_ID3D12SwapChainAssistant_GetCurrentResourceAndCommandQueue(npt_com_self_ring(self),npt_com_self_id(self),riidResource,ppvResource,riidQueue,ppvQueue);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12SwapChainAssistant_GetCurrentResourceAndCommandQueue(npt_com_self_ring(self),npt_com_self_id(self),riidResource,ppvResource,riidQueue,ppvQueue);
     if (_orig_ppvResource) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvResource)
+        if (_raw_ppvResource)
             *_orig_ppvResource = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riidResource,
@@ -147,12 +121,7 @@ npt_id3d12swapchainassistant_default_GetCurrentResourceAndCommandQueue(void *sel
             *_orig_ppvResource = NULL;
     }
     if (_orig_ppvQueue) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvQueue)
+        if (_raw_ppvQueue)
             *_orig_ppvQueue = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riidResource,
@@ -161,7 +130,11 @@ npt_id3d12swapchainassistant_default_GetCurrentResourceAndCommandQueue(void *sel
         else
             *_orig_ppvQueue = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE

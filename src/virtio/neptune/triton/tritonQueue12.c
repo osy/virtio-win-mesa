@@ -29,7 +29,9 @@ extern BOOL npt_d3d12_ecl_gate_arm(void *fence_wrapper, UINT64 value,
 struct npt_ring;
 extern struct npt_ring *npt_com_object_ring_seqno(void *self,
                                                   UINT32 *out_seqno);
-extern UINT32 npt_ring_wait_seqno(struct npt_ring *ring, UINT32 seqno);
+extern void npt_ring_order_after_ring(struct npt_ring *ring,
+                                      const struct npt_ring *target,
+                                      UINT32 seqno);
 
 static VOID APIENTRY t12DestroyCommandQueue(D3D12DDI_HDEVICE hDevice,
                                             D3D12DDI_HCOMMANDQUEUE hQueue);
@@ -596,10 +598,10 @@ C_ASSERT(sizeof(D3D12DDI_TILE_RANGE_FLAGS) == sizeof(D3D12_TILE_RANGE_FLAGS));
  * The host applies the mapping when the queue's ring decodes the command,
  * and publishes its decode position into that ring's shared memory.  So
  * record where the update sits, and have anything that could consume it
- * from a DIFFERENT ring wait for that position first: the wait is a
- * shared-memory read, and by the time a consumer reaches it the host has
- * almost always decoded past it already.  Work submitted on the mapping
- * queue itself is behind the update in its own ring and needs nothing.
+ * from a DIFFERENT ring carry an ordering edge to that position: the host
+ * holds that ring at the edge until the mapping is applied, and this
+ * thread never waits.  Work submitted on the mapping queue itself is
+ * behind the update in its own ring and needs nothing.
  *
  * Unmaps carry an edge too.  Reading an unmapped tile is undefined, so an
  * unmap racing dependent work needs no ordering of its own -- but a later
@@ -629,9 +631,10 @@ t12TileMapOrder(PTRITON12_QUEUE q)
     struct npt_ring *edge = p->TileMapRing;
     const UINT32 seqno = p->TileMapSeqno;
     LeaveCriticalSection(&p->QueueLock);
-    if (!edge || edge == npt_com_object_ring_seqno(q->pQueue, NULL))
+    struct npt_ring *ring = npt_com_object_ring_seqno(q->pQueue, NULL);
+    if (!edge || !ring || edge == ring)
         return;
-    npt_ring_wait_seqno(edge, seqno);
+    npt_ring_order_after_ring(ring, edge, seqno);
 }
 
 static VOID APIENTRY

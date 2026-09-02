@@ -67,24 +67,9 @@ npt_id3d11classlinkage_default_GetClassInstance(void *self, const CHAR * pClassI
     ID3D11ClassInstance **_orig_ppInstance = ppInstance;
     if (ppInstance)
         ppInstance = (ID3D11ClassInstance **)&_raw_ppInstance;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11ClassLinkage_GetClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassInstanceName,InstanceIndex,ppInstance);
-    } else {
-        npt_async_ID3D11ClassLinkage_GetClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassInstanceName,InstanceIndex,ppInstance);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11ClassLinkage_GetClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassInstanceName,InstanceIndex,ppInstance);
     if (_orig_ppInstance) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppInstance)
+        if (_raw_ppInstance)
             *_orig_ppInstance = (ID3D11ClassInstance *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11ClassInstance,
@@ -93,7 +78,11 @@ npt_id3d11classlinkage_default_GetClassInstance(void *self, const CHAR * pClassI
         else
             *_orig_ppInstance = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -107,24 +96,9 @@ npt_id3d11classlinkage_default_CreateClassInstance(void *self, const CHAR * pCla
     ID3D11ClassInstance **_orig_ppInstance = ppInstance;
     if (ppInstance)
         ppInstance = (ID3D11ClassInstance **)&_raw_ppInstance;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11ClassLinkage_CreateClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassTypeName,ConstantBufferOffset,ConstantVectorOffset,TextureOffset,SamplerOffset,ppInstance);
-    } else {
-        npt_async_ID3D11ClassLinkage_CreateClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassTypeName,ConstantBufferOffset,ConstantVectorOffset,TextureOffset,SamplerOffset,ppInstance);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11ClassLinkage_CreateClassInstance(npt_com_self_ring(self),npt_com_self_id(self),pClassTypeName,ConstantBufferOffset,ConstantVectorOffset,TextureOffset,SamplerOffset,ppInstance);
     if (_orig_ppInstance) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppInstance)
+        if (_raw_ppInstance)
             *_orig_ppInstance = (ID3D11ClassInstance *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11ClassInstance,
@@ -133,7 +107,11 @@ npt_id3d11classlinkage_default_CreateClassInstance(void *self, const CHAR * pCla
         else
             *_orig_ppInstance = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 

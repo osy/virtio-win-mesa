@@ -151,24 +151,9 @@ npt_id3d12sdkconfiguration1_default_CreateDeviceFactory(void *self, UINT SDKVers
     void **_orig_ppvFactory = ppvFactory;
     if (ppvFactory)
         ppvFactory = (void **)&_raw_ppvFactory;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12SDKConfiguration1_CreateDeviceFactory(npt_com_self_ring(self),npt_com_self_id(self),SDKVersion,SDKPath,riid,ppvFactory);
-    } else {
-        npt_async_ID3D12SDKConfiguration1_CreateDeviceFactory(npt_com_self_ring(self),npt_com_self_id(self),SDKVersion,SDKPath,riid,ppvFactory);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12SDKConfiguration1_CreateDeviceFactory(npt_com_self_ring(self),npt_com_self_id(self),SDKVersion,SDKPath,riid,ppvFactory);
     if (_orig_ppvFactory) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvFactory)
+        if (_raw_ppvFactory)
             *_orig_ppvFactory = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -177,7 +162,11 @@ npt_id3d12sdkconfiguration1_default_CreateDeviceFactory(void *self, UINT SDKVers
         else
             *_orig_ppvFactory = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 void NPT_STDMETHODCALLTYPE

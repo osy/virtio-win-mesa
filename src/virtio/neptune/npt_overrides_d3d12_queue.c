@@ -4,17 +4,15 @@
  *
  * ID3D12CommandQueue overrides.
  *
- * ExecuteCommandLists: under multi-ring, the calling thread's device-
- * method traffic (descriptor writes, resource updates) rides its TLS
- * ring while the queue is pinned to the shared instance ring.  Drain
- * the caller's TLS ring first so everything the app recorded/wrote on
- * this thread is host-visible before the submission dispatches.
- *
- * Cross-thread recording (lists recorded + Closed on other threads'
- * rings) is fenced per list: async Close stamps {ring id, seqno} in
- * the list aux (npt_overrides_d3d12_list.c) and each stamp is waited
- * to its seqno here.  A list without a stamp (QI-alias wrapper, aux
- * OOM) falls back to draining every ring.
+ * ExecuteCommandLists: the submission consumes everything the app did
+ * before calling it -- the listed lists' recording and Close on their
+ * recording threads' rings, descriptor writes and resource updates on
+ * whichever threads made them -- and the app's own synchronisation
+ * published all of that to the rings before this call.  An ordering
+ * edge on the queue ring after every other ring's current tail makes
+ * the host decode the submission after all of it, which is exactly the
+ * FIFO a single ring would have given, while the rings themselves keep
+ * decoding in parallel and this thread never waits.
  */
 
 #include "npt_com.h"
@@ -47,31 +45,8 @@ queue12_ExecuteCommandLists_override(void *self, UINT NumCommandLists,
 
    npt_d3d12_sync_maps_flush(queue_ring);
 
-   if (dev->multi_ring_enabled) {
-      /* Peek, don't create: a thread that only ever submits has nothing
-       * of its own to drain, and creating a ring here would drain the
-       * primary for nothing. */
-      struct npt_ring *tls_ring = npt_tls_peek_ring(dev);
-      if (tls_ring && tls_ring != queue_ring)
-         npt_ring_wait_all(tls_ring);
-
-      bool full_drain_done = false;
-      for (UINT i = 0; i < NumCommandLists; i++) {
-         uint64_t ring_id;
-         uint32_t seqno;
-         if (npt_d3d12_list_close_barrier(ppCommandLists[i], &ring_id,
-                                          &seqno)) {
-            /* The caller's TLS ring was just drained wholesale; only
-             * other rings still need their Close fenced. */
-            if (!full_drain_done && ring_id != queue_ring->id &&
-                !(tls_ring && ring_id == tls_ring->id))
-               npt_tls_wait_ring_seqno(dev, ring_id, seqno);
-         } else if (!full_drain_done) {
-            npt_tls_wait_all_rings(dev);
-            full_drain_done = true;
-         }
-      }
-   }
+   if (dev->multi_ring_enabled)
+      npt_ring_order_after_all(queue_ring);
 
    struct npt_ring_submit_command submit;
    npt_submit_ID3D12CommandQueue_ExecuteCommandLists(

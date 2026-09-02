@@ -48,21 +48,23 @@ npt_d3d12_create_device_internal(IUnknown *pAdapter,
     * API path (Wine), multi-ring: D3D12's threading contract is that N
     * threads record N command lists with no driver-side serialization,
     * so each thread's recording and device traffic rides its own TLS
-    * ring and each queue its own instance ring.  ExecuteCommandLists
-    * fences the recording rings to the submission through the Close
-    * stamps (npt_overrides_d3d12_queue.c), and cross-queue order is
-    * carried by the queues' wire-level Signal/Wait.
+    * ring and each queue its own instance ring.  The ordering a single
+    * ring gives for free is re-established on the host with ring-to-
+    * ring edges (npt_ring_order_after*): ExecuteCommandLists orders the
+    * queue ring after every other ring, Reset orders after the
+    * submissions that still read its storage, a list that migrates
+    * threads orders its new ring after its old one, and the host itself
+    * waits for a Create decoded on another ring and defers a release
+    * until every ring has passed it.  No guest thread waits on the host
+    * for any of it.  Cross-queue order is carried by the queues' own
+    * Signal/Wait on the host timeline (Wine: the app's; WDDM: the
+    * drain-fence edges in tritonQueue12.c), which never depended on
+    * ring FIFO.
     *
-    * DDI path (Windows WDDM), single ring: the Windows D3D12 runtime
-    * services every cross-queue dependency through dxgkrnl monitored-
-    * fence packets on the queues' kernel contexts and never calls
-    * pfnSignalFence/pfnWaitForFence, so no wire-level queue wait exists
-    * that could order independent per-queue rings at the host's ingress
-    * -- kernel wait packets hold context DMA only, never ring traffic.
-    * One ring for every queue and every recording thread is what those
-    * kernel packets assume, and it keeps ExecuteCommandLists free of
-    * the cross-ring drain: ring FIFO already orders a thread's
-    * recording ahead of the submission that consumes it. */
+    * DDI path (Windows WDDM): single ring by default; the same edges
+    * make multi-ring correct there too, and NPT_PERF=multi_ring
+    * selects it.  One ring keeps every recording thread's decoder off
+    * the host cores the vCPUs need. */
    if (!npt_d3d12_from_ddi)
       npt_env_force_perf(NPT_PERF_MULTI_RING);
 

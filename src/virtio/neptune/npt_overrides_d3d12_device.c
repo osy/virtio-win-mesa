@@ -114,6 +114,305 @@ dev12_GetDescriptorHandleIncrementSize_override(
    return size;
 }
 
+/* ------------------------------------------------------------------ */
+/* descriptor heap ordering                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A CPU descriptor is written by one device method (Create*View,
+ * CreateSampler, CopyDescriptors' destination) and read at DECODE time
+ * by another (CopyDescriptors' source, OMSetRenderTargets, Clear*View,
+ * BeginRenderPass).  Both are wire commands on the calling thread's
+ * ring, so a heap written on thread A and read on thread B has its
+ * write and its read on two rings with no order between them, and the
+ * host may decode the read first -- a stale view bound, or a copy of a
+ * descriptor that is not there yet.  Natively both are plain memory
+ * accesses the app already ordered.
+ *
+ * Per descriptor slot, remember the ring and position of the latest
+ * write; a read from another ring orders its ring after that position
+ * on the host (npt_ring_order_after, which drops edges already
+ * covered).  Per slot, not per heap: threads share staging heaps, and
+ * a heap-wide mark would chain every reader to whichever thread wrote
+ * the heap last, thousands of times a frame.  Only non-shader-visible
+ * heaps take part: they are the only ones a CPU read can name, and a
+ * shader-visible heap's contents are consumed by ExecuteCommandLists,
+ * which orders after every ring anyway.
+ */
+
+struct npt_d3d12_desc_heap {
+   uint64_t start;
+   uint64_t end;
+   uint32_t increment;
+   uint32_t count;
+   /* Latest write per slot: the ring it went on and that ring's tail
+    * after it, packed so a reader takes one atomic load.  Unused when
+    * !tracked: a shader-visible heap is in the table only so that
+    * lookups of its handles resolve from the per-thread cache instead
+    * of taking the table lock on every CopyDescriptors destination. */
+   _Atomic uint64_t *slots;
+   uint32_t slot_cap;
+   bool tracked;
+};
+
+/* Ring ids are small monotonic counters (npt_device::next_ring_id), so
+ * 32 bits hold them. */
+#define DESC_LAST_PACK(ring_id, seqno) \
+   (((uint64_t)(ring_id) << 32) | (uint64_t)(seqno))
+#define DESC_LAST_RING(last) ((uint32_t)((last) >> 32))
+#define DESC_LAST_SEQNO(last) ((uint32_t)(last))
+
+static struct {
+   mtx_t mutex;
+   _Atomic bool inited;
+   /* Sorted by start; disjoint.  Records are allocated individually and
+    * never freed -- an unregistered one goes onto `spare` for the next
+    * heap -- so a thread's cached pointer always points at a record,
+    * whose range check then decides whether it is still the right one. */
+   struct npt_d3d12_desc_heap **heaps;
+   uint32_t count;
+   uint32_t cap;
+   struct npt_d3d12_desc_heap **spare;
+   uint32_t spare_count;
+   uint32_t spare_cap;
+   /* Bumped on unregister; invalidates every thread's cache. */
+   _Atomic uint32_t gen;
+} desc_heaps;
+
+/* Per-thread cache of the last few heaps hit: a thread's descriptor
+ * calls alternate between a handful of heaps (its staging heap, the
+ * shader-visible heap it copies into, the RTV/DSV heaps it binds), so
+ * the lock and the search are only paid on a new heap or after an
+ * unregister. */
+#define DESC_CACHE_SLOTS 4
+static _Thread_local struct {
+   struct npt_d3d12_desc_heap *heap[DESC_CACHE_SLOTS];
+   uint32_t gen;
+   uint32_t next;
+} desc_cache;
+
+static void
+desc_heaps_init(void)
+{
+   if (atomic_load_explicit(&desc_heaps.inited, memory_order_acquire))
+      return;
+   static _Atomic int state;
+   int expected = 0;
+   if (atomic_compare_exchange_strong(&state, &expected, 1)) {
+      mtx_init(&desc_heaps.mutex, mtx_plain);
+      atomic_store_explicit(&desc_heaps.inited, true, memory_order_release);
+   } else {
+      while (!atomic_load_explicit(&desc_heaps.inited, memory_order_acquire))
+         thrd_yield();
+   }
+}
+
+/* Caller holds desc_heaps.mutex.  Index of the heap containing ptr, or
+ * -1. */
+static int
+desc_heaps_find_locked(uint64_t ptr)
+{
+   uint32_t lo = 0, hi = desc_heaps.count;
+   while (lo < hi) {
+      const uint32_t mid = lo + (hi - lo) / 2;
+      const struct npt_d3d12_desc_heap *h = desc_heaps.heaps[mid];
+      if (ptr < h->start)
+         hi = mid;
+      else if (ptr >= h->end)
+         lo = mid + 1;
+      else
+         return (int)mid;
+   }
+   return -1;
+}
+
+static void
+desc_heaps_register(uint64_t start, uint32_t increment, uint32_t count,
+                    bool track)
+{
+   if (!increment || !count)
+      return;
+   desc_heaps_init();
+   mtx_lock(&desc_heaps.mutex);
+   struct npt_d3d12_desc_heap *h = NULL;
+   const bool spare = desc_heaps.spare_count > 0;
+   if (spare)
+      h = desc_heaps.spare[--desc_heaps.spare_count];
+   else
+      h = calloc(1, sizeof(*h));
+   if (!h) {
+      mtx_unlock(&desc_heaps.mutex);
+      return;
+   }
+   bool ok = true;
+   if (track && h->slot_cap < count) {
+      _Atomic uint64_t *slots = realloc(h->slots, count * sizeof(*slots));
+      if (slots) {
+         h->slots = slots;
+         h->slot_cap = count;
+      } else {
+         ok = false;
+      }
+   }
+   if (ok && desc_heaps.count == desc_heaps.cap) {
+      const uint32_t cap = desc_heaps.cap ? desc_heaps.cap * 2 : 32;
+      struct npt_d3d12_desc_heap **grown =
+         realloc(desc_heaps.heaps, cap * sizeof(*grown));
+      if (grown) {
+         desc_heaps.heaps = grown;
+         desc_heaps.cap = cap;
+      } else {
+         ok = false;
+      }
+   }
+   if (!ok) {
+      /* A spare record goes back where it came from (the slot it was
+       * popped from is still free); a fresh one is simply dropped. */
+      if (spare)
+         desc_heaps.spare[desc_heaps.spare_count++] = h;
+      else {
+         free(h->slots);
+         free(h);
+      }
+      mtx_unlock(&desc_heaps.mutex);
+      return;
+   }
+   if (track)
+      memset(h->slots, 0, count * sizeof(h->slots[0]));
+   h->tracked = track;
+   h->start = start;
+   h->end = start + (uint64_t)increment * count;
+   h->increment = increment;
+   h->count = count;
+   uint32_t i = 0;
+   while (i < desc_heaps.count && desc_heaps.heaps[i]->start < start)
+      i++;
+   memmove(&desc_heaps.heaps[i + 1], &desc_heaps.heaps[i],
+           (desc_heaps.count - i) * sizeof(desc_heaps.heaps[0]));
+   desc_heaps.heaps[i] = h;
+   desc_heaps.count++;
+   mtx_unlock(&desc_heaps.mutex);
+}
+
+static void
+desc_heaps_unregister(uint64_t start)
+{
+   if (!atomic_load_explicit(&desc_heaps.inited, memory_order_acquire))
+      return;
+   mtx_lock(&desc_heaps.mutex);
+   const int i = desc_heaps_find_locked(start);
+   struct npt_d3d12_desc_heap *h = i >= 0 ? desc_heaps.heaps[i] : NULL;
+   if (h) {
+      memmove(&desc_heaps.heaps[i], &desc_heaps.heaps[i + 1],
+              (desc_heaps.count - (uint32_t)i - 1) *
+                 sizeof(desc_heaps.heaps[0]));
+      desc_heaps.count--;
+      /* A thread still holding h in its cache sees the new generation
+       * and re-resolves; until then h's range keeps answering for the
+       * heap that is gone, which can only produce a redundant edge. */
+      h->end = h->start;
+      atomic_fetch_add_explicit(&desc_heaps.gen, 1, memory_order_release);
+      if (desc_heaps.spare_count == desc_heaps.spare_cap) {
+         const uint32_t cap = desc_heaps.spare_cap ? desc_heaps.spare_cap * 2
+                                                   : 16;
+         struct npt_d3d12_desc_heap **grown =
+            realloc(desc_heaps.spare, cap * sizeof(*grown));
+         if (grown) {
+            desc_heaps.spare = grown;
+            desc_heaps.spare_cap = cap;
+         }
+      }
+      if (desc_heaps.spare_count < desc_heaps.spare_cap)
+         desc_heaps.spare[desc_heaps.spare_count++] = h;
+      /* Otherwise the record is simply abandoned; it stays valid memory
+       * for any cache that still names it. */
+   }
+   mtx_unlock(&desc_heaps.mutex);
+}
+
+/* The heap containing `handle`, or NULL. */
+static struct npt_d3d12_desc_heap *
+desc_heaps_lookup(uint64_t handle)
+{
+   const uint32_t gen =
+      atomic_load_explicit(&desc_heaps.gen, memory_order_acquire);
+   if (desc_cache.gen == gen) {
+      for (uint32_t i = 0; i < DESC_CACHE_SLOTS; i++) {
+         struct npt_d3d12_desc_heap *h = desc_cache.heap[i];
+         if (h && handle >= h->start && handle < h->end)
+            return h;
+      }
+   } else {
+      memset(desc_cache.heap, 0, sizeof(desc_cache.heap));
+      desc_cache.gen = gen;
+   }
+
+   mtx_lock(&desc_heaps.mutex);
+   const int i = desc_heaps_find_locked(handle);
+   struct npt_d3d12_desc_heap *h = i >= 0 ? desc_heaps.heaps[i] : NULL;
+   const uint32_t gen_now =
+      atomic_load_explicit(&desc_heaps.gen, memory_order_relaxed);
+   mtx_unlock(&desc_heaps.mutex);
+   if (h) {
+      if (gen_now != desc_cache.gen) {
+         memset(desc_cache.heap, 0, sizeof(desc_cache.heap));
+         desc_cache.gen = gen_now;
+      }
+      desc_cache.heap[desc_cache.next++ % DESC_CACHE_SLOTS] = h;
+   }
+   return h;
+}
+
+/* The slot range [first, first + n) that `handle` and n descriptors
+ * after it occupy in h, clipped to the heap; false when handle is
+ * outside it. */
+static bool
+desc_heap_slots(const struct npt_d3d12_desc_heap *h, uint64_t handle,
+                uint32_t n, uint32_t *first, uint32_t *count)
+{
+   if (handle < h->start || handle >= h->end)
+      return false;
+   *first = (uint32_t)((handle - h->start) / h->increment);
+   *count = n < h->count - *first ? n : h->count - *first;
+   return true;
+}
+
+/* `n` descriptors from `handle` were just written by a command on
+ * `ring`. */
+static void
+npt_d3d12_desc_note_write(struct npt_ring *ring, uint64_t handle, uint32_t n)
+{
+   if (!ring || !n || !atomic_load_explicit(&desc_heaps.inited,
+                                            memory_order_acquire))
+      return;
+   struct npt_d3d12_desc_heap *h = desc_heaps_lookup(handle);
+   uint32_t first, count;
+   if (!h || !h->tracked || !desc_heap_slots(h, handle, n, &first, &count))
+      return;
+   const uint64_t last = DESC_LAST_PACK(ring->id, npt_ring_seqno_now(ring));
+   for (uint32_t i = 0; i < count; i++)
+      atomic_store_explicit(&h->slots[first + i], last, memory_order_release);
+}
+
+void
+npt_d3d12_desc_order_read(struct npt_ring *ring, uint64_t handle, uint32_t n)
+{
+   if (!ring || !n || !atomic_load_explicit(&desc_heaps.inited,
+                                            memory_order_acquire))
+      return;
+   struct npt_d3d12_desc_heap *h = desc_heaps_lookup(handle);
+   uint32_t first, count;
+   if (!h || !h->tracked || !desc_heap_slots(h, handle, n, &first, &count))
+      return;
+   for (uint32_t i = 0; i < count; i++) {
+      const uint64_t last =
+         atomic_load_explicit(&h->slots[first + i], memory_order_acquire);
+      const uint64_t ring_id = DESC_LAST_RING(last);
+      if (ring_id && ring_id != ring->id)
+         npt_ring_order_after(ring, ring_id, DESC_LAST_SEQNO(last));
+   }
+}
+
 /* Descriptor heap handle starts are immutable per heap; fetched once
  * and answered guest-side afterwards. */
 static const GUID *const descriptorheap12_tiers[] = {
@@ -125,12 +424,22 @@ struct npt_d3d12_descriptorheap_aux {
    D3D12_GPU_DESCRIPTOR_HANDLE gpu_start;
    _Atomic bool cpu_valid;
    _Atomic bool gpu_valid;
+   /* From the create desc (dev12_CreateDescriptorHeap_override); the
+    * heap joins the ordering table on its first CPU-start fetch, once
+    * its range is known. */
+   D3D12_DESCRIPTOR_HEAP_TYPE type;
+   UINT num_descriptors;
+   bool shader_visible;
+   bool tracked;
 };
 
 static void
 npt_d3d12_descriptorheap_aux_destroy(void *aux_raw)
 {
-   free(aux_raw);
+   struct npt_d3d12_descriptorheap_aux *aux = aux_raw;
+   if (aux->tracked)
+      desc_heaps_unregister(aux->cpu_start.ptr);
+   free(aux);
 }
 
 static void
@@ -140,6 +449,10 @@ npt_d3d12_descriptorheap_aux_init(struct npt_com_base *com,
    struct npt_d3d12_descriptorheap_aux *aux = com->aux;
    atomic_store_explicit(&aux->cpu_valid, false, memory_order_relaxed);
    atomic_store_explicit(&aux->gpu_valid, false, memory_order_relaxed);
+   aux->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+   aux->num_descriptors = 0;
+   aux->shader_visible = true;
+   aux->tracked = false;
    com->aux_destroy = npt_d3d12_descriptorheap_aux_destroy;
    (void)dev; (void)host_id;
 }
@@ -170,8 +483,138 @@ descriptorheap12_GetCPUDescriptorHandleForHeapStart_override(
       self, _ret_out);
    /* Racing first calls store the same host answer. */
    aux->cpu_start = *_ret_out;
+   if (aux->num_descriptors && !aux->tracked &&
+       ((struct npt_com_base *)self)->base.parent) {
+      const UINT inc = dev12_GetDescriptorHandleIncrementSize_override(
+         ((struct npt_com_base *)self)->base.parent, aux->type);
+      if (inc) {
+         desc_heaps_register(aux->cpu_start.ptr, inc, aux->num_descriptors,
+                             !aux->shader_visible);
+         aux->tracked = true;
+      }
+   }
    atomic_store_explicit(&aux->cpu_valid, true, memory_order_release);
    return _ret_out;
+}
+
+static HRESULT NPT_STDMETHODCALLTYPE
+dev12_CreateDescriptorHeap_override(void *self,
+                                    const D3D12_DESCRIPTOR_HEAP_DESC *pDesc,
+                                    const IID *riid, void **ppvHeap)
+{
+   HRESULT hr = npt_id3d12device_default_CreateDescriptorHeap(
+      self, pDesc, riid, ppvHeap);
+   if (NPT_SUCCEEDED(hr) && pDesc && ppvHeap && *ppvHeap) {
+      struct npt_d3d12_descriptorheap_aux *aux =
+         descriptorheap12_aux(*ppvHeap);
+      if (aux) {
+         aux->type = pDesc->Type;
+         aux->num_descriptors = pDesc->NumDescriptors;
+         aux->shader_visible =
+            (pDesc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) != 0;
+      }
+   }
+   return hr;
+}
+
+/* Descriptor writers: forward, then record the write's ring position
+ * against the destination heap. */
+#define DESC_WRITE_OVERRIDE(iface, method, sig, call, dest)             \
+   static void NPT_STDMETHODCALLTYPE                                     \
+   iface##_##method##_override sig                                       \
+   {                                                                     \
+      npt_##iface##_default_##method call;                               \
+      npt_d3d12_desc_note_write(npt_com_self_ring(self), (dest).ptr, 1); \
+   }
+
+DESC_WRITE_OVERRIDE(id3d12device, CreateShaderResourceView,
+   (void *self, ID3D12Resource *pResource,
+    const D3D12_SHADER_RESOURCE_VIEW_DESC *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pResource, pDesc, DestDescriptor), DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device, CreateUnorderedAccessView,
+   (void *self, ID3D12Resource *pResource, ID3D12Resource *pCounterResource,
+    const D3D12_UNORDERED_ACCESS_VIEW_DESC *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pResource, pCounterResource, pDesc, DestDescriptor), DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device, CreateRenderTargetView,
+   (void *self, ID3D12Resource *pResource,
+    const D3D12_RENDER_TARGET_VIEW_DESC *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pResource, pDesc, DestDescriptor), DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device, CreateDepthStencilView,
+   (void *self, ID3D12Resource *pResource,
+    const D3D12_DEPTH_STENCIL_VIEW_DESC *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pResource, pDesc, DestDescriptor), DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device, CreateSampler,
+   (void *self, const D3D12_SAMPLER_DESC *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pDesc, DestDescriptor), DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device8, CreateSamplerFeedbackUnorderedAccessView,
+   (void *self, ID3D12Resource *pTargetedResource,
+    ID3D12Resource *pFeedbackResource,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pTargetedResource, pFeedbackResource, DestDescriptor),
+   DestDescriptor)
+DESC_WRITE_OVERRIDE(id3d12device11, CreateSampler2,
+   (void *self, const D3D12_SAMPLER_DESC2 *pDesc,
+    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor),
+   (self, pDesc, DestDescriptor), DestDescriptor)
+
+static void NPT_STDMETHODCALLTYPE
+dev12_CreateConstantBufferView_override(
+   void *self, const D3D12_CONSTANT_BUFFER_VIEW_DESC *pDesc,
+   D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+   npt_id3d12device_default_CreateConstantBufferView(self, pDesc,
+                                                     DestDescriptor);
+   npt_d3d12_desc_note_write(npt_com_self_ring(self), DestDescriptor.ptr, 1);
+}
+
+static void NPT_STDMETHODCALLTYPE
+dev12_CopyDescriptors_override(
+   void *self, UINT NumDestDescriptorRanges,
+   const D3D12_CPU_DESCRIPTOR_HANDLE *pDestDescriptorRangeStarts,
+   const UINT *pDestDescriptorRangeSizes, UINT NumSrcDescriptorRanges,
+   const D3D12_CPU_DESCRIPTOR_HANDLE *pSrcDescriptorRangeStarts,
+   const UINT *pSrcDescriptorRangeSizes,
+   D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   /* A NULL size array means every range in it holds one descriptor. */
+   for (UINT i = 0; i < NumSrcDescriptorRanges && pSrcDescriptorRangeStarts;
+        i++)
+      npt_d3d12_desc_order_read(
+         ring, pSrcDescriptorRangeStarts[i].ptr,
+         pSrcDescriptorRangeSizes ? pSrcDescriptorRangeSizes[i] : 1);
+   npt_id3d12device_default_CopyDescriptors(
+      self, NumDestDescriptorRanges, pDestDescriptorRangeStarts,
+      pDestDescriptorRangeSizes, NumSrcDescriptorRanges,
+      pSrcDescriptorRangeStarts, pSrcDescriptorRangeSizes,
+      DescriptorHeapsType);
+   for (UINT i = 0; i < NumDestDescriptorRanges && pDestDescriptorRangeStarts;
+        i++)
+      npt_d3d12_desc_note_write(
+         ring, pDestDescriptorRangeStarts[i].ptr,
+         pDestDescriptorRangeSizes ? pDestDescriptorRangeSizes[i] : 1);
+}
+
+static void NPT_STDMETHODCALLTYPE
+dev12_CopyDescriptorsSimple_override(
+   void *self, UINT NumDescriptors,
+   D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart,
+   D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart,
+   D3D12_DESCRIPTOR_HEAP_TYPE DescriptorHeapsType)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   npt_d3d12_desc_order_read(ring, SrcDescriptorRangeStart.ptr,
+                             NumDescriptors);
+   npt_id3d12device_default_CopyDescriptorsSimple(
+      self, NumDescriptors, DestDescriptorRangeStart, SrcDescriptorRangeStart,
+      DescriptorHeapsType);
+   npt_d3d12_desc_note_write(ring, DestDescriptorRangeStart.ptr,
+                             NumDescriptors);
 }
 
 static D3D12_GPU_DESCRIPTOR_HANDLE * NPT_STDMETHODCALLTYPE
@@ -619,6 +1062,29 @@ npt_overrides_d3d12_device_init(void)
    NPT_REGISTER_OVERRIDE_D3D12_DEVICE(
       GetDescriptorHandleIncrementSize,
       dev12_GetDescriptorHandleIncrementSize_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateDescriptorHeap,
+                                      dev12_CreateDescriptorHeap_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateShaderResourceView,
+                                      id3d12device_CreateShaderResourceView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateUnorderedAccessView,
+                                      id3d12device_CreateUnorderedAccessView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateRenderTargetView,
+                                      id3d12device_CreateRenderTargetView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateDepthStencilView,
+                                      id3d12device_CreateDepthStencilView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateSampler,
+                                      id3d12device_CreateSampler_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CreateConstantBufferView,
+                                      dev12_CreateConstantBufferView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CopyDescriptors,
+                                      dev12_CopyDescriptors_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE(CopyDescriptorsSimple,
+                                      dev12_CopyDescriptorsSimple_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE8(
+      CreateSamplerFeedbackUnorderedAccessView,
+      id3d12device8_CreateSamplerFeedbackUnorderedAccessView_override);
+   NPT_REGISTER_OVERRIDE_D3D12_DEVICE11(CreateSampler2,
+                                        id3d12device11_CreateSampler2_override);
    NPT_REGISTER_OVERRIDE(id3d12descriptorheap,
                          GetCPUDescriptorHandleForHeapStart,
                          descriptorheap12_GetCPUDescriptorHandleForHeapStart_override);

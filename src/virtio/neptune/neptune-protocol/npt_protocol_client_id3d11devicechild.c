@@ -66,15 +66,7 @@ npt_id3d11devicechild_default_GetDevice(void *self, ID3D11Device ** ppDevice)
     ID3D11Device **_orig_ppDevice = ppDevice;
     if (ppDevice)
         ppDevice = (ID3D11Device **)&_raw_ppDevice;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),ppDevice);
-    } else {
-        npt_async_ID3D11DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),ppDevice);
-    }
+    npt_async_ID3D11DeviceChild_GetDevice(npt_com_self_ring(self),npt_com_self_id(self),ppDevice);
     if (_orig_ppDevice) {
         if (_raw_ppDevice)
             *_orig_ppDevice = (ID3D11Device *)npt_com_get_or_wrap(

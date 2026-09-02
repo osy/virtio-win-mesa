@@ -81,24 +81,9 @@ npt_idxgiswapchain_default_GetBuffer(void *self, UINT Buffer, const IID * riid, 
     void **_orig_ppSurface = ppSurface;
     if (ppSurface)
         ppSurface = (void **)&_raw_ppSurface;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGISwapChain_GetBuffer(npt_com_self_ring(self),npt_com_self_id(self),Buffer,riid,ppSurface);
-    } else {
-        npt_async_IDXGISwapChain_GetBuffer(npt_com_self_ring(self),npt_com_self_id(self),Buffer,riid,ppSurface);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGISwapChain_GetBuffer(npt_com_self_ring(self),npt_com_self_id(self),Buffer,riid,ppSurface);
     if (_orig_ppSurface) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppSurface)
+        if (_raw_ppSurface)
             *_orig_ppSurface = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -107,7 +92,11 @@ npt_idxgiswapchain_default_GetBuffer(void *self, UINT Buffer, const IID * riid, 
         else
             *_orig_ppSurface = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -191,24 +180,9 @@ npt_idxgiswapchain_default_GetContainingOutput(void *self, IDXGIOutput ** ppOutp
     IDXGIOutput **_orig_ppOutput = ppOutput;
     if (ppOutput)
         ppOutput = (IDXGIOutput **)&_raw_ppOutput;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGISwapChain_GetContainingOutput(npt_com_self_ring(self),npt_com_self_id(self),ppOutput);
-    } else {
-        npt_async_IDXGISwapChain_GetContainingOutput(npt_com_self_ring(self),npt_com_self_id(self),ppOutput);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGISwapChain_GetContainingOutput(npt_com_self_ring(self),npt_com_self_id(self),ppOutput);
     if (_orig_ppOutput) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppOutput)
+        if (_raw_ppOutput)
             *_orig_ppOutput = (IDXGIOutput *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_IDXGIOutput,
@@ -217,7 +191,11 @@ npt_idxgiswapchain_default_GetContainingOutput(void *self, IDXGIOutput ** ppOutp
         else
             *_orig_ppOutput = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -356,24 +334,9 @@ npt_idxgiswapchain1_default_GetCoreWindow(void *self, const IID * refiid, void *
     void **_orig_ppUnk = ppUnk;
     if (ppUnk)
         ppUnk = (void **)&_raw_ppUnk;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGISwapChain1_GetCoreWindow(npt_com_self_ring(self),npt_com_self_id(self),refiid,ppUnk);
-    } else {
-        npt_async_IDXGISwapChain1_GetCoreWindow(npt_com_self_ring(self),npt_com_self_id(self),refiid,ppUnk);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGISwapChain1_GetCoreWindow(npt_com_self_ring(self),npt_com_self_id(self),refiid,ppUnk);
     if (_orig_ppUnk) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppUnk)
+        if (_raw_ppUnk)
             *_orig_ppUnk = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 refiid,
@@ -382,7 +345,11 @@ npt_idxgiswapchain1_default_GetCoreWindow(void *self, const IID * refiid, void *
         else
             *_orig_ppUnk = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -414,24 +381,9 @@ npt_idxgiswapchain1_default_GetRestrictToOutput(void *self, IDXGIOutput ** ppRes
     IDXGIOutput **_orig_ppRestrictToOutput = ppRestrictToOutput;
     if (ppRestrictToOutput)
         ppRestrictToOutput = (IDXGIOutput **)&_raw_ppRestrictToOutput;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGISwapChain1_GetRestrictToOutput(npt_com_self_ring(self),npt_com_self_id(self),ppRestrictToOutput);
-    } else {
-        npt_async_IDXGISwapChain1_GetRestrictToOutput(npt_com_self_ring(self),npt_com_self_id(self),ppRestrictToOutput);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGISwapChain1_GetRestrictToOutput(npt_com_self_ring(self),npt_com_self_id(self),ppRestrictToOutput);
     if (_orig_ppRestrictToOutput) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppRestrictToOutput)
+        if (_raw_ppRestrictToOutput)
             *_orig_ppRestrictToOutput = (IDXGIOutput *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_IDXGIOutput,
@@ -440,7 +392,11 @@ npt_idxgiswapchain1_default_GetRestrictToOutput(void *self, IDXGIOutput ** ppRes
         else
             *_orig_ppRestrictToOutput = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE

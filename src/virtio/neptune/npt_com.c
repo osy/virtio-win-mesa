@@ -629,13 +629,16 @@ npt_com_send_release(struct npt_device *dev, uint64_t host_id)
    npt_ring_send_com_release(dev, host_id);
 }
 
+/* On the object's own ring: FIFO behind its Create when both came from
+ * this thread, and the host waits for the Create otherwise. */
 static HRESULT
-npt_com_send_query_interface(struct npt_device *dev, uint64_t src_id,
-                             const GUID *iid, uint64_t guest_id)
+npt_com_send_query_interface(void *self, const GUID *iid, uint64_t guest_id)
 {
-   if (!dev || !dev->ring)
+   struct npt_ring *ring = npt_com_self_ring(self);
+   if (!ring)
       return NPT_E_FAIL;
-   return npt_dispatch_com_query_interface(dev->ring, src_id, iid, guest_id);
+   return npt_dispatch_com_query_interface(ring, npt_com_self_id(self), iid,
+                                           guest_id);
 }
 
 HRESULT
@@ -675,7 +678,7 @@ npt_com_query_interface_host(void *self, const GUID *riid, void **ppvObject)
       npt_com_get_or_wrap(dev, riid, guest_id, com);
    if (!wrapper)
       return NPT_E_OUTOFMEMORY;
-   HRESULT hr = npt_com_send_query_interface(dev, npt_com_self_id(self),
+   HRESULT hr = npt_com_send_query_interface(self,
                                              riid, guest_id);
    if (hr != NPT_S_OK && hr != NPT_E_NOINTERFACE) {
       /* Transport failure: nothing was learned about the IID. */

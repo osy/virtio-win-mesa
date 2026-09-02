@@ -67,15 +67,7 @@ npt_id3d11view_default_GetResource(void *self, ID3D11Resource ** ppResource)
     ID3D11Resource **_orig_ppResource = ppResource;
     if (ppResource)
         ppResource = (ID3D11Resource **)&_raw_ppResource;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11View_GetResource(npt_com_self_ring(self),npt_com_self_id(self),ppResource);
-    } else {
-        npt_async_ID3D11View_GetResource(npt_com_self_ring(self),npt_com_self_id(self),ppResource);
-    }
+    npt_async_ID3D11View_GetResource(npt_com_self_ring(self),npt_com_self_id(self),ppResource);
     if (_orig_ppResource) {
         if (_raw_ppResource)
             *_orig_ppResource = (ID3D11Resource *)npt_com_get_or_wrap(

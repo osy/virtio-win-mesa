@@ -421,69 +421,186 @@ static bool
 npt_ring_submit_dispatch_locked(struct npt_ring *ring, const void *data,
                                 uint32_t size);
 
-/*
- * Cross-ring drain barrier: wait for every TLS / instance ring to
- * dispatch past its current tail.  Closes the UAF window where a
- * COM_RELEASE(X) on primary could race a pending async use of X on
- * another thread's ring.
- *
- * Caller MUST hold primary->lock on entry; we drop it for the drain
- * (holding it across long TLS-ring waits would serialize every other
- * primary path and starve the watchdog) and re-acquire before return.
- */
-static void
-npt_ring_drain_peer_rings_unlocked(struct npt_ring *primary)
-{
-   struct npt_device *dev = primary->device;
-   if (!dev || primary != dev->ring)
-      return;
-
-   npt_ring_unlock_and_notify(primary);
-
-   mtx_lock(&dev->tls_rings_mutex);
-   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
-      mtx_lock(&tr->mutex);
-      struct npt_ring *tr_ring =
-         atomic_load_explicit(&tr->ring, memory_order_acquire);
-      if (tr_ring && tr_ring != primary)
-         npt_ring_wait_all(tr_ring);
-      mtx_unlock(&tr->mutex);
-   }
-   mtx_unlock(&dev->tls_rings_mutex);
-
-   mtx_lock(&dev->instance_rings_mutex);
-   list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
-                       instance_head) {
-      if (ir != primary)
-         npt_ring_wait_all(ir);
-   }
-   mtx_unlock(&dev->instance_rings_mutex);
-
-   npt_ring_lock_acquire(&primary->lock);
-}
-
 void
 npt_ring_send_com_release(struct npt_device *dev, uint64_t host_id)
 {
    if (!dev || !dev->ring || !host_id)
       return;
 
-   /* Drain peer rings before the release crosses the wire so an
-    * in-flight async use of host_id on a TLS / instance ring is
-    * fully observed by the host before the release. */
-   struct npt_ring *primary = dev->ring;
-   npt_ring_lock_acquire(&primary->lock);
-   npt_ring_drain_peer_rings_unlocked(primary);
+   struct npt_ring *ring = npt_tls_peek_ring(dev);
+   if (!ring)
+      ring = dev->ring;
 
-   struct npt_cmd_com_release cmd;
-   memset(&cmd, 0, sizeof(cmd));
-   cmd.header.cmd_type =
+   /* Every other ring's published position rides with the release
+    * (struct npt_cmd_com_release): this thread reads those tails
+    * exactly, the host would read them through its cache with a lag. */
+   struct npt_ring_edge stack_edges[32];
+   struct npt_ring_edge *edges = stack_edges;
+   uint32_t cap = sizeof(stack_edges) / sizeof(stack_edges[0]);
+   uint32_t n = npt_tls_snapshot_ring_tails(dev, ring->id, edges, cap);
+   while (n > cap) {
+      if (edges != stack_edges)
+         free(edges);
+      cap = n;
+      edges = malloc(cap * sizeof(*edges));
+      if (!edges)
+         return;
+      n = npt_tls_snapshot_ring_tails(dev, ring->id, edges, cap);
+   }
+
+   struct npt_cmd_com_release header;
+   memset(&header, 0, sizeof(header));
+   header.header.cmd_type =
       NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_COM,
                              NPT_TRANSPORT_COM_RELEASE);
+   header.header.cmd_size =
+      sizeof(header) + n * sizeof(struct npt_cmd_com_release_wait);
+   header.header.object_id = host_id;
+
+   struct npt_cmd_com_release_wait stack_waits[32];
+   struct npt_cmd_com_release_wait *waits = stack_waits;
+   if (n > sizeof(stack_waits) / sizeof(stack_waits[0])) {
+      waits = malloc(n * sizeof(*waits));
+      if (!waits) {
+         if (edges != stack_edges)
+            free(edges);
+         return;
+      }
+   }
+   for (uint32_t i = 0; i < n; i++) {
+      waits[i].ring_id = edges[i].ring_id;
+      waits[i].seqno = edges[i].seqno;
+      waits[i].pad = 0;
+   }
+   npt_ring_submit_raw_with_payload(ring, &header, sizeof(header), waits,
+                                    n * sizeof(*waits), n * sizeof(*waits));
+   if (waits != stack_waits)
+      free(waits);
+   if (edges != stack_edges)
+      free(edges);
+}
+
+/* Lock-free pre-check: true when `ring` was already ordered after
+ * target_id at or beyond seqno. */
+static bool
+npt_ring_edge_covered(const struct npt_ring *ring, uint64_t target_id,
+                      uint32_t seqno)
+{
+   for (uint32_t i = 0; i < NPT_RING_EDGE_SEEN_SLOTS; i++) {
+      if (atomic_load_explicit(&ring->edge_seen[i].ring_id,
+                               memory_order_acquire) != target_id)
+         continue;
+      const uint32_t seen =
+         atomic_load_explicit(&ring->edge_seen[i].seqno, memory_order_relaxed);
+      return (int32_t)(seen - seqno) >= 0;
+   }
+   return false;
+}
+
+/* Caller holds ring->lock. */
+static void
+npt_ring_edge_note_locked(struct npt_ring *ring, uint64_t target_id,
+                          uint32_t seqno)
+{
+   for (uint32_t i = 0; i < NPT_RING_EDGE_SEEN_SLOTS; i++) {
+      if (atomic_load_explicit(&ring->edge_seen[i].ring_id,
+                               memory_order_relaxed) == target_id) {
+         atomic_store_explicit(&ring->edge_seen[i].seqno, seqno,
+                               memory_order_relaxed);
+         return;
+      }
+   }
+   /* Evict round-robin: a lost entry only costs a redundant edge. */
+   const uint32_t i = ring->edge_seen_next++ % NPT_RING_EDGE_SEEN_SLOTS;
+   atomic_store_explicit(&ring->edge_seen[i].seqno, seqno,
+                         memory_order_relaxed);
+   atomic_store_explicit(&ring->edge_seen[i].ring_id, target_id,
+                         memory_order_release);
+}
+
+/* Caller holds ring->lock. */
+static void
+npt_ring_order_after_locked(struct npt_ring *ring, uint64_t target_id,
+                            uint32_t seqno)
+{
+   if (target_id == ring->id || npt_ring_edge_covered(ring, target_id, seqno))
+      return;
+
+   struct npt_cmd_wait_peer_ring cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_RING,
+                             NPT_TRANSPORT_RING_WAIT_PEER);
    cmd.header.cmd_size = sizeof(cmd);
-   cmd.header.object_id = host_id;
-   npt_ring_submit_dispatch_locked(primary, &cmd, sizeof(cmd));
-   npt_ring_unlock_and_notify(primary);
+   cmd.ring_id = target_id;
+   cmd.seqno = seqno;
+   if (npt_ring_submit_locked(ring, &cmd, sizeof(cmd)))
+      npt_ring_edge_note_locked(ring, target_id, seqno);
+}
+
+void
+npt_ring_order_after(struct npt_ring *ring, uint64_t target_id,
+                     uint32_t target_seqno)
+{
+   if (!ring || target_id == ring->id ||
+       npt_ring_edge_covered(ring, target_id, target_seqno))
+      return;
+   npt_ring_lock_acquire(&ring->lock);
+   npt_ring_order_after_locked(ring, target_id, target_seqno);
+   npt_ring_unlock_and_notify(ring);
+}
+
+void
+npt_ring_order_after_ring(struct npt_ring *ring, const struct npt_ring *target,
+                          uint32_t target_seqno)
+{
+   if (target)
+      npt_ring_order_after(ring, target->id, target_seqno);
+}
+
+void
+npt_ring_order_after_edges(struct npt_ring *ring,
+                           const struct npt_ring_edge *edges, uint32_t count)
+{
+   if (!ring || !count)
+      return;
+   bool any = false;
+   for (uint32_t i = 0; i < count && !any; i++) {
+      any = edges[i].ring_id != ring->id &&
+            !npt_ring_edge_covered(ring, edges[i].ring_id, edges[i].seqno);
+   }
+   if (!any)
+      return;
+   npt_ring_lock_acquire(&ring->lock);
+   for (uint32_t i = 0; i < count; i++)
+      npt_ring_order_after_locked(ring, edges[i].ring_id, edges[i].seqno);
+   npt_ring_unlock_and_notify(ring);
+}
+
+void
+npt_ring_order_after_all(struct npt_ring *ring)
+{
+   if (!ring || !ring->device)
+      return;
+
+   struct npt_ring_edge stack_edges[32];
+   struct npt_ring_edge *edges = stack_edges;
+   uint32_t cap = sizeof(stack_edges) / sizeof(stack_edges[0]);
+   uint32_t n = npt_tls_snapshot_ring_tails(ring->device, ring->id, edges, cap);
+   while (n > cap) {
+      /* More rings than the stack buffer holds: size to the count and
+       * snapshot again. */
+      if (edges != stack_edges)
+         free(edges);
+      cap = n;
+      edges = malloc(cap * sizeof(*edges));
+      if (!edges)
+         return;
+      n = npt_tls_snapshot_ring_tails(ring->device, ring->id, edges, cap);
+   }
+   npt_ring_order_after_edges(ring, edges, n);
+   if (edges != stack_edges)
+      free(edges);
 }
 
 static void
@@ -515,53 +632,6 @@ npt_ring_seqno_status(const struct npt_ring *ring, uint32_t seqno)
    if ((uint32_t)(cur - seqno) >= ring->buffer_size)
       return true;
    return (int32_t)(npt_ring_load_head(ring) - seqno) >= 0;
-}
-
-void
-npt_ring_wait_all(struct npt_ring *ring)
-{
-   /* Use ring->tail (acquire) not ring->cur to pick up any publish
-    * from a peer under ring->lock.  Pass NULL to npt_ring_relax to
-    * disable the ALIVE watchdog: a deep host dispatch (batch of
-    * draws) can legitimately blow past the 3-miss threshold, and the
-    * submitter's own sync-reply wait still gets watchdog coverage. */
-   const uint32_t target =
-      atomic_load_explicit(ring->tail, memory_order_acquire);
-   uint32_t iter = 0;
-   while (!npt_ring_seqno_status(ring, target)) {
-      const uint32_t status = npt_ring_load_status(ring);
-      if (status & NPT_RING_STATUS_FATAL_BIT)
-         return;
-      if (ring->renderer && npt_renderer_is_lost(ring->renderer))
-         return;
-      /* The ALIVE watchdog is off here (NULL relax; see comment
-       * above), which made a TDR mapping-teardown a SILENT hang.
-       * Run the zero-page check directly at the same cadence the
-       * watchdog would. */
-      if (iter && (iter & 0x3fff) == 0 && ring->cur != 0 &&
-          npt_ring_load_head(ring) == 0 &&
-          npt_ring_load_status(ring) == 0 && ring->renderer) {
-         npt_log("wait_all: ring %llu mapping reads as zero page -- "
-                 "device removed; marking renderer lost",
-                 (unsigned long long)ring->id);
-         npt_renderer_set_lost(ring->renderer);
-         return;
-      }
-      /* The watchdog is disabled on this wait, so report progress here
-       * instead; a set IDLE bit while still stuck is the fingerprint of a
-       * missed notify (host parked with work already published). */
-      if (iter && (iter & 0x7fff) == 0) {
-         const uint32_t head =
-            atomic_load_explicit(ring->head, memory_order_acquire);
-         npt_log("wait_all: ring %llu target=%u head=%u cur=%u status=0x%x "
-                 "iter=%u%s",
-                 (unsigned long long)ring->id, target, head, ring->cur,
-                 status, iter,
-                 (status & NPT_RING_STATUS_IDLE_BIT)
-                    ? " HOST-IDLE (missed notify?)" : "");
-      }
-      npt_ring_relax(NULL, &iter);
-   }
 }
 
 uint32_t
@@ -1116,6 +1186,14 @@ npt_ring_create(struct npt_device *device,
 
    npt_ring_lock_init(&ring->lock);
 
+   for (uint32_t i = 0; i < NPT_RING_EDGE_SEEN_SLOTS; i++) {
+      atomic_store_explicit(&ring->edge_seen[i].ring_id, 0,
+                            memory_order_relaxed);
+      atomic_store_explicit(&ring->edge_seen[i].seqno, 0,
+                            memory_order_relaxed);
+   }
+   ring->edge_seen_next = 0;
+
    npt_shmem_pool_init(&ring->reply_pool, NPT_RING_REPLY_POOL_MIN_SIZE);
 
    ring->upload_shmem = NULL;
@@ -1143,8 +1221,7 @@ npt_ring_create(struct npt_device *device,
    create_cmd.idle_timeout = is_tls_ring
                                 ? NPT_TLS_RING_IDLE_TIMEOUT_NS
                                 : NPT_RING_IDLE_TIMEOUT_NS;
-   /* Monitor every ring: without this, the cross-ring drain would
-    * spin on a TLS ring whose ALIVE bit never gets set. */
+   /* Monitor every ring so the guest watchdog covers each one. */
    create_cmd.monitor_report_period_us = NPT_RING_WATCHDOG_REPORT_PERIOD_US;
 
    /* Forward priority so the host doesn't starve under elevated

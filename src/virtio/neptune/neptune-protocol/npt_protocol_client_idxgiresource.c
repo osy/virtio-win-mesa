@@ -184,24 +184,9 @@ npt_idxgiresource1_default_CreateSubresourceSurface(void *self, UINT index, IDXG
     IDXGISurface2 **_orig_ppSurface = ppSurface;
     if (ppSurface)
         ppSurface = (IDXGISurface2 **)&_raw_ppSurface;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGIResource1_CreateSubresourceSurface(npt_com_self_ring(self),npt_com_self_id(self),index,ppSurface);
-    } else {
-        npt_async_IDXGIResource1_CreateSubresourceSurface(npt_com_self_ring(self),npt_com_self_id(self),index,ppSurface);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGIResource1_CreateSubresourceSurface(npt_com_self_ring(self),npt_com_self_id(self),index,ppSurface);
     if (_orig_ppSurface) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppSurface)
+        if (_raw_ppSurface)
             *_orig_ppSurface = (IDXGISurface2 *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_IDXGISurface2,
@@ -210,7 +195,11 @@ npt_idxgiresource1_default_CreateSubresourceSurface(void *self, UINT index, IDXG
         else
             *_orig_ppSurface = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE

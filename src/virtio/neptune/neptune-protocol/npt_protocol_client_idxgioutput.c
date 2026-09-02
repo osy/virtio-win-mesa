@@ -285,24 +285,9 @@ npt_idxgioutput1_default_DuplicateOutput(void *self, IUnknown * pDevice, IDXGIOu
     IDXGIOutputDuplication **_orig_ppOutputDuplication = ppOutputDuplication;
     if (ppOutputDuplication)
         ppOutputDuplication = (IDXGIOutputDuplication **)&_raw_ppOutputDuplication;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGIOutput1_DuplicateOutput(npt_com_self_ring(self),npt_com_self_id(self),pDevice,ppOutputDuplication);
-    } else {
-        npt_async_IDXGIOutput1_DuplicateOutput(npt_com_self_ring(self),npt_com_self_id(self),pDevice,ppOutputDuplication);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGIOutput1_DuplicateOutput(npt_com_self_ring(self),npt_com_self_id(self),pDevice,ppOutputDuplication);
     if (_orig_ppOutputDuplication) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppOutputDuplication)
+        if (_raw_ppOutputDuplication)
             *_orig_ppOutputDuplication = (IDXGIOutputDuplication *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_IDXGIOutputDuplication,
@@ -311,7 +296,11 @@ npt_idxgioutput1_default_DuplicateOutput(void *self, IUnknown * pDevice, IDXGIOu
         else
             *_orig_ppOutputDuplication = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 
@@ -738,24 +727,9 @@ npt_idxgioutput5_default_DuplicateOutput1(void *self, IUnknown * pDevice, UINT F
     IDXGIOutputDuplication **_orig_ppOutputDuplication = ppOutputDuplication;
     if (ppOutputDuplication)
         ppOutputDuplication = (IDXGIOutputDuplication **)&_raw_ppOutputDuplication;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_IDXGIOutput5_DuplicateOutput1(npt_com_self_ring(self),npt_com_self_id(self),pDevice,Flags,SupportedFormatsCount,pSupportedFormats,ppOutputDuplication);
-    } else {
-        npt_async_IDXGIOutput5_DuplicateOutput1(npt_com_self_ring(self),npt_com_self_id(self),pDevice,Flags,SupportedFormatsCount,pSupportedFormats,ppOutputDuplication);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_IDXGIOutput5_DuplicateOutput1(npt_com_self_ring(self),npt_com_self_id(self),pDevice,Flags,SupportedFormatsCount,pSupportedFormats,ppOutputDuplication);
     if (_orig_ppOutputDuplication) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppOutputDuplication)
+        if (_raw_ppOutputDuplication)
             *_orig_ppOutputDuplication = (IDXGIOutputDuplication *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_IDXGIOutputDuplication,
@@ -764,7 +738,11 @@ npt_idxgioutput5_default_DuplicateOutput1(void *self, IUnknown * pDevice, UINT F
         else
             *_orig_ppOutputDuplication = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 

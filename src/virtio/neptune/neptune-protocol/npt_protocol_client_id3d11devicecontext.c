@@ -477,15 +477,7 @@ npt_id3d11devicecontext_default_CSSetConstantBuffers(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_VSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_VSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_VSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_VSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -505,15 +497,7 @@ npt_id3d11devicecontext_default_VSGetConstantBuffers(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_PSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_PSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_PSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_PSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -571,15 +555,7 @@ npt_id3d11devicecontext_default_PSGetShader(void *self, ID3D11PixelShader ** ppP
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_PSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_PSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_PSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_PSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -637,15 +613,7 @@ npt_id3d11devicecontext_default_VSGetShader(void *self, ID3D11VertexShader ** pp
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_PSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_PSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_PSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_PSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -673,15 +641,7 @@ npt_id3d11devicecontext_default_IAGetInputLayout(void *self, ID3D11InputLayout *
     ID3D11InputLayout **_orig_ppInputLayout = ppInputLayout;
     if (ppInputLayout)
         ppInputLayout = (ID3D11InputLayout **)&_raw_ppInputLayout;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_IAGetInputLayout(npt_com_self_ring(self),npt_com_self_id(self),ppInputLayout);
-    } else {
-        npt_async_ID3D11DeviceContext_IAGetInputLayout(npt_com_self_ring(self),npt_com_self_id(self),ppInputLayout);
-    }
+    npt_async_ID3D11DeviceContext_IAGetInputLayout(npt_com_self_ring(self),npt_com_self_id(self),ppInputLayout);
     if (_orig_ppInputLayout) {
         if (_raw_ppInputLayout)
             *_orig_ppInputLayout = (ID3D11InputLayout *)npt_com_get_or_wrap(
@@ -741,15 +701,7 @@ npt_id3d11devicecontext_default_IAGetIndexBuffer(void *self, ID3D11Buffer ** pIn
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_GSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_GSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_GSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_GSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -813,15 +765,7 @@ npt_id3d11devicecontext_default_IAGetPrimitiveTopology(void *self, D3D11_PRIMITI
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_VSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_VSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_VSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_VSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -841,15 +785,7 @@ npt_id3d11devicecontext_default_VSGetShaderResources(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_VSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_VSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_VSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_VSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -893,15 +829,7 @@ npt_id3d11devicecontext_default_GetPredication(void *self, ID3D11Predicate ** pp
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_GSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_GSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_GSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_GSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -921,15 +849,7 @@ npt_id3d11devicecontext_default_GSGetShaderResources(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_GSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_GSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_GSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_GSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -957,15 +877,7 @@ npt_id3d11devicecontext_default_OMGetRenderTargets(void *self, UINT NumViews, ID
     ID3D11DepthStencilView **_orig_ppDepthStencilView = ppDepthStencilView;
     if (ppDepthStencilView)
         ppDepthStencilView = (ID3D11DepthStencilView **)&_raw_ppDepthStencilView;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_OMGetRenderTargets(npt_com_self_ring(self),npt_com_self_id(self),NumViews,ppRenderTargetViews,ppDepthStencilView);
-    } else {
-        npt_async_ID3D11DeviceContext_OMGetRenderTargets(npt_com_self_ring(self),npt_com_self_id(self),NumViews,ppRenderTargetViews,ppDepthStencilView);
-    }
+    npt_async_ID3D11DeviceContext_OMGetRenderTargets(npt_com_self_ring(self),npt_com_self_id(self),NumViews,ppRenderTargetViews,ppDepthStencilView);
     if (_orig_ppDepthStencilView) {
         if (_raw_ppDepthStencilView)
             *_orig_ppDepthStencilView = (ID3D11DepthStencilView *)npt_com_get_or_wrap(
@@ -1003,15 +915,7 @@ npt_id3d11devicecontext_default_OMGetRenderTargetsAndUnorderedAccessViews(void *
     ID3D11DepthStencilView **_orig_ppDepthStencilView = ppDepthStencilView;
     if (ppDepthStencilView)
         ppDepthStencilView = (ID3D11DepthStencilView **)&_raw_ppDepthStencilView;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_OMGetRenderTargetsAndUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),NumRTVs,ppRenderTargetViews,ppDepthStencilView,UAVStartSlot,NumUAVs,ppUnorderedAccessViews);
-    } else {
-        npt_async_ID3D11DeviceContext_OMGetRenderTargetsAndUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),NumRTVs,ppRenderTargetViews,ppDepthStencilView,UAVStartSlot,NumUAVs,ppUnorderedAccessViews);
-    }
+    npt_async_ID3D11DeviceContext_OMGetRenderTargetsAndUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),NumRTVs,ppRenderTargetViews,ppDepthStencilView,UAVStartSlot,NumUAVs,ppUnorderedAccessViews);
     if (_orig_ppDepthStencilView) {
         if (_raw_ppDepthStencilView)
             *_orig_ppDepthStencilView = (ID3D11DepthStencilView *)npt_com_get_or_wrap(
@@ -1100,15 +1004,7 @@ npt_id3d11devicecontext_default_OMGetDepthStencilState(void *self, ID3D11DepthSt
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_SOGetTargets(void *self, UINT NumBuffers, ID3D11Buffer ** ppSOTargets)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_SOGetTargets(npt_com_self_ring(self),npt_com_self_id(self),NumBuffers,ppSOTargets);
-    } else {
-        npt_async_ID3D11DeviceContext_SOGetTargets(npt_com_self_ring(self),npt_com_self_id(self),NumBuffers,ppSOTargets);
-    }
+    npt_async_ID3D11DeviceContext_SOGetTargets(npt_com_self_ring(self),npt_com_self_id(self),NumBuffers,ppSOTargets);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1136,15 +1032,7 @@ npt_id3d11devicecontext_default_RSGetState(void *self, ID3D11RasterizerState ** 
     ID3D11RasterizerState **_orig_ppRasterizerState = ppRasterizerState;
     if (ppRasterizerState)
         ppRasterizerState = (ID3D11RasterizerState **)&_raw_ppRasterizerState;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_RSGetState(npt_com_self_ring(self),npt_com_self_id(self),ppRasterizerState);
-    } else {
-        npt_async_ID3D11DeviceContext_RSGetState(npt_com_self_ring(self),npt_com_self_id(self),ppRasterizerState);
-    }
+    npt_async_ID3D11DeviceContext_RSGetState(npt_com_self_ring(self),npt_com_self_id(self),ppRasterizerState);
     if (_orig_ppRasterizerState) {
         if (_raw_ppRasterizerState)
             *_orig_ppRasterizerState = (ID3D11RasterizerState *)npt_com_get_or_wrap(
@@ -1172,15 +1060,7 @@ npt_id3d11devicecontext_default_RSGetScissorRects(void *self, UINT * pNumRects, 
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_HSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_HSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_HSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_HSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1238,15 +1118,7 @@ npt_id3d11devicecontext_default_HSGetShader(void *self, ID3D11HullShader ** ppHu
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_HSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_HSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_HSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_HSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1266,15 +1138,7 @@ npt_id3d11devicecontext_default_HSGetSamplers(void *self, UINT StartSlot, UINT N
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_HSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_HSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_HSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_HSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1294,15 +1158,7 @@ npt_id3d11devicecontext_default_HSGetConstantBuffers(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_DSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_DSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_DSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_DSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1360,15 +1216,7 @@ npt_id3d11devicecontext_default_DSGetShader(void *self, ID3D11DomainShader ** pp
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_DSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_DSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_DSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_DSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1388,15 +1236,7 @@ npt_id3d11devicecontext_default_DSGetSamplers(void *self, UINT StartSlot, UINT N
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_DSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_DSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_DSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_DSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1416,15 +1256,7 @@ npt_id3d11devicecontext_default_DSGetConstantBuffers(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_CSGetShaderResources(void *self, UINT StartSlot, UINT NumViews, ID3D11ShaderResourceView ** ppShaderResourceViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_CSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    } else {
-        npt_async_ID3D11DeviceContext_CSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
-    }
+    npt_async_ID3D11DeviceContext_CSGetShaderResources(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumViews,ppShaderResourceViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1444,15 +1276,7 @@ npt_id3d11devicecontext_default_CSGetShaderResources(void *self, UINT StartSlot,
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_CSGetUnorderedAccessViews(void *self, UINT StartSlot, UINT NumUAVs, ID3D11UnorderedAccessView ** ppUnorderedAccessViews)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_CSGetUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumUAVs,ppUnorderedAccessViews);
-    } else {
-        npt_async_ID3D11DeviceContext_CSGetUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumUAVs,ppUnorderedAccessViews);
-    }
+    npt_async_ID3D11DeviceContext_CSGetUnorderedAccessViews(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumUAVs,ppUnorderedAccessViews);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1510,15 +1334,7 @@ npt_id3d11devicecontext_default_CSGetShader(void *self, ID3D11ComputeShader ** p
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_CSGetSamplers(void *self, UINT StartSlot, UINT NumSamplers, ID3D11SamplerState ** ppSamplers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_CSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    } else {
-        npt_async_ID3D11DeviceContext_CSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
-    }
+    npt_async_ID3D11DeviceContext_CSGetSamplers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumSamplers,ppSamplers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1538,15 +1354,7 @@ npt_id3d11devicecontext_default_CSGetSamplers(void *self, UINT StartSlot, UINT N
 void NPT_STDMETHODCALLTYPE
 npt_id3d11devicecontext_default_CSGetConstantBuffers(void *self, UINT StartSlot, UINT NumBuffers, ID3D11Buffer ** ppConstantBuffers)
 {
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext_CSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    } else {
-        npt_async_ID3D11DeviceContext_CSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
-    }
+    npt_async_ID3D11DeviceContext_CSGetConstantBuffers(npt_com_self_ring(self),npt_com_self_id(self),StartSlot,NumBuffers,ppConstantBuffers);
     /* Wrap output COM handle arrays in-place.  The encoder stashed the
      * guest-allocated ids in each slot before the submit; convert them
      * to wrappers now. */
@@ -1600,24 +1408,9 @@ npt_id3d11devicecontext_default_FinishCommandList(void *self, BOOL RestoreDeferr
     ID3D11CommandList **_orig_ppCommandList = ppCommandList;
     if (ppCommandList)
         ppCommandList = (ID3D11CommandList **)&_raw_ppCommandList;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D11DeviceContext_FinishCommandList(npt_com_self_ring(self),npt_com_self_id(self),RestoreDeferredContextState,ppCommandList);
-    } else {
-        npt_async_ID3D11DeviceContext_FinishCommandList(npt_com_self_ring(self),npt_com_self_id(self),RestoreDeferredContextState,ppCommandList);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D11DeviceContext_FinishCommandList(npt_com_self_ring(self),npt_com_self_id(self),RestoreDeferredContextState,ppCommandList);
     if (_orig_ppCommandList) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppCommandList)
+        if (_raw_ppCommandList)
             *_orig_ppCommandList = (ID3D11CommandList *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D11CommandList,
@@ -1626,7 +1419,11 @@ npt_id3d11devicecontext_default_FinishCommandList(void *self, BOOL RestoreDeferr
         else
             *_orig_ppCommandList = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 
@@ -2017,15 +1814,7 @@ npt_id3d11devicecontext1_default_SwapDeviceContextState(void *self, ID3DDeviceCo
     ID3DDeviceContextState **_orig_ppPreviousState = ppPreviousState;
     if (ppPreviousState)
         ppPreviousState = (ID3DDeviceContextState **)&_raw_ppPreviousState;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11DeviceContext1_SwapDeviceContextState(npt_com_self_ring(self),npt_com_self_id(self),pState,ppPreviousState);
-    } else {
-        npt_async_ID3D11DeviceContext1_SwapDeviceContextState(npt_com_self_ring(self),npt_com_self_id(self),pState,ppPreviousState);
-    }
+    npt_async_ID3D11DeviceContext1_SwapDeviceContextState(npt_com_self_ring(self),npt_com_self_id(self),pState,ppPreviousState);
     if (_orig_ppPreviousState) {
         if (_raw_ppPreviousState)
             *_orig_ppPreviousState = (ID3DDeviceContextState *)npt_com_get_or_wrap(

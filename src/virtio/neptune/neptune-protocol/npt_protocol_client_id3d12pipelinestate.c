@@ -69,24 +69,9 @@ npt_id3d12pipelinestate_default_GetCachedBlob(void *self, ID3DBlob ** ppBlob)
     ID3DBlob **_orig_ppBlob = ppBlob;
     if (ppBlob)
         ppBlob = (ID3DBlob **)&_raw_ppBlob;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12PipelineState_GetCachedBlob(npt_com_self_ring(self),npt_com_self_id(self),ppBlob);
-    } else {
-        npt_async_ID3D12PipelineState_GetCachedBlob(npt_com_self_ring(self),npt_com_self_id(self),ppBlob);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12PipelineState_GetCachedBlob(npt_com_self_ring(self),npt_com_self_id(self),ppBlob);
     if (_orig_ppBlob) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppBlob)
+        if (_raw_ppBlob)
             *_orig_ppBlob = (ID3DBlob *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D10Blob,
@@ -95,7 +80,11 @@ npt_id3d12pipelinestate_default_GetCachedBlob(void *self, ID3DBlob ** ppBlob)
         else
             *_orig_ppBlob = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 

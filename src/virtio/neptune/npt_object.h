@@ -46,10 +46,11 @@ struct npt_object {
     * BETWEEN calls (D3D12 command lists: single-threaded recording, no
     * thread affinity) set ring_ordered at wrapper construction.  When a
     * flagged object's next call lands on a different ring than its
-    * previous one, npt_com_self_ring drains the previous ring first, so
-    * the host decodes this object's commands in call order.  Without
-    * this, a recording handoff split a list's commands across two rings
-    * with no ordering, and the host draws the result out of order. */
+    * previous one, npt_com_self_ring orders the new ring after the
+    * previous one on the host, so it decodes this object's commands in
+    * call order.  Without this, a recording handoff split a list's
+    * commands across two rings with no ordering, and the host draws the
+    * result out of order. */
    bool ring_ordered;
    _Atomic uint64_t order_ring_id;
    /* instance_ring is this object's PRIVATE ring (not the shared DC/SC

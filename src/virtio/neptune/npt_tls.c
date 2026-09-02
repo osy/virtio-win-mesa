@@ -141,10 +141,6 @@ npt_tls_get_ring(struct npt_device *dev)
    if (found)
       return found;
 
-   /* Cache miss: drain primary so prior primary work commits before
-    * this thread's first TLS submission. */
-   npt_ring_wait_all(dev->ring);
-
    struct npt_tls_ring *tr = calloc(1, sizeof(*tr));
    if (!tr)
       return dev->ring;
@@ -173,110 +169,91 @@ npt_tls_get_ring(struct npt_device *dev)
 
    list_addtail(&tr->tls_head, &tls->tls_rings);
 
+   /* This thread's earlier traffic went to other rings (primary before
+    * the device went multi-ring, at least); the new ring's first
+    * command must decode after all of it. */
+   npt_ring_order_after_all(new_ring);
+
    return new_ring;
 }
 
-void
-npt_tls_wait_ring_seqno(struct npt_device *dev, uint64_t ring_id,
-                        uint32_t seqno)
+uint32_t
+npt_tls_snapshot_ring_tails(struct npt_device *dev, uint64_t skip_ring_id,
+                            struct npt_ring_edge *out, uint32_t cap)
 {
+   uint32_t n = 0;
    if (!dev)
-      return;
-   if (dev->ring && dev->ring->id == ring_id) {
-      npt_ring_wait_seqno(dev->ring, seqno);
-      return;
-   }
-   /* tr->mutex under tls_rings_mutex matches the cross-ring drain
-    * barrier's order; the destroy path never nests the two.  Holding
-    * tr->mutex across the wait blocks a concurrent thread-exit destroy
-    * of this ring, which is exactly the lifetime guarantee needed. */
+      return 0;
+
+#define NPT_TLS_SNAPSHOT_ADD(r)                                          \
+   do {                                                                  \
+      struct npt_ring *_r = (r);                                         \
+      if (_r && _r->id != skip_ring_id) {                                \
+         if (n < cap) {                                                  \
+            out[n].ring_id = _r->id;                                     \
+            out[n].seqno = npt_ring_seqno_now(_r);                       \
+         }                                                               \
+         n++;                                                            \
+      }                                                                  \
+   } while (0)
+
+   NPT_TLS_SNAPSHOT_ADD(dev->ring);
+
    mtx_lock(&dev->tls_rings_mutex);
    list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
-      mtx_lock(&tr->mutex);
+      NPT_TLS_SNAPSHOT_ADD(
+         atomic_load_explicit(&tr->ring, memory_order_acquire));
+   }
+   mtx_unlock(&dev->tls_rings_mutex);
+
+   mtx_lock(&dev->instance_rings_mutex);
+   list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
+                       instance_head) {
+      NPT_TLS_SNAPSHOT_ADD(ir);
+   }
+   mtx_unlock(&dev->instance_rings_mutex);
+#undef NPT_TLS_SNAPSHOT_ADD
+
+   return n;
+}
+
+bool
+npt_tls_ring_tail_by_id(struct npt_device *dev, uint64_t ring_id,
+                        uint32_t *out_tail)
+{
+   if (!dev)
+      return false;
+   if (dev->ring && dev->ring->id == ring_id) {
+      *out_tail = npt_ring_seqno_now(dev->ring);
+      return true;
+   }
+
+   bool found = false;
+   mtx_lock(&dev->tls_rings_mutex);
+   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
       struct npt_ring *ring =
          atomic_load_explicit(&tr->ring, memory_order_acquire);
       if (ring && ring->id == ring_id) {
-         npt_ring_wait_seqno(ring, seqno);
-         mtx_unlock(&tr->mutex);
+         *out_tail = npt_ring_seqno_now(ring);
+         found = true;
          break;
       }
-      mtx_unlock(&tr->mutex);
    }
    mtx_unlock(&dev->tls_rings_mutex);
-
-   /* Instance rings (queues, DC/SC wrappers) live in a separate list;
-    * without this leg a wait against a queue ring silently no-opped --
-    * which let a list Reset overtake its ExecuteCommandLists on the
-    * wire, which the host rejects with "Command list ... is in
-    * recording state" and marks the device removed. */
-   mtx_lock(&dev->instance_rings_mutex);
-   list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
-                       instance_head) {
-      if (ir->id == ring_id) {
-         npt_ring_wait_seqno(ir, seqno);
-         mtx_unlock(&dev->instance_rings_mutex);
-         return;
-      }
-   }
-   mtx_unlock(&dev->instance_rings_mutex);
-   /* Not found anywhere: the ring was destroyed, and DESTROY_RING is
-    * host-synchronous, so its bytes were consumed already. */
-}
-
-void
-npt_tls_drain_ring_id(struct npt_device *dev, uint64_t ring_id)
-{
-   if (!dev)
-      return;
-   if (dev->ring && dev->ring->id == ring_id) {
-      npt_ring_wait_all(dev->ring);
-      return;
-   }
-   mtx_lock(&dev->tls_rings_mutex);
-   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
-      mtx_lock(&tr->mutex);
-      struct npt_ring *ring =
-         atomic_load_explicit(&tr->ring, memory_order_acquire);
-      if (ring && ring->id == ring_id) {
-         npt_ring_wait_all(ring);
-         mtx_unlock(&tr->mutex);
-         mtx_unlock(&dev->tls_rings_mutex);
-         return;
-      }
-      mtx_unlock(&tr->mutex);
-   }
-   mtx_unlock(&dev->tls_rings_mutex);
+   if (found)
+      return true;
 
    mtx_lock(&dev->instance_rings_mutex);
    list_for_each_entry(struct npt_ring, ir, &dev->instance_rings,
                        instance_head) {
       if (ir->id == ring_id) {
-         npt_ring_wait_all(ir);
-         mtx_unlock(&dev->instance_rings_mutex);
-         return;
+         *out_tail = npt_ring_seqno_now(ir);
+         found = true;
+         break;
       }
    }
    mtx_unlock(&dev->instance_rings_mutex);
-   /* Not found: destroyed ring, DESTROY_RING is host-synchronous. */
-}
-
-void
-npt_tls_wait_all_rings(struct npt_device *dev)
-{
-   if (!dev)
-      return;
-   mtx_lock(&dev->tls_rings_mutex);
-   list_for_each_entry(struct npt_tls_ring, tr, &dev->tls_rings, dev_head) {
-      mtx_lock(&tr->mutex);
-      struct npt_ring *ring =
-         atomic_load_explicit(&tr->ring, memory_order_acquire);
-      if (ring)
-         npt_ring_wait_all(ring);
-      mtx_unlock(&tr->mutex);
-   }
-   mtx_unlock(&dev->tls_rings_mutex);
-   if (dev->ring)
-      npt_ring_wait_all(dev->ring);
+   return found;
 }
 
 void

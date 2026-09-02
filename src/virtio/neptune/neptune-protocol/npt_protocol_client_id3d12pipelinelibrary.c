@@ -79,24 +79,9 @@ npt_id3d12pipelinelibrary_default_LoadGraphicsPipeline(void *self, const WCHAR *
     void **_orig_ppPipelineState = ppPipelineState;
     if (ppPipelineState)
         ppPipelineState = (void **)&_raw_ppPipelineState;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12PipelineLibrary_LoadGraphicsPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-    } else {
-        npt_async_ID3D12PipelineLibrary_LoadGraphicsPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12PipelineLibrary_LoadGraphicsPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
     if (_orig_ppPipelineState) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppPipelineState)
+        if (_raw_ppPipelineState)
             *_orig_ppPipelineState = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -105,7 +90,11 @@ npt_id3d12pipelinelibrary_default_LoadGraphicsPipeline(void *self, const WCHAR *
         else
             *_orig_ppPipelineState = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -119,24 +108,9 @@ npt_id3d12pipelinelibrary_default_LoadComputePipeline(void *self, const WCHAR * 
     void **_orig_ppPipelineState = ppPipelineState;
     if (ppPipelineState)
         ppPipelineState = (void **)&_raw_ppPipelineState;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12PipelineLibrary_LoadComputePipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-    } else {
-        npt_async_ID3D12PipelineLibrary_LoadComputePipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12PipelineLibrary_LoadComputePipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
     if (_orig_ppPipelineState) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppPipelineState)
+        if (_raw_ppPipelineState)
             *_orig_ppPipelineState = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -145,7 +119,11 @@ npt_id3d12pipelinelibrary_default_LoadComputePipeline(void *self, const WCHAR * 
         else
             *_orig_ppPipelineState = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 SIZE_T NPT_STDMETHODCALLTYPE
@@ -258,24 +236,9 @@ npt_id3d12pipelinelibrary1_default_LoadPipeline(void *self, const WCHAR * pName,
     void **_orig_ppPipelineState = ppPipelineState;
     if (ppPipelineState)
         ppPipelineState = (void **)&_raw_ppPipelineState;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12PipelineLibrary1_LoadPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-    } else {
-        npt_async_ID3D12PipelineLibrary1_LoadPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12PipelineLibrary1_LoadPipeline(npt_com_self_ring(self),npt_com_self_id(self),pName,pDesc,riid,ppPipelineState);
     if (_orig_ppPipelineState) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppPipelineState)
+        if (_raw_ppPipelineState)
             *_orig_ppPipelineState = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -284,7 +247,11 @@ npt_id3d12pipelinelibrary1_default_LoadPipeline(void *self, const WCHAR * pName,
         else
             *_orig_ppPipelineState = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 

@@ -58,21 +58,20 @@ npt_tls_destroy_ring(struct npt_tls_ring *tr);
  * exists was destroyed, and ring destroy is host-synchronous, so a
  * miss means the barrier is already satisfied.
  */
-void
-npt_tls_wait_ring_seqno(struct npt_device *dev, uint64_t ring_id,
-                        uint32_t seqno);
+struct npt_ring_edge;
 
-/* Drain primary + every live TLS ring (conservative barrier for
- * cross-ring consumers that lack a seqno stamp). */
-void
-npt_tls_wait_all_rings(struct npt_device *dev);
+/* Snapshot the published tail of every ring of dev except skip_ring_id
+ * into out[0..cap).  Returns the number of rings seen; when that exceeds
+ * cap the caller retries with a larger buffer. */
+uint32_t
+npt_tls_snapshot_ring_tails(struct npt_device *dev, uint64_t skip_ring_id,
+                            struct npt_ring_edge *out, uint32_t cap);
 
-/* Drain everything currently submitted on the ring identified by
- * `ring_id` (primary, TLS, or instance ring).  Used by the per-object
- * cross-ring ordering barrier (npt_com_self_ring): a ring that no
- * longer exists was destroyed host-synchronously, so a miss means the
- * barrier is already satisfied. */
-void
-npt_tls_drain_ring_id(struct npt_device *dev, uint64_t ring_id);
+/* The published tail of ring_id, or false when no such ring exists any
+ * more (its DESTROY_RING was host-synchronous, so its bytes are gone
+ * from every ordering question). */
+bool
+npt_tls_ring_tail_by_id(struct npt_device *dev, uint64_t ring_id,
+                        uint32_t *out_tail);
 
 #endif /* NPT_TLS_H */

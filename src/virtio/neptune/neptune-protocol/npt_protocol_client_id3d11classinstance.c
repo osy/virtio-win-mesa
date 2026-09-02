@@ -67,15 +67,7 @@ npt_id3d11classinstance_default_GetClassLinkage(void *self, ID3D11ClassLinkage *
     ID3D11ClassLinkage **_orig_ppLinkage = ppLinkage;
     if (ppLinkage)
         ppLinkage = (ID3D11ClassLinkage **)&_raw_ppLinkage;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        npt_call_ID3D11ClassInstance_GetClassLinkage(npt_com_self_ring(self),npt_com_self_id(self),ppLinkage);
-    } else {
-        npt_async_ID3D11ClassInstance_GetClassLinkage(npt_com_self_ring(self),npt_com_self_id(self),ppLinkage);
-    }
+    npt_async_ID3D11ClassInstance_GetClassLinkage(npt_com_self_ring(self),npt_com_self_id(self),ppLinkage);
     if (_orig_ppLinkage) {
         if (_raw_ppLinkage)
             *_orig_ppLinkage = (ID3D11ClassLinkage *)npt_com_get_or_wrap(

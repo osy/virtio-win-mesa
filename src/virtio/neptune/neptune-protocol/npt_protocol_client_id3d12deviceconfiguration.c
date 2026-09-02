@@ -87,24 +87,9 @@ npt_id3d12deviceconfiguration_default_SerializeVersionedRootSignature(void *self
     ID3DBlob **_orig_ppError = ppError;
     if (ppError)
         ppError = (ID3DBlob **)&_raw_ppError;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12DeviceConfiguration_SerializeVersionedRootSignature(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppResult,ppError);
-    } else {
-        npt_async_ID3D12DeviceConfiguration_SerializeVersionedRootSignature(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppResult,ppError);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12DeviceConfiguration_SerializeVersionedRootSignature(npt_com_self_ring(self),npt_com_self_id(self),pDesc,ppResult,ppError);
     if (_orig_ppResult) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppResult)
+        if (_raw_ppResult)
             *_orig_ppResult = (ID3DBlob *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D10Blob,
@@ -114,12 +99,7 @@ npt_id3d12deviceconfiguration_default_SerializeVersionedRootSignature(void *self
             *_orig_ppResult = NULL;
     }
     if (_orig_ppError) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppError)
+        if (_raw_ppError)
             *_orig_ppError = (ID3DBlob *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 &NPT_IID_ID3D10Blob,
@@ -128,7 +108,11 @@ npt_id3d12deviceconfiguration_default_SerializeVersionedRootSignature(void *self
         else
             *_orig_ppError = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 HRESULT NPT_STDMETHODCALLTYPE
@@ -142,24 +126,9 @@ npt_id3d12deviceconfiguration_default_CreateVersionedRootSignatureDeserializer(v
     void **_orig_ppvDeserializer = ppvDeserializer;
     if (ppvDeserializer)
         ppvDeserializer = (void **)&_raw_ppvDeserializer;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12DeviceConfiguration_CreateVersionedRootSignatureDeserializer(npt_com_self_ring(self),npt_com_self_id(self),pBlob,Size,riid,ppvDeserializer);
-    } else {
-        npt_async_ID3D12DeviceConfiguration_CreateVersionedRootSignatureDeserializer(npt_com_self_ring(self),npt_com_self_id(self),pBlob,Size,riid,ppvDeserializer);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12DeviceConfiguration_CreateVersionedRootSignatureDeserializer(npt_com_self_ring(self),npt_com_self_id(self),pBlob,Size,riid,ppvDeserializer);
     if (_orig_ppvDeserializer) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvDeserializer)
+        if (_raw_ppvDeserializer)
             *_orig_ppvDeserializer = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -168,7 +137,11 @@ npt_id3d12deviceconfiguration_default_CreateVersionedRootSignatureDeserializer(v
         else
             *_orig_ppvDeserializer = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 
@@ -259,24 +232,9 @@ npt_id3d12deviceconfiguration1_default_CreateVersionedRootSignatureDeserializerF
     void **_orig_ppvDeserializer = ppvDeserializer;
     if (ppvDeserializer)
         ppvDeserializer = (void **)&_raw_ppvDeserializer;
-    /* Runtime-conditional sync: with multi_ring_enabled the caller may
-     * use the new handle on a different ring, so we must wait for the
-     * host register.  With multi_ring off, all traffic is FIFO-ordered
-     * on primary and async is race-free. */
-    HRESULT _ret;
-    if (npt_com_self_device(self)->multi_ring_enabled) {
-        _ret = npt_call_ID3D12DeviceConfiguration1_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(npt_com_self_ring(self),npt_com_self_id(self),pLibraryBlob,Size,RootSignatureSubobjectName,riid,ppvDeserializer);
-    } else {
-        npt_async_ID3D12DeviceConfiguration1_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(npt_com_self_ring(self),npt_com_self_id(self),pLibraryBlob,Size,RootSignatureSubobjectName,riid,ppvDeserializer);
-        _ret = (HRESULT)0;  /* deferred-fatal: assume S_OK */
-    }
+    npt_async_ID3D12DeviceConfiguration1_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(npt_com_self_ring(self),npt_com_self_id(self),pLibraryBlob,Size,RootSignatureSubobjectName,riid,ppvDeserializer);
     if (_orig_ppvDeserializer) {
-        /* Sync HRESULT: discard the stashed id on failure -- the host
-         * won't have registered it, so any wrapper we build would be
-         * bogus.  Under the deferred-fatal model an unregistered id
-         * surfaces at first use, but returning the right HRESULT here
-         * lets well-behaved callers short-circuit without an allocation. */
-        if (NPT_SUCCEEDED((HRESULT)_ret) && _raw_ppvDeserializer)
+        if (_raw_ppvDeserializer)
             *_orig_ppvDeserializer = (void *)npt_com_get_or_wrap(
                 npt_com_self_device(self),
                 riid,
@@ -285,7 +243,11 @@ npt_id3d12deviceconfiguration1_default_CreateVersionedRootSignatureDeserializerF
         else
             *_orig_ppvDeserializer = NULL;
     }
-    return _ret;
+    /* Async under the deferred-fatal model: assume success.  Host-side
+     * failures (OOM, bad arg) leave the guest_id unregistered, so the
+     * first method call against the wrapper trips decoder_fatal and
+     * unwinds the context cleanly. */
+    return (HRESULT)0 /* S_OK */;
 }
 
 
