@@ -135,6 +135,73 @@ npt_ring_lock_release(struct npt_ring_lock *l)
 #endif
 }
 
+/*
+ * Per-thread staging (single-ring model).
+ *
+ * Submitting a command straight into the ring costs ring->lock plus a
+ * tail publish (store-buffer drain, tail store, full fence, status
+ * load): ~300-400 ns and one lock hand-off between every recording
+ * thread, per command.  A command whose effects other threads can only
+ * observe through a later ordering point -- D3D12 list recording, CPU
+ * descriptor writes (registry: staged) -- is instead appended to the
+ * calling thread's staging buffer with no shared state touched, and the
+ * buffer is copied into the ring under the lock as one burst.  The
+ * wire format and the host are unchanged: the host sees the same bytes
+ * arrive in bursts.  Multi-ring, which gives each thread its own ring
+ * and host decoder, does not stage.
+ *
+ * What publishes a stage:
+ *  - the owner, before every immediate submit it makes (program order),
+ *    when the buffer is full, and at thread exit;
+ *  - ExecuteCommandLists, which flushes every stage (the FIFO a single
+ *    ring gives at that point: the submission consumes descriptor
+ *    writes and recordings from every thread);
+ *  - a thread continuing a list another thread recorded
+ *    (npt_com_self_ring), and the descriptor-slot tracking in
+ *    npt_overrides_d3d12_device.c, which publish the other thread's
+ *    stage before appending a dependent command.
+ * Everything else a thread submits is immediate and goes through
+ * ring->lock as before, after its own stage.
+ *
+ * A stage is owned by one thread; its lock is taken by the owner for
+ * every append and by other threads only to force a flush, so it is
+ * uncontended in the common case.  Lock order is stage -> ring; no
+ * thread holds its own stage lock while taking another's.
+ */
+#define NPT_RING_STAGE_SIZE (16u * 1024u)
+/* Bounded by the reader masks in the descriptor tracking (one bit per
+ * stage); a thread past the limit submits immediately. */
+#define NPT_RING_STAGE_MAX  64u
+
+struct npt_ring_stage {
+   struct npt_ring_lock lock;
+   /* NULL once the ring is destroyed; the owner then frees the stage at
+    * exit.  Guarded by lock. */
+   struct npt_ring *ring;
+   uint32_t index;
+   /* Bytes staged; read racily by other threads to skip empty stages. */
+   _Atomic uint32_t used;
+   /* Flushes completed.  A command appended while epoch == e is
+    * published by flush e + 1.  Never rewinds, across adoption too. */
+   _Atomic uint64_t epoch;
+   /* Cleared by the owning thread at exit; a later thread adopts the
+    * stage.  Guarded by lock. */
+   bool live;
+   /* The owner's latest append (npt_ring_stage_ref); owner-private. */
+   uint64_t last_ref;
+   uint8_t buf[NPT_RING_STAGE_SIZE];
+};
+
+/* Names one staged append: (index + 1) << 48 | epoch at the append.
+ * 0 = nothing staged (the command went straight to the ring). */
+typedef uint64_t npt_ring_stage_ref;
+
+static inline uint32_t
+npt_ring_stage_ref_index(npt_ring_stage_ref ref)
+{
+   return (uint32_t)(ref >> 48);
+}
+
 struct npt_ring_layout {
    size_t head_offset;
    size_t tail_offset;
@@ -241,6 +308,16 @@ struct npt_ring {
 
    /* Global list of live rings for the profile dump walker. */
    struct list_head profile_head;
+
+   /* Per-thread staging (see "Per-thread staging" above).  `staging` is
+    * set on the primary ring of a single-ring device.  stages[] holds
+    * every stage created for this ring, at its index; it only grows
+    * (entries and stage_count are published with release, read with
+    * acquire) and stages_mutex guards the growth. */
+   bool staging;
+   mtx_t stages_mutex;
+   _Atomic uint32_t stage_count;
+   _Atomic(struct npt_ring_stage *) stages[NPT_RING_STAGE_MAX];
 };
 
 void
@@ -346,6 +423,37 @@ npt_ring_order_after_all(struct npt_ring *ring);
 void
 npt_ring_order_after_edges(struct npt_ring *ring,
                            const struct npt_ring_edge *edges, uint32_t count);
+
+/* The calling thread's stage index + 1 on `ring`, or 0 when it has none
+ * (staging off on the ring, or more than NPT_RING_STAGE_MAX threads). */
+uint32_t
+npt_ring_stage_self_index(struct npt_ring *ring);
+
+/* The calling thread's latest staged append on `ring`, or 0. */
+npt_ring_stage_ref
+npt_ring_stage_last_ref(struct npt_ring *ring);
+
+/* Publish the append `ref` names if it is still staged.  A ref on the
+ * calling thread's own stage needs nothing: program order covers it. */
+void
+npt_ring_stage_ensure_flushed(struct npt_ring *ring, npt_ring_stage_ref ref);
+
+/* Publish everything stage `index` (1-based) holds. */
+void
+npt_ring_stage_flush_index(struct npt_ring *ring, uint32_t index);
+
+/* Publish everything the stages in `mask` hold (bit i = index i + 1). */
+void
+npt_ring_stage_flush_mask(struct npt_ring *ring, uint64_t mask);
+
+/* Publish everything every stage of `ring` holds, the caller's included. */
+void
+npt_ring_stage_flush_all(struct npt_ring *ring);
+
+/* Turn staging off for good, publishing everything first.  For a device
+ * that switches to the multi-ring model after the ring exists. */
+void
+npt_ring_stage_disable(struct npt_ring *ring);
 
 /*
  * Queue a COM_RELEASE for host_id on the calling thread's ring (primary

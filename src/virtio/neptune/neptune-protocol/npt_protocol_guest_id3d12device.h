@@ -1754,6 +1754,7 @@ npt_submit_ID3D12Device_CreateConstantBufferView(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateConstantBufferView(enc, cmd_flags, object_id, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -1873,6 +1874,7 @@ npt_submit_ID3D12Device_CreateShaderResourceView(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateShaderResourceView(enc, cmd_flags, object_id, pResource, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2000,6 +2002,7 @@ npt_submit_ID3D12Device_CreateUnorderedAccessView(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateUnorderedAccessView(enc, cmd_flags, object_id, pResource, pCounterResource, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2123,6 +2126,7 @@ npt_submit_ID3D12Device_CreateRenderTargetView(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateRenderTargetView(enc, cmd_flags, object_id, pResource, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2244,6 +2248,7 @@ npt_submit_ID3D12Device_CreateDepthStencilView(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateDepthStencilView(enc, cmd_flags, object_id, pResource, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2359,6 +2364,7 @@ npt_submit_ID3D12Device_CreateSampler(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CreateSampler(enc, cmd_flags, object_id, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2529,6 +2535,7 @@ npt_submit_ID3D12Device_CopyDescriptors(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CopyDescriptors(enc, cmd_flags, object_id, NumDestDescriptorRanges, pDestDescriptorRangeStarts, pDestDescriptorRangeSizes, NumSrcDescriptorRanges, pSrcDescriptorRangeStarts, pSrcDescriptorRangeSizes, DescriptorHeapsType);
         npt_ring_submit_command(ring, submit);
@@ -2661,6 +2668,7 @@ npt_submit_ID3D12Device_CopyDescriptorsSimple(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device_CopyDescriptorsSimple(enc, cmd_flags, object_id, NumDescriptors, DestDescriptorRangeStart, SrcDescriptorRangeStart, DescriptorHeapsType);
         npt_ring_submit_command(ring, submit);
@@ -10692,6 +10700,7 @@ npt_submit_ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(enc, cmd_flags, object_id, pTargetedResource, pFeedbackResource, DestDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -12203,6 +12212,7 @@ npt_submit_ID3D12Device11_CreateSampler2(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12Device11_CreateSampler2(enc, cmd_flags, object_id, pDesc, DestDescriptor);
         npt_ring_submit_command(ring, submit);

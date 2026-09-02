@@ -548,11 +548,14 @@ list12_OMSetRenderTargets_override(
 {
    struct npt_ring *ring = npt_com_self_ring(self);
    if (pRenderTargetDescriptors) {
-      const UINT n = RTsSingleHandleToDescriptorRange
-                        ? (NumRenderTargetDescriptors ? 1 : 0)
-                        : NumRenderTargetDescriptors;
-      for (UINT i = 0; i < n; i++)
-         npt_d3d12_desc_order_read(ring, pRenderTargetDescriptors[i].ptr, 1);
+      if (RTsSingleHandleToDescriptorRange) {
+         npt_d3d12_desc_order_read(ring, pRenderTargetDescriptors[0].ptr,
+                                   NumRenderTargetDescriptors);
+      } else {
+         for (UINT i = 0; i < NumRenderTargetDescriptors; i++)
+            npt_d3d12_desc_order_read(ring, pRenderTargetDescriptors[i].ptr,
+                                      1);
+      }
    }
    if (pDepthStencilDescriptor)
       npt_d3d12_desc_order_read(ring, pDepthStencilDescriptor->ptr, 1);

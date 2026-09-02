@@ -248,6 +248,7 @@ npt_submit_ID3D12GraphicsCommandList_Reset(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_Reset(enc, cmd_flags, object_id, pAllocator, pInitialState);
         npt_ring_submit_command(ring, submit);
@@ -357,6 +358,7 @@ npt_submit_ID3D12GraphicsCommandList_ClearState(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ClearState(enc, cmd_flags, object_id, pPipelineState);
         npt_ring_submit_command(ring, submit);
@@ -477,6 +479,7 @@ npt_submit_ID3D12GraphicsCommandList_DrawInstanced(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_DrawInstanced(enc, cmd_flags, object_id, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
         npt_ring_submit_command(ring, submit);
@@ -609,6 +612,7 @@ npt_submit_ID3D12GraphicsCommandList_DrawIndexedInstanced(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_DrawIndexedInstanced(enc, cmd_flags, object_id, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         npt_ring_submit_command(ring, submit);
@@ -731,6 +735,7 @@ npt_submit_ID3D12GraphicsCommandList_Dispatch(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_Dispatch(enc, cmd_flags, object_id, ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ);
         npt_ring_submit_command(ring, submit);
@@ -861,6 +866,7 @@ npt_submit_ID3D12GraphicsCommandList_CopyBufferRegion(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_CopyBufferRegion(enc, cmd_flags, object_id, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, NumBytes);
         npt_ring_submit_command(ring, submit);
@@ -1010,6 +1016,7 @@ npt_submit_ID3D12GraphicsCommandList_CopyTextureRegion(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_CopyTextureRegion(enc, cmd_flags, object_id, pDst, DstX, DstY, DstZ, pSrc, pSrcBox);
         npt_ring_submit_command(ring, submit);
@@ -1128,6 +1135,7 @@ npt_submit_ID3D12GraphicsCommandList_CopyResource(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_CopyResource(enc, cmd_flags, object_id, pDstResource, pSrcResource);
         npt_ring_submit_command(ring, submit);
@@ -1268,6 +1276,7 @@ npt_submit_ID3D12GraphicsCommandList_CopyTiles(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_CopyTiles(enc, cmd_flags, object_id, pTiledResource, pTileRegionStartCoordinate, pTileRegionSize, pBuffer, BufferStartOffsetInBytes, Flags);
         npt_ring_submit_command(ring, submit);
@@ -1404,6 +1413,7 @@ npt_submit_ID3D12GraphicsCommandList_ResolveSubresource(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ResolveSubresource(enc, cmd_flags, object_id, pDstResource, DstSubresource, pSrcResource, SrcSubresource, Format);
         npt_ring_submit_command(ring, submit);
@@ -1514,6 +1524,7 @@ npt_submit_ID3D12GraphicsCommandList_IASetPrimitiveTopology(struct npt_ring *rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_IASetPrimitiveTopology(enc, cmd_flags, object_id, PrimitiveTopology);
         npt_ring_submit_command(ring, submit);
@@ -1630,6 +1641,7 @@ npt_submit_ID3D12GraphicsCommandList_RSSetViewports(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_RSSetViewports(enc, cmd_flags, object_id, NumViewports, pViewports);
         npt_ring_submit_command(ring, submit);
@@ -1748,6 +1760,7 @@ npt_submit_ID3D12GraphicsCommandList_RSSetScissorRects(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_RSSetScissorRects(enc, cmd_flags, object_id, NumRects, pRects);
         npt_ring_submit_command(ring, submit);
@@ -1859,6 +1872,7 @@ npt_submit_ID3D12GraphicsCommandList_OMSetBlendFactor(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_OMSetBlendFactor(enc, cmd_flags, object_id, BlendFactor);
         npt_ring_submit_command(ring, submit);
@@ -1961,6 +1975,7 @@ npt_submit_ID3D12GraphicsCommandList_OMSetStencilRef(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_OMSetStencilRef(enc, cmd_flags, object_id, StencilRef);
         npt_ring_submit_command(ring, submit);
@@ -2063,6 +2078,7 @@ npt_submit_ID3D12GraphicsCommandList_SetPipelineState(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetPipelineState(enc, cmd_flags, object_id, pPipelineState);
         npt_ring_submit_command(ring, submit);
@@ -2179,6 +2195,7 @@ npt_submit_ID3D12GraphicsCommandList_ResourceBarrier(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ResourceBarrier(enc, cmd_flags, object_id, NumBarriers, pBarriers);
         npt_ring_submit_command(ring, submit);
@@ -2283,6 +2300,7 @@ npt_submit_ID3D12GraphicsCommandList_ExecuteBundle(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ExecuteBundle(enc, cmd_flags, object_id, pCommandList);
         npt_ring_submit_command(ring, submit);
@@ -2398,6 +2416,7 @@ npt_submit_ID3D12GraphicsCommandList_SetDescriptorHeaps(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetDescriptorHeaps(enc, cmd_flags, object_id, NumDescriptorHeaps, ppDescriptorHeaps);
         npt_ring_submit_command(ring, submit);
@@ -2502,6 +2521,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRootSignature(struct npt_ring *ri
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRootSignature(enc, cmd_flags, object_id, pRootSignature);
         npt_ring_submit_command(ring, submit);
@@ -2604,6 +2624,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRootSignature(struct npt_ring *r
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRootSignature(enc, cmd_flags, object_id, pRootSignature);
         npt_ring_submit_command(ring, submit);
@@ -2712,6 +2733,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(struct npt_ri
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(enc, cmd_flags, object_id, RootParameterIndex, BaseDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2822,6 +2844,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(struct npt_r
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(enc, cmd_flags, object_id, RootParameterIndex, BaseDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -2938,6 +2961,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(struct npt_ring
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(enc, cmd_flags, object_id, RootParameterIndex, SrcData, DestOffsetIn32BitValues);
         npt_ring_submit_command(ring, submit);
@@ -3056,6 +3080,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(enc, cmd_flags, object_id, RootParameterIndex, SrcData, DestOffsetIn32BitValues);
         npt_ring_submit_command(ring, submit);
@@ -3190,6 +3215,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(enc, cmd_flags, object_id, RootParameterIndex, Num32BitValuesToSet, pSrcData, DestOffsetIn32BitValues);
         npt_ring_submit_command(ring, submit);
@@ -3326,6 +3352,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(struct npt_ri
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(enc, cmd_flags, object_id, RootParameterIndex, Num32BitValuesToSet, pSrcData, DestOffsetIn32BitValues);
         npt_ring_submit_command(ring, submit);
@@ -3440,6 +3467,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(struct npt
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -3550,6 +3578,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(struct np
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -3660,6 +3689,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(struct npt
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -3770,6 +3800,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(struct np
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -3880,6 +3911,7 @@ npt_submit_ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(struct np
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -3990,6 +4022,7 @@ npt_submit_ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(struct n
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(enc, cmd_flags, object_id, RootParameterIndex, BufferLocation);
         npt_ring_submit_command(ring, submit);
@@ -4097,6 +4130,7 @@ npt_submit_ID3D12GraphicsCommandList_IASetIndexBuffer(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_IASetIndexBuffer(enc, cmd_flags, object_id, pView);
         npt_ring_submit_command(ring, submit);
@@ -4219,6 +4253,7 @@ npt_submit_ID3D12GraphicsCommandList_IASetVertexBuffers(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_IASetVertexBuffers(enc, cmd_flags, object_id, StartSlot, NumViews, pViews);
         npt_ring_submit_command(ring, submit);
@@ -4345,6 +4380,7 @@ npt_submit_ID3D12GraphicsCommandList_SOSetTargets(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SOSetTargets(enc, cmd_flags, object_id, StartSlot, NumViews, pViews);
         npt_ring_submit_command(ring, submit);
@@ -4480,6 +4516,7 @@ npt_submit_ID3D12GraphicsCommandList_OMSetRenderTargets(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_OMSetRenderTargets(enc, cmd_flags, object_id, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
         npt_ring_submit_command(ring, submit);
@@ -4626,6 +4663,7 @@ npt_submit_ID3D12GraphicsCommandList_ClearDepthStencilView(struct npt_ring *ring
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ClearDepthStencilView(enc, cmd_flags, object_id, DepthStencilView, ClearFlags, Depth, Stencil, NumRects, pRects);
         npt_ring_submit_command(ring, submit);
@@ -4766,6 +4804,7 @@ npt_submit_ID3D12GraphicsCommandList_ClearRenderTargetView(struct npt_ring *ring
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ClearRenderTargetView(enc, cmd_flags, object_id, RenderTargetView, ColorRGBA, NumRects, pRects);
         npt_ring_submit_command(ring, submit);
@@ -4914,6 +4953,7 @@ npt_submit_ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(enc, cmd_flags, object_id, ViewGPUHandleInCurrentHeap, ViewCPUHandle, pResource, Values, NumRects, pRects);
         npt_ring_submit_command(ring, submit);
@@ -5066,6 +5106,7 @@ npt_submit_ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(struct npt_ri
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(enc, cmd_flags, object_id, ViewGPUHandleInCurrentHeap, ViewCPUHandle, pResource, Values, NumRects, pRects);
         npt_ring_submit_command(ring, submit);
@@ -5187,6 +5228,7 @@ npt_submit_ID3D12GraphicsCommandList_DiscardResource(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_DiscardResource(enc, cmd_flags, object_id, pResource, pRegion);
         npt_ring_submit_command(ring, submit);
@@ -5303,6 +5345,7 @@ npt_submit_ID3D12GraphicsCommandList_BeginQuery(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_BeginQuery(enc, cmd_flags, object_id, pQueryHeap, Type, Index);
         npt_ring_submit_command(ring, submit);
@@ -5421,6 +5464,7 @@ npt_submit_ID3D12GraphicsCommandList_EndQuery(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_EndQuery(enc, cmd_flags, object_id, pQueryHeap, Type, Index);
         npt_ring_submit_command(ring, submit);
@@ -5557,6 +5601,7 @@ npt_submit_ID3D12GraphicsCommandList_ResolveQueryData(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ResolveQueryData(enc, cmd_flags, object_id, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
         npt_ring_submit_command(ring, submit);
@@ -5681,6 +5726,7 @@ npt_submit_ID3D12GraphicsCommandList_SetPredication(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetPredication(enc, cmd_flags, object_id, pBuffer, AlignedBufferOffset, Operation);
         npt_ring_submit_command(ring, submit);
@@ -5809,6 +5855,7 @@ npt_submit_ID3D12GraphicsCommandList_SetMarker(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_SetMarker(enc, cmd_flags, object_id, Metadata, pData, Size);
         npt_ring_submit_command(ring, submit);
@@ -5937,6 +5984,7 @@ npt_submit_ID3D12GraphicsCommandList_BeginEvent(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_BeginEvent(enc, cmd_flags, object_id, Metadata, pData, Size);
         npt_ring_submit_command(ring, submit);
@@ -6037,6 +6085,7 @@ npt_submit_ID3D12GraphicsCommandList_EndEvent(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_EndEvent(enc, cmd_flags, object_id);
         npt_ring_submit_command(ring, submit);
@@ -6167,6 +6216,7 @@ npt_submit_ID3D12GraphicsCommandList_ExecuteIndirect(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList_ExecuteIndirect(enc, cmd_flags, object_id, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         npt_ring_submit_command(ring, submit);
@@ -6330,6 +6380,7 @@ npt_submit_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT(struct npt_ring *ring
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT(enc, cmd_flags, object_id, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, Dependencies, ppDependentResources, pDependentSubresourceRanges);
         npt_ring_submit_command(ring, submit);
@@ -6495,6 +6546,7 @@ npt_submit_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT64(struct npt_ring *ri
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT64(enc, cmd_flags, object_id, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, Dependencies, ppDependentResources, pDependentSubresourceRanges);
         npt_ring_submit_command(ring, submit);
@@ -6615,6 +6667,7 @@ npt_submit_ID3D12GraphicsCommandList1_OMSetDepthBounds(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_OMSetDepthBounds(enc, cmd_flags, object_id, Min, Max);
         npt_ring_submit_command(ring, submit);
@@ -6739,6 +6792,7 @@ npt_submit_ID3D12GraphicsCommandList1_SetSamplePositions(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_SetSamplePositions(enc, cmd_flags, object_id, NumSamplesPerPixel, NumPixels, pSamplePositions);
         npt_ring_submit_command(ring, submit);
@@ -6896,6 +6950,7 @@ npt_submit_ID3D12GraphicsCommandList1_ResolveSubresourceRegion(struct npt_ring *
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_ResolveSubresourceRegion(enc, cmd_flags, object_id, pDstResource, DstSubresource, DstX, DstY, pSrcResource, SrcSubresource, pSrcRect, Format, ResolveMode);
         npt_ring_submit_command(ring, submit);
@@ -7014,6 +7069,7 @@ npt_submit_ID3D12GraphicsCommandList1_SetViewInstanceMask(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList1_SetViewInstanceMask(enc, cmd_flags, object_id, Mask);
         npt_ring_submit_command(ring, submit);
@@ -7143,6 +7199,7 @@ npt_submit_ID3D12GraphicsCommandList2_WriteBufferImmediate(struct npt_ring *ring
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList2_WriteBufferImmediate(enc, cmd_flags, object_id, Count, pParams, pModes);
         npt_ring_submit_command(ring, submit);
@@ -7249,6 +7306,7 @@ npt_submit_ID3D12GraphicsCommandList3_SetProtectedResourceSession(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList3_SetProtectedResourceSession(enc, cmd_flags, object_id, pProtectedResourceSession);
         npt_ring_submit_command(ring, submit);
@@ -7380,6 +7438,7 @@ npt_submit_ID3D12GraphicsCommandList4_BeginRenderPass(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_BeginRenderPass(enc, cmd_flags, object_id, NumRenderTargets, pRenderTargets, pDepthStencil, Flags);
         npt_ring_submit_command(ring, submit);
@@ -7482,6 +7541,7 @@ npt_submit_ID3D12GraphicsCommandList4_EndRenderPass(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_EndRenderPass(enc, cmd_flags, object_id);
         npt_ring_submit_command(ring, submit);
@@ -7604,6 +7664,7 @@ npt_submit_ID3D12GraphicsCommandList4_InitializeMetaCommand(struct npt_ring *rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_InitializeMetaCommand(enc, cmd_flags, object_id, pMetaCommand, pInitializationParametersData, InitializationParametersDataSizeInBytes);
         npt_ring_submit_command(ring, submit);
@@ -7732,6 +7793,7 @@ npt_submit_ID3D12GraphicsCommandList4_ExecuteMetaCommand(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_ExecuteMetaCommand(enc, cmd_flags, object_id, pMetaCommand, pExecutionParametersData, ExecutionParametersDataSizeInBytes);
         npt_ring_submit_command(ring, submit);
@@ -7861,6 +7923,7 @@ npt_submit_ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(struc
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(enc, cmd_flags, object_id, pDesc, NumPostbuildInfoDescs, pPostbuildInfoDescs);
         npt_ring_submit_command(ring, submit);
@@ -7989,6 +8052,7 @@ npt_submit_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbui
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(enc, cmd_flags, object_id, pDesc, NumSourceAccelerationStructures, pSourceAccelerationStructureData);
         npt_ring_submit_command(ring, submit);
@@ -8107,6 +8171,7 @@ npt_submit_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(struct
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(enc, cmd_flags, object_id, DestAccelerationStructureData, SourceAccelerationStructureData, Mode);
         npt_ring_submit_command(ring, submit);
@@ -8213,6 +8278,7 @@ npt_submit_ID3D12GraphicsCommandList4_SetPipelineState1(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_SetPipelineState1(enc, cmd_flags, object_id, pStateObject);
         npt_ring_submit_command(ring, submit);
@@ -8318,6 +8384,7 @@ npt_submit_ID3D12GraphicsCommandList4_DispatchRays(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList4_DispatchRays(enc, cmd_flags, object_id, pDesc);
         npt_ring_submit_command(ring, submit);
@@ -8433,6 +8500,7 @@ npt_submit_ID3D12GraphicsCommandList5_RSSetShadingRate(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList5_RSSetShadingRate(enc, cmd_flags, object_id, baseShadingRate, combiners);
         npt_ring_submit_command(ring, submit);
@@ -8537,6 +8605,7 @@ npt_submit_ID3D12GraphicsCommandList5_RSSetShadingRateImage(struct npt_ring *rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList5_RSSetShadingRateImage(enc, cmd_flags, object_id, shadingRateImage);
         npt_ring_submit_command(ring, submit);
@@ -8651,6 +8720,7 @@ npt_submit_ID3D12GraphicsCommandList6_DispatchMesh(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList6_DispatchMesh(enc, cmd_flags, object_id, ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ);
         npt_ring_submit_command(ring, submit);
@@ -8771,6 +8841,7 @@ npt_submit_ID3D12GraphicsCommandList7_Barrier(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList7_Barrier(enc, cmd_flags, object_id, NumBarrierGroups, pBarrierGroups);
         npt_ring_submit_command(ring, submit);
@@ -8881,6 +8952,7 @@ npt_submit_ID3D12GraphicsCommandList8_OMSetFrontAndBackStencilRef(struct npt_rin
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList8_OMSetFrontAndBackStencilRef(enc, cmd_flags, object_id, FrontStencilRef, BackStencilRef);
         npt_ring_submit_command(ring, submit);
@@ -8997,6 +9069,7 @@ npt_submit_ID3D12GraphicsCommandList9_RSSetDepthBias(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList9_RSSetDepthBias(enc, cmd_flags, object_id, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
         npt_ring_submit_command(ring, submit);
@@ -9103,6 +9176,7 @@ npt_submit_ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(struct npt_r
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(enc, cmd_flags, object_id, IBStripCutValue);
         npt_ring_submit_command(ring, submit);
@@ -9208,6 +9282,7 @@ npt_submit_ID3D12GraphicsCommandList10_SetProgram(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList10_SetProgram(enc, cmd_flags, object_id, pDesc);
         npt_ring_submit_command(ring, submit);
@@ -9313,6 +9388,7 @@ npt_submit_ID3D12GraphicsCommandList10_DispatchGraph(struct npt_ring *ring,
         : 0;
 
     struct npt_cs_encoder *enc = npt_ring_submit_command_init(ring, submit, cmd_data, cmd_size, reply_size);
+    submit->staged = true;
     if (cmd_size) {
         npt_encode_ID3D12GraphicsCommandList10_DispatchGraph(enc, cmd_flags, object_id, pDesc);
         npt_ring_submit_command(ring, submit);

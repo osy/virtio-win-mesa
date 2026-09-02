@@ -125,6 +125,17 @@ npt_com_self_ring(void *self)
     * contract objects only; the exchange is uncontended in valid API
     * use. */
    if (com->base.ring_ordered && ring) {
+      if (ring->staging) {
+         /* Single ring: the previous thread's calls on this object may
+          * still sit in its staging buffer; publish them before this
+          * thread appends to its own. */
+         const uint32_t index = npt_ring_stage_self_index(ring);
+         const uint32_t prev = atomic_exchange_explicit(
+            &com->base.stage_index, index, memory_order_acq_rel);
+         if (prev && prev != index)
+            npt_ring_stage_flush_index(ring, prev);
+         return ring;
+      }
       uint64_t prev = atomic_exchange_explicit(
          &com->base.order_ring_id, ring->id, memory_order_acq_rel);
       if (prev && prev != ring->id) {

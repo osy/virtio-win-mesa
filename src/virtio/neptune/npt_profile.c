@@ -212,6 +212,8 @@ npt_profile_agg_snapshot(struct npt_profile_ring *agg)
       agg->total_submit_ns     += p->total_submit_ns;
       agg->total_reply_ns      += p->total_reply_ns;
       agg->roundtrips          += p->roundtrips;
+      agg->stage_flushes       += p->stage_flushes;
+      agg->stage_bytes         += p->stage_bytes;
    }
    mtx_unlock(&npt_profile.rings_mutex);
 }
@@ -403,12 +405,15 @@ npt_profile_dump(const char *reason)
       agg.total_submit_ns     += p->total_submit_ns;
       agg.total_reply_ns      += p->total_reply_ns;
       agg.roundtrips          += p->roundtrips;
+      agg.stage_flushes       += p->stage_flushes;
+      agg.stage_bytes         += p->stage_bytes;
 
       npt_log("NPT-PROF-GUEST-RING reason=%s ring_id=%llu kind=%s "
               "is_tls=%d submits=%llu async=%llu sync=%llu bytes=%llu "
               "notify=%llu indirect=%llu full_waits=%llu "
               "space_iters=%llu reply_waits=%llu reply_iters=%llu "
-              "submit_ns=%llu reply_ns=%llu rt=%llu",
+              "submit_ns=%llu reply_ns=%llu rt=%llu "
+              "stage_flushes=%llu stage_bytes=%llu",
               reason ? reason : "?",
               (unsigned long long)r->id,
               npt_profile_ring_kind(r),
@@ -425,14 +430,17 @@ npt_profile_dump(const char *reason)
               (unsigned long long)p->reply_wait_iters,
               (unsigned long long)p->total_submit_ns,
               (unsigned long long)p->total_reply_ns,
-              (unsigned long long)p->roundtrips);
+              (unsigned long long)p->roundtrips,
+              (unsigned long long)p->stage_flushes,
+              (unsigned long long)p->stage_bytes);
    }
    mtx_unlock(&npt_profile.rings_mutex);
 
    npt_log("NPT-PROF-GUEST reason=%s submits=%llu async=%llu sync=%llu "
            "bytes=%llu notify=%llu indirect=%llu full_waits=%llu "
            "space_iters=%llu reply_waits=%llu reply_iters=%llu "
-           "submit_ns=%llu reply_ns=%llu rt=%llu",
+           "submit_ns=%llu reply_ns=%llu rt=%llu "
+           "stage_flushes=%llu stage_bytes=%llu",
            reason ? reason : "?",
            (unsigned long long)agg.submits,
            (unsigned long long)agg.submits_async,
@@ -446,7 +454,9 @@ npt_profile_dump(const char *reason)
            (unsigned long long)agg.reply_wait_iters,
            (unsigned long long)agg.total_submit_ns,
            (unsigned long long)agg.total_reply_ns,
-           (unsigned long long)agg.roundtrips);
+           (unsigned long long)agg.roundtrips,
+           (unsigned long long)agg.stage_flushes,
+           (unsigned long long)agg.stage_bytes);
 
    mtx_lock(&npt_profile.rings_mutex);
    for (struct npt_profile_thread *t = npt_profile_threads; t; t = t->next) {

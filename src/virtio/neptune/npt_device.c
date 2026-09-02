@@ -326,6 +326,9 @@ npt_device_create(void)
       free(dev);
       return NULL;
    }
+   /* One ring for the device: recording threads stage into it
+    * (npt_ring.h, "Per-thread staging"). */
+   dev->ring->staging = !dev->multi_ring_enabled;
 
    npt_shmem_pool_init(&dev->data_pool, NPT_DATA_SHMEM_MIN_ALLOC);
    npt_shmem_pool_init(&dev->map_pool,  NPT_MAP_POOL_INITIAL_SIZE);

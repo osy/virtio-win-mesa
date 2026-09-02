@@ -208,6 +208,12 @@ struct npt_ring_submit_command {
    /* Captured at submit; sync thunks free cmd_data before reply, so
     * re-reading would be UAF.  Only written when profiling is on. */
    uint32_t prof_cmd_type;
+
+   /* Set by the generated thunk of a method the registry marks staged:
+    * the command may sit in the calling thread's staging buffer until
+    * an ordering point publishes it (npt_ring.h, "Per-thread staging").
+    * A staged submit leaves seqno 0. */
+   bool staged;
 };
 
 struct npt_cs_encoder *

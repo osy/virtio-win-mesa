@@ -322,6 +322,303 @@ npt_ring_unlock_and_notify(struct npt_ring *ring)
       npt_ring_notify(ring);
 }
 
+/* ---------- per-thread staging (npt_ring.h, "Per-thread staging") ---------- */
+
+static NPT_TLS struct npt_ring_stage *npt_tl_stage;
+
+static tss_t npt_stage_key;
+static bool npt_stage_key_ok;
+static _Atomic int npt_stage_key_state;
+
+static void
+npt_ring_stage_flush_locked(struct npt_ring_stage *stage);
+
+static bool
+npt_ring_submit_locked(struct npt_ring *ring, const void *data,
+                       uint32_t size);
+
+/* Thread exit: publish what the thread still holds and hand the stage
+ * over for adoption -- or free it, when the ring went first. */
+static void
+npt_ring_stage_thread_exit(void *data)
+{
+   struct npt_ring_stage *stage = data;
+   npt_ring_lock_acquire(&stage->lock);
+   if (stage->ring) {
+      npt_ring_stage_flush_locked(stage);
+      stage->live = false;
+      npt_ring_lock_release(&stage->lock);
+   } else {
+      npt_ring_lock_release(&stage->lock);
+      free(stage);
+   }
+   npt_tl_stage = NULL;
+}
+
+static inline npt_ring_stage_ref
+npt_ring_stage_ref_pack(const struct npt_ring_stage *stage, uint64_t epoch)
+{
+   return ((uint64_t)(stage->index + 1) << 48) | epoch;
+}
+
+static inline uint64_t
+npt_ring_stage_ref_epoch(npt_ring_stage_ref ref)
+{
+   return ref & ((1ull << 48) - 1);
+}
+
+static struct npt_ring_stage *
+npt_ring_stage_at(struct npt_ring *ring, uint32_t index)
+{
+   if (index >= atomic_load_explicit(&ring->stage_count, memory_order_acquire))
+      return NULL;
+   return atomic_load_explicit(&ring->stages[index], memory_order_acquire);
+}
+
+/* The calling thread's stage on `ring`, created on first use; NULL when
+ * the ring does not stage or the thread cannot get one. */
+static struct npt_ring_stage *
+npt_ring_stage_get(struct npt_ring *ring)
+{
+   struct npt_ring_stage *stage = npt_tl_stage;
+   if (likely(stage && stage->ring == ring))
+      return stage;
+   if (!ring->staging)
+      return NULL;
+   if (stage) {
+      /* A thread stages on one ring only. */
+      if (stage->ring)
+         return NULL;
+      /* Left over from a destroyed ring: the destroy left it to us. */
+      free(stage);
+      npt_tl_stage = NULL;
+      stage = NULL;
+   }
+
+   NPT_CALL_ONCE(npt_stage_key_state,
+                 npt_stage_key_ok =
+                    tss_create(&npt_stage_key, npt_ring_stage_thread_exit) ==
+                    thrd_success);
+
+   mtx_lock(&ring->stages_mutex);
+   const uint32_t count =
+      atomic_load_explicit(&ring->stage_count, memory_order_relaxed);
+   /* Adopt the stage of a thread that has exited: its index (and so the
+    * bit readers may still hold for it) and epoch carry on, which keeps
+    * every reference to it conservative. */
+   for (uint32_t i = 0; i < count && !stage; i++) {
+      struct npt_ring_stage *old =
+         atomic_load_explicit(&ring->stages[i], memory_order_relaxed);
+      npt_ring_lock_acquire(&old->lock);
+      if (!old->live) {
+         old->live = true;
+         old->last_ref = 0;
+         stage = old;
+      }
+      npt_ring_lock_release(&old->lock);
+   }
+   if (!stage && count < NPT_RING_STAGE_MAX) {
+      stage = malloc(sizeof(*stage));
+      if (stage) {
+         npt_ring_lock_init(&stage->lock);
+         stage->ring = ring;
+         stage->index = count;
+         atomic_store_explicit(&stage->used, 0, memory_order_relaxed);
+         atomic_store_explicit(&stage->epoch, 0, memory_order_relaxed);
+         stage->live = true;
+         stage->last_ref = 0;
+         atomic_store_explicit(&ring->stages[count], stage,
+                               memory_order_release);
+         atomic_store_explicit(&ring->stage_count, count + 1,
+                               memory_order_release);
+      }
+   }
+   mtx_unlock(&ring->stages_mutex);
+
+   if (stage) {
+      npt_tl_stage = stage;
+      if (npt_stage_key_ok)
+         tss_set(npt_stage_key, stage);
+   }
+   return stage;
+}
+
+/* Caller holds stage->lock. */
+static void
+npt_ring_stage_flush_locked(struct npt_ring_stage *stage)
+{
+   const uint32_t used =
+      atomic_load_explicit(&stage->used, memory_order_relaxed);
+   if (!used)
+      return;
+   struct npt_ring *ring = stage->ring;
+   if (ring) {
+      npt_ring_lock_acquire(&ring->lock);
+      npt_ring_submit_locked(ring, stage->buf, used);
+      npt_profile_record_stage_flush(&ring->profile, used);
+      npt_ring_unlock_and_notify(ring);
+   }
+   atomic_store_explicit(&stage->used, 0, memory_order_relaxed);
+   /* Release: a thread that sees the new epoch appends behind the bytes
+    * just published (ring positions are handed out under ring->lock). */
+   atomic_store_explicit(&stage->epoch,
+                         atomic_load_explicit(&stage->epoch,
+                                              memory_order_relaxed) + 1,
+                         memory_order_release);
+}
+
+/* Stage the command; false when it must go straight to the ring. */
+static bool
+npt_ring_stage_append(struct npt_ring *ring, const void *data, uint32_t size)
+{
+   if (size > NPT_RING_STAGE_SIZE)
+      return false;
+   struct npt_ring_stage *stage = npt_ring_stage_get(ring);
+   if (!stage)
+      return false;
+   npt_ring_lock_acquire(&stage->lock);
+   if (unlikely(!stage->ring)) {
+      npt_ring_lock_release(&stage->lock);
+      return false;
+   }
+   uint32_t used = atomic_load_explicit(&stage->used, memory_order_relaxed);
+   if (used + size > NPT_RING_STAGE_SIZE) {
+      npt_ring_stage_flush_locked(stage);
+      used = 0;
+   }
+   memcpy(stage->buf + used, data, size);
+   atomic_store_explicit(&stage->used, used + size, memory_order_release);
+   stage->last_ref = npt_ring_stage_ref_pack(
+      stage, atomic_load_explicit(&stage->epoch, memory_order_relaxed));
+   npt_ring_lock_release(&stage->lock);
+   return true;
+}
+
+/* Publish the calling thread's own stage on `ring` -- before every
+ * immediate submit, so the thread's wire stream stays in program order. */
+static void
+npt_ring_stage_flush_self(struct npt_ring *ring)
+{
+   struct npt_ring_stage *stage = npt_tl_stage;
+   if (!stage || stage->ring != ring ||
+       !atomic_load_explicit(&stage->used, memory_order_relaxed))
+      return;
+   npt_ring_lock_acquire(&stage->lock);
+   npt_ring_stage_flush_locked(stage);
+   npt_ring_lock_release(&stage->lock);
+}
+
+static void
+npt_ring_stage_flush(struct npt_ring_stage *stage)
+{
+   if (!atomic_load_explicit(&stage->used, memory_order_acquire))
+      return;
+   npt_ring_lock_acquire(&stage->lock);
+   npt_ring_stage_flush_locked(stage);
+   npt_ring_lock_release(&stage->lock);
+}
+
+uint32_t
+npt_ring_stage_self_index(struct npt_ring *ring)
+{
+   struct npt_ring_stage *stage = npt_ring_stage_get(ring);
+   return stage ? stage->index + 1 : 0;
+}
+
+npt_ring_stage_ref
+npt_ring_stage_last_ref(struct npt_ring *ring)
+{
+   struct npt_ring_stage *stage = npt_tl_stage;
+   return stage && stage->ring == ring ? stage->last_ref : 0;
+}
+
+void
+npt_ring_stage_ensure_flushed(struct npt_ring *ring, npt_ring_stage_ref ref)
+{
+   const uint32_t index = npt_ring_stage_ref_index(ref);
+   if (!index)
+      return;
+   struct npt_ring_stage *stage = npt_ring_stage_at(ring, index - 1);
+   if (!stage || stage == npt_tl_stage)
+      return;
+   if (atomic_load_explicit(&stage->epoch, memory_order_acquire) >
+       npt_ring_stage_ref_epoch(ref))
+      return;
+   npt_ring_lock_acquire(&stage->lock);
+   if (atomic_load_explicit(&stage->epoch, memory_order_relaxed) <=
+       npt_ring_stage_ref_epoch(ref))
+      npt_ring_stage_flush_locked(stage);
+   npt_ring_lock_release(&stage->lock);
+}
+
+void
+npt_ring_stage_flush_index(struct npt_ring *ring, uint32_t index)
+{
+   if (!index)
+      return;
+   struct npt_ring_stage *stage = npt_ring_stage_at(ring, index - 1);
+   if (stage && stage != npt_tl_stage)
+      npt_ring_stage_flush(stage);
+}
+
+void
+npt_ring_stage_flush_mask(struct npt_ring *ring, uint64_t mask)
+{
+   for (uint32_t i = 0; mask; i++, mask >>= 1) {
+      if (!(mask & 1))
+         continue;
+      struct npt_ring_stage *stage = npt_ring_stage_at(ring, i);
+      if (stage && stage != npt_tl_stage)
+         npt_ring_stage_flush(stage);
+   }
+}
+
+void
+npt_ring_stage_flush_all(struct npt_ring *ring)
+{
+   const uint32_t count =
+      atomic_load_explicit(&ring->stage_count, memory_order_acquire);
+   for (uint32_t i = 0; i < count; i++) {
+      struct npt_ring_stage *stage =
+         atomic_load_explicit(&ring->stages[i], memory_order_acquire);
+      if (stage)
+         npt_ring_stage_flush(stage);
+   }
+}
+
+void
+npt_ring_stage_disable(struct npt_ring *ring)
+{
+   ring->staging = false;
+   npt_ring_stage_flush_all(ring);
+}
+
+/* Ring teardown: detach every stage; a stage whose thread is gone is
+ * freed here, a live one by its thread at exit.  Whatever is still
+ * staged is dropped with the ring. */
+static void
+npt_ring_stages_destroy(struct npt_ring *ring)
+{
+   mtx_lock(&ring->stages_mutex);
+   const uint32_t count =
+      atomic_load_explicit(&ring->stage_count, memory_order_relaxed);
+   for (uint32_t i = 0; i < count; i++) {
+      struct npt_ring_stage *stage =
+         atomic_load_explicit(&ring->stages[i], memory_order_relaxed);
+      npt_ring_lock_acquire(&stage->lock);
+      stage->ring = NULL;
+      atomic_store_explicit(&stage->used, 0, memory_order_relaxed);
+      const bool live = stage->live;
+      npt_ring_lock_release(&stage->lock);
+      if (!live)
+         free(stage);
+      atomic_store_explicit(&ring->stages[i], NULL, memory_order_relaxed);
+   }
+   atomic_store_explicit(&ring->stage_count, 0, memory_order_relaxed);
+   mtx_unlock(&ring->stages_mutex);
+   mtx_destroy(&ring->stages_mutex);
+}
+
 static bool
 npt_ring_wait_space(struct npt_ring *ring, uint32_t size)
 {
@@ -939,6 +1236,7 @@ npt_ring_submit_raw_with_payload(struct npt_ring *ring,
       return false;
 
    const uint32_t total = header_size + payload_padded_size;
+   npt_ring_stage_flush_self(ring);
    npt_ring_lock_acquire(&ring->lock);
    bool ok;
    if (total > ring->direct_size) {
@@ -965,6 +1263,7 @@ npt_ring_force_roundtrip(struct npt_ring *ring)
     * sound: a seqno is minted only after its own resource create is
     * queued on the FIFO control queue, so the host observing ANY seqno
     * >= mine proves my create reached the resource table. */
+   npt_ring_stage_flush_self(ring);
    const uint64_t seqno = npt_ring_roundtrip_submit(ring);
    npt_ring_lock_acquire(&ring->lock);
    npt_ring_roundtrip_wait_locked(ring, seqno);
@@ -978,6 +1277,7 @@ npt_ring_submit_raw_seqno(struct npt_ring *ring, const void *data,
    if (!ring || !data || !size)
       return false;
 
+   npt_ring_stage_flush_self(ring);
    npt_ring_lock_acquire(&ring->lock);
    const bool ok = npt_ring_submit_dispatch_locked(ring, data, size);
    if (out_seqno)
@@ -1003,6 +1303,7 @@ npt_ring_submit_command_init(struct npt_ring *ring,
    submit->reply_offset = 0;
    submit->seqno = 0;
    submit->prof_cmd_type = 0;
+   submit->staged = false;
    return &submit->enc;
 }
 
@@ -1017,6 +1318,16 @@ npt_ring_submit_command(struct npt_ring *ring,
     * reply_ns -- sync thunks free cmd_data before the reply arrives. */
    struct npt_profile_submit_state prof;
    npt_profile_submit_begin(submit, ring->direct_size, &prof);
+
+   if (submit->staged && !submit->reply_size && ring->staging &&
+       npt_ring_stage_append(ring, submit->cmd_data,
+                             (uint32_t)submit->cmd_size)) {
+      npt_profile_submit_finalize(&ring->profile, &prof);
+      return;
+   }
+
+   /* Immediate: behind everything this thread has staged. */
+   npt_ring_stage_flush_self(ring);
 
    /* Reply window must be carved BEFORE ring->lock: the pool's growth
     * path takes its own lock and may call shmem_create. */
@@ -1185,6 +1496,7 @@ npt_ring_create(struct npt_device *device,
    }
 
    npt_ring_lock_init(&ring->lock);
+   mtx_init(&ring->stages_mutex, mtx_plain);
 
    for (uint32_t i = 0; i < NPT_RING_EDGE_SEEN_SLOTS; i++) {
       atomic_store_explicit(&ring->edge_seen[i].ring_id, 0,
@@ -1273,5 +1585,6 @@ npt_ring_destroy(struct npt_ring *ring)
       npt_renderer_shmem_unref(ring->renderer, ring->upload_shmem);
    npt_shmem_pool_fini(ring->renderer, &ring->reply_pool);
    npt_profile_unregister_ring(ring);
+   npt_ring_stages_destroy(ring);
    free(ring);
 }

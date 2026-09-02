@@ -94,6 +94,10 @@ npt_d3d12_create_device_internal(IUnknown *pAdapter,
       if (atomic_exchange_explicit(&upgraded, 1, memory_order_relaxed) == 0)
          npt_log("D3D12CreateDevice: upgrading device to multi-ring "
                  "(device was acquired before D3D12CreateDevice)");
+      /* Cross-ring edges snapshot published tails, which a staging
+       * buffer would hide from them; nothing D3D12 has been staged yet,
+       * since no D3D12 object exists before this call returns. */
+      npt_ring_stage_disable(dev->ring);
       dev->multi_ring_enabled = true;
    }
 

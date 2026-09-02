@@ -122,22 +122,29 @@ dev12_GetDescriptorHandleIncrementSize_override(
  * A CPU descriptor is written by one device method (Create*View,
  * CreateSampler, CopyDescriptors' destination) and read at DECODE time
  * by another (CopyDescriptors' source, OMSetRenderTargets, Clear*View,
- * BeginRenderPass).  Both are wire commands on the calling thread's
- * ring, so a heap written on thread A and read on thread B has its
- * write and its read on two rings with no order between them, and the
- * host may decode the read first -- a stale view bound, or a copy of a
- * descriptor that is not there yet.  Natively both are plain memory
- * accesses the app already ordered.
+ * BeginRenderPass).  Both are wire commands the calling thread holds
+ * back -- in its staging buffer on the single ring, on its own ring
+ * under multi-ring -- so a heap written on thread A and read on thread
+ * B has no order between the write and the read on the host, which may
+ * decode the read first: a stale view bound, or a copy of a descriptor
+ * that is not there yet.  Natively both are plain memory accesses the
+ * app already ordered.
  *
- * Per descriptor slot, remember the ring and position of the latest
- * write; a read from another ring orders its ring after that position
- * on the host (npt_ring_order_after, which drops edges already
- * covered).  Per slot, not per heap: threads share staging heaps, and
- * a heap-wide mark would chain every reader to whichever thread wrote
- * the heap last, thousands of times a frame.  Only non-shader-visible
- * heaps take part: they are the only ones a CPU read can name, and a
+ * Per descriptor slot, remember where the latest write sits.  Single
+ * ring: the staging ref of the write (npt_ring_stage_ref), which a read
+ * from another thread publishes before it is appended
+ * (npt_ring_stage_ensure_flushed); a write likewise publishes the
+ * previous write and, since a read consumes the descriptor when the
+ * host records it, every other thread's staged reads of the slot
+ * (readers[]).  Multi-ring: the ring the write went on and that ring's
+ * tail after it; a read from another ring orders its ring after that
+ * position on the host (npt_ring_order_after, which drops edges already
+ * covered).  Per slot, not per heap: threads share staging heaps, and a
+ * heap-wide mark would chain every reader to whichever thread wrote the
+ * heap last, thousands of times a frame.  Only non-shader-visible heaps
+ * take part: they are the only ones a CPU read can name, and a
  * shader-visible heap's contents are consumed by ExecuteCommandLists,
- * which orders after every ring anyway.
+ * which publishes every stage / orders after every ring anyway.
  */
 
 struct npt_d3d12_desc_heap {
@@ -145,12 +152,15 @@ struct npt_d3d12_desc_heap {
    uint64_t end;
    uint32_t increment;
    uint32_t count;
-   /* Latest write per slot: the ring it went on and that ring's tail
-    * after it, packed so a reader takes one atomic load.  Unused when
-    * !tracked: a shader-visible heap is in the table only so that
+   /* Latest write per slot: a staging ref (single ring) or DESC_LAST_*
+    * (multi-ring), packed so a reader takes one atomic load.  Unused
+    * when !tracked: a shader-visible heap is in the table only so that
     * lookups of its handles resolve from the per-thread cache instead
     * of taking the table lock on every CopyDescriptors destination. */
    _Atomic uint64_t *slots;
+   /* Single ring: the stages holding a read of the slot (bit i = stage
+    * index i + 1, npt_ring_stage_flush_mask); a write clears it. */
+   _Atomic uint64_t *readers;
    uint32_t slot_cap;
    bool tracked;
 };
@@ -247,12 +257,16 @@ desc_heaps_register(uint64_t start, uint32_t increment, uint32_t count,
    bool ok = true;
    if (track && h->slot_cap < count) {
       _Atomic uint64_t *slots = realloc(h->slots, count * sizeof(*slots));
-      if (slots) {
+      if (slots)
          h->slots = slots;
+      _Atomic uint64_t *readers =
+         realloc(h->readers, count * sizeof(*readers));
+      if (readers)
+         h->readers = readers;
+      if (slots && readers)
          h->slot_cap = count;
-      } else {
+      else
          ok = false;
-      }
    }
    if (ok && desc_heaps.count == desc_heaps.cap) {
       const uint32_t cap = desc_heaps.cap ? desc_heaps.cap * 2 : 32;
@@ -272,13 +286,16 @@ desc_heaps_register(uint64_t start, uint32_t increment, uint32_t count,
          desc_heaps.spare[desc_heaps.spare_count++] = h;
       else {
          free(h->slots);
+         free(h->readers);
          free(h);
       }
       mtx_unlock(&desc_heaps.mutex);
       return;
    }
-   if (track)
+   if (track) {
       memset(h->slots, 0, count * sizeof(h->slots[0]));
+      memset(h->readers, 0, count * sizeof(h->readers[0]));
+   }
    h->tracked = track;
    h->start = start;
    h->end = start + (uint64_t)increment * count;
@@ -377,19 +394,61 @@ desc_heap_slots(const struct npt_d3d12_desc_heap *h, uint64_t handle,
    return true;
 }
 
+/* The tracked slots [first, first + count) that `handle` and n
+ * descriptors after it name, or false. */
+static struct npt_d3d12_desc_heap *
+desc_tracked_slots(uint64_t handle, uint32_t n, uint32_t *first,
+                   uint32_t *count)
+{
+   if (!n || !atomic_load_explicit(&desc_heaps.inited, memory_order_acquire))
+      return NULL;
+   struct npt_d3d12_desc_heap *h = desc_heaps_lookup(handle);
+   if (!h || !h->tracked || !desc_heap_slots(h, handle, n, first, count))
+      return NULL;
+   return h;
+}
+
+/* Single ring, before a write of `n` descriptors from `handle` is
+ * appended: publish every other thread's staged write of and read from
+ * those slots, so this write decodes after them. */
+static void
+npt_d3d12_desc_before_write(struct npt_ring *ring, uint64_t handle,
+                            uint32_t n)
+{
+   uint32_t first, count;
+   struct npt_d3d12_desc_heap *h;
+   if (!ring || !ring->staging ||
+       !(h = desc_tracked_slots(handle, n, &first, &count)))
+      return;
+   const uint32_t self = npt_ring_stage_self_index(ring);
+   const uint64_t self_bit = self ? 1ull << (self - 1) : 0;
+   for (uint32_t i = 0; i < count; i++) {
+      npt_ring_stage_ensure_flushed(
+         ring, atomic_load_explicit(&h->slots[first + i],
+                                    memory_order_acquire));
+      const uint64_t readers =
+         atomic_load_explicit(&h->readers[first + i], memory_order_acquire);
+      if (readers) {
+         atomic_store_explicit(&h->readers[first + i], 0,
+                               memory_order_relaxed);
+         if (readers & ~self_bit)
+            npt_ring_stage_flush_mask(ring, readers & ~self_bit);
+      }
+   }
+}
+
 /* `n` descriptors from `handle` were just written by a command on
  * `ring`. */
 static void
 npt_d3d12_desc_note_write(struct npt_ring *ring, uint64_t handle, uint32_t n)
 {
-   if (!ring || !n || !atomic_load_explicit(&desc_heaps.inited,
-                                            memory_order_acquire))
-      return;
-   struct npt_d3d12_desc_heap *h = desc_heaps_lookup(handle);
    uint32_t first, count;
-   if (!h || !h->tracked || !desc_heap_slots(h, handle, n, &first, &count))
+   struct npt_d3d12_desc_heap *h;
+   if (!ring || !(h = desc_tracked_slots(handle, n, &first, &count)))
       return;
-   const uint64_t last = DESC_LAST_PACK(ring->id, npt_ring_seqno_now(ring));
+   const uint64_t last = ring->staging
+      ? npt_ring_stage_last_ref(ring)
+      : DESC_LAST_PACK(ring->id, npt_ring_seqno_now(ring));
    for (uint32_t i = 0; i < count; i++)
       atomic_store_explicit(&h->slots[first + i], last, memory_order_release);
 }
@@ -397,13 +456,23 @@ npt_d3d12_desc_note_write(struct npt_ring *ring, uint64_t handle, uint32_t n)
 void
 npt_d3d12_desc_order_read(struct npt_ring *ring, uint64_t handle, uint32_t n)
 {
-   if (!ring || !n || !atomic_load_explicit(&desc_heaps.inited,
-                                            memory_order_acquire))
-      return;
-   struct npt_d3d12_desc_heap *h = desc_heaps_lookup(handle);
    uint32_t first, count;
-   if (!h || !h->tracked || !desc_heap_slots(h, handle, n, &first, &count))
+   struct npt_d3d12_desc_heap *h;
+   if (!ring || !(h = desc_tracked_slots(handle, n, &first, &count)))
       return;
+   if (ring->staging) {
+      const uint32_t self = npt_ring_stage_self_index(ring);
+      for (uint32_t i = 0; i < count; i++) {
+         npt_ring_stage_ensure_flushed(
+            ring, atomic_load_explicit(&h->slots[first + i],
+                                       memory_order_acquire));
+         if (self)
+            atomic_fetch_or_explicit(&h->readers[first + i],
+                                     1ull << (self - 1),
+                                     memory_order_relaxed);
+      }
+      return;
+   }
    for (uint32_t i = 0; i < count; i++) {
       const uint64_t last =
          atomic_load_explicit(&h->slots[first + i], memory_order_acquire);
@@ -517,14 +586,16 @@ dev12_CreateDescriptorHeap_override(void *self,
    return hr;
 }
 
-/* Descriptor writers: forward, then record the write's ring position
- * against the destination heap. */
+/* Descriptor writers: publish what the write must follow, forward, then
+ * record the write against the destination heap. */
 #define DESC_WRITE_OVERRIDE(iface, method, sig, call, dest)             \
    static void NPT_STDMETHODCALLTYPE                                     \
    iface##_##method##_override sig                                       \
    {                                                                     \
+      struct npt_ring *ring = npt_com_self_ring(self);                   \
+      npt_d3d12_desc_before_write(ring, (dest).ptr, 1);                  \
       npt_##iface##_default_##method call;                               \
-      npt_d3d12_desc_note_write(npt_com_self_ring(self), (dest).ptr, 1); \
+      npt_d3d12_desc_note_write(ring, (dest).ptr, 1);                    \
    }
 
 DESC_WRITE_OVERRIDE(id3d12device, CreateShaderResourceView,
@@ -567,9 +638,11 @@ dev12_CreateConstantBufferView_override(
    void *self, const D3D12_CONSTANT_BUFFER_VIEW_DESC *pDesc,
    D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
+   struct npt_ring *ring = npt_com_self_ring(self);
+   npt_d3d12_desc_before_write(ring, DestDescriptor.ptr, 1);
    npt_id3d12device_default_CreateConstantBufferView(self, pDesc,
                                                      DestDescriptor);
-   npt_d3d12_desc_note_write(npt_com_self_ring(self), DestDescriptor.ptr, 1);
+   npt_d3d12_desc_note_write(ring, DestDescriptor.ptr, 1);
 }
 
 static void NPT_STDMETHODCALLTYPE
@@ -588,6 +661,11 @@ dev12_CopyDescriptors_override(
       npt_d3d12_desc_order_read(
          ring, pSrcDescriptorRangeStarts[i].ptr,
          pSrcDescriptorRangeSizes ? pSrcDescriptorRangeSizes[i] : 1);
+   for (UINT i = 0; i < NumDestDescriptorRanges && pDestDescriptorRangeStarts;
+        i++)
+      npt_d3d12_desc_before_write(
+         ring, pDestDescriptorRangeStarts[i].ptr,
+         pDestDescriptorRangeSizes ? pDestDescriptorRangeSizes[i] : 1);
    npt_id3d12device_default_CopyDescriptors(
       self, NumDestDescriptorRanges, pDestDescriptorRangeStarts,
       pDestDescriptorRangeSizes, NumSrcDescriptorRanges,
@@ -610,6 +688,8 @@ dev12_CopyDescriptorsSimple_override(
    struct npt_ring *ring = npt_com_self_ring(self);
    npt_d3d12_desc_order_read(ring, SrcDescriptorRangeStart.ptr,
                              NumDescriptors);
+   npt_d3d12_desc_before_write(ring, DestDescriptorRangeStart.ptr,
+                               NumDescriptors);
    npt_id3d12device_default_CopyDescriptorsSimple(
       self, NumDescriptors, DestDescriptorRangeStart, SrcDescriptorRangeStart,
       DescriptorHeapsType);

@@ -6,13 +6,14 @@
  *
  * ExecuteCommandLists: the submission consumes everything the app did
  * before calling it -- the listed lists' recording and Close on their
- * recording threads' rings, descriptor writes and resource updates on
+ * recording threads, descriptor writes and resource updates on
  * whichever threads made them -- and the app's own synchronisation
- * published all of that to the rings before this call.  An ordering
- * edge on the queue ring after every other ring's current tail makes
- * the host decode the submission after all of it, which is exactly the
- * FIFO a single ring would have given, while the rings themselves keep
- * decoding in parallel and this thread never waits.
+ * ordered all of that before this call.  On the single ring, threads
+ * hold such commands in staging buffers, so every stage is published
+ * first and ring FIFO does the rest.  Multi-ring: an ordering edge on
+ * the queue ring after every other ring's current tail makes the host
+ * decode the submission after all of it, which is the same FIFO, while
+ * the rings keep decoding in parallel and this thread never waits.
  */
 
 #include "npt_com.h"
@@ -43,6 +44,7 @@ queue12_ExecuteCommandLists_override(void *self, UINT NumCommandLists,
    struct npt_device *dev = npt_com_self_device(self);
    struct npt_ring *queue_ring = npt_com_self_ring(self);
 
+   npt_ring_stage_flush_all(queue_ring);
    npt_d3d12_sync_maps_flush(queue_ring);
 
    if (dev->multi_ring_enabled)

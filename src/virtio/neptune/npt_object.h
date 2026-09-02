@@ -53,6 +53,10 @@ struct npt_object {
     * result out of order. */
    bool ring_ordered;
    _Atomic uint64_t order_ring_id;
+   /* Single-ring model: the staging index (npt_ring_stage_self_index)
+    * of the thread that last submitted on this object, so a call from
+    * another thread first publishes what that thread still holds. */
+   _Atomic uint32_t stage_index;
    /* instance_ring is this object's PRIVATE ring (not the shared DC/SC
     * ring): npt_com_destroy destroys it instead of unrefing the shared
     * ring.  Set only by npt_com_pin_queue_ring. */
@@ -75,6 +79,7 @@ npt_object_init(struct npt_object *obj, uint64_t host_id,
    obj->ring_ordered = false;
    obj->private_instance_ring = false;
    atomic_store_explicit(&obj->order_ring_id, 0, memory_order_relaxed);
+   atomic_store_explicit(&obj->stage_index, 0, memory_order_relaxed);
 }
 
 #endif /* NPT_OBJECT_H */

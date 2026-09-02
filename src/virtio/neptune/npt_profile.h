@@ -33,6 +33,9 @@ struct npt_profile_ring {
    uint64_t total_submit_ns;
    uint64_t total_reply_ns;
    uint64_t roundtrips;
+   /* Staging bursts published into the ring, and their bytes. */
+   uint64_t stage_flushes;
+   uint64_t stage_bytes;
 };
 
 struct npt_profile_slot {
@@ -225,6 +228,16 @@ npt_profile_record_notify(struct npt_profile_ring *p)
 {
    if (npt_profile.enabled)
       p->notifies++;
+}
+
+/* Caller holds ring->lock. */
+static inline void
+npt_profile_record_stage_flush(struct npt_profile_ring *p, uint32_t bytes)
+{
+   if (npt_profile_enabled()) {
+      p->stage_flushes++;
+      p->stage_bytes += bytes;
+   }
 }
 
 static inline void
