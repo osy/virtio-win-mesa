@@ -690,6 +690,11 @@ tritonResourceMap(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hResource,
         return;
     }
     if (FAILED(hr)) {
+        /* The Map DDI has no benign failure code besides WASSTILLDRAWING:
+         * the runtime treats anything else as critical and loses the
+         * device, so record what failed before that happens. */
+        TR_LOG("Map: sub=%u type=%u flags=0x%x hr=0x%08lx", Subresource,
+               (unsigned)DDIMap, Flags, hr);
         tritonSetError(pD, hr);
         pMapped->pData = NULL;
         pMapped->RowPitch = pMapped->DepthPitch = 0;

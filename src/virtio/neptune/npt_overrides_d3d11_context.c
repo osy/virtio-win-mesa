@@ -139,7 +139,8 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
 
    if (can_async) {
       const uint32_t byte_size =
-         npt_d3d11_texture_get_subresource_byte_size(t, Subresource, cached_rp);
+         npt_d3d11_texture_get_subresource_byte_size(t, Subresource,
+                                                     cached_rp, cached_dp);
       if (byte_size && byte_size <= per_slot) {
          if (MapType == D3D11_MAP_WRITE_DISCARD)
             npt_d3d11_texture_rotate_slot(t);
@@ -162,8 +163,10 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
    uint64_t resource_id = ((struct npt_com_base *)t)->base.id;
    npt_d3d11_texture_set_current_slot(t, 0);
 
-   uint32_t mip_h = 0, mip_d = 0;
-   npt_d3d11_texture_get_mip_dimensions(t, Subresource, &mip_h, &mip_d);
+   /* Rows of memory, not texel rows: the host multiplies these by its
+    * RowPitch, which already spans a row of blocks / luma texels. */
+   uint32_t mip_rows = 0, mip_d = 0;
+   npt_d3d11_texture_get_map_extent(t, Subresource, &mip_rows, &mip_d);
 
    uint32_t row_pitch = 0, depth_pitch = 0;
    HRESULT hr = npt_dispatch_resource_map(
@@ -171,18 +174,19 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
       npt_d3d11_map_to_access_flags(MapType), MapFlags,
       npt_d3d11_texture_get_map_shmem_res_id(t),
       /*byte_size=*/per_slot,
-      mip_h, mip_d,
+      mip_rows, mip_d,
       /*shmem_offset=*/npt_d3d11_texture_slot_offset(t, 0),
       &row_pitch, &depth_pitch);
    if (NPT_FAILED(hr))
       return hr;
 
-   /* Bound Unmap memcpy at host_row_pitch * h * d.  Refuse if the
-    * host's RowPitch implies a region larger than per_slot, or one
-    * that cannot be sized at all -- silent overrun is worse than a
-    * clean failure. */
+   /* Bound Unmap memcpy at the host-pitch footprint.  Refuse if the
+    * host's pitches imply a region larger than per_slot, or one that
+    * cannot be sized at all -- silent overrun is worse than a clean
+    * failure. */
    const uint32_t byte_size =
-      npt_d3d11_texture_get_subresource_byte_size(t, Subresource, row_pitch);
+      npt_d3d11_texture_get_subresource_byte_size(t, Subresource,
+                                                  row_pitch, depth_pitch);
    if (!byte_size || byte_size > per_slot) {
       npt_log("ctx_Map_texture: row_pitch=%u implies %u-byte mapped "
               "region, exceeds per-slot %u (shmem %u) -- refusing",

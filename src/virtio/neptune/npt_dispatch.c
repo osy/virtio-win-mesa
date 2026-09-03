@@ -68,7 +68,7 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
                           uint64_t resource_id, uint32_t subresource,
                           uint32_t access_flags, uint32_t api_map_flags,
                           uint32_t shmem_res_id, uint64_t byte_size,
-                          uint32_t mip_height, uint32_t mip_depth,
+                          uint32_t mip_rows, uint32_t mip_depth,
                           uint32_t shmem_offset,
                           uint32_t *out_row_pitch, uint32_t *out_depth_pitch)
 {
@@ -86,7 +86,7 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
    cmd.api_map_flags = api_map_flags;
    cmd.shmem_res_id = shmem_res_id;
    cmd.byte_size = byte_size;
-   cmd.mip_height = mip_height;
+   cmd.mip_rows = mip_rows;
    cmd.mip_depth = mip_depth;
    cmd.shmem_offset = shmem_offset;
 

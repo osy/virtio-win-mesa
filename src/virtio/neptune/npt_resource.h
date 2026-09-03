@@ -59,7 +59,7 @@ struct npt_d3d_map_ring {
 };
 
 /* Slot size depends on per-resource sizing (byte_width / row_pitch *
- * h * d), so the alloc is left to the caller's ensure_map_shmem. */
+ * rows * d), so the alloc is left to the caller's ensure_map_shmem. */
 void npt_d3d_map_ring_init(struct npt_d3d_map_ring *r,
                            struct npt_com_base *com);
 
@@ -193,7 +193,8 @@ void npt_d3d11_texture_fill_desc3d1(const struct npt_d3d11_texture *t,
  * OpenSharedResource; GetDesc falls back to the sync round-trip. */
 bool npt_d3d11_texture_has_desc(const struct npt_d3d11_texture *t);
 
-/* Mappable = USAGE_DYNAMIC + CPU_ACCESS_WRITE + known-bpp format. */
+/* Mappable = STAGING with CPU access, or DYNAMIC with CPU_ACCESS_WRITE,
+ * in a format whose CPU layout (row bytes and rows) is known. */
 bool npt_d3d11_texture_is_mappable(const struct npt_d3d11_texture *t);
 
 bool npt_d3d11_texture_ensure_map_shmem(struct npt_d3d11_texture *t);
@@ -244,7 +245,15 @@ void npt_d3d11_texture_set_cached_pitches(struct npt_d3d11_texture *t,
 
 uint32_t npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_texture *t,
                                                      uint32_t subresource,
-                                                     uint32_t row_pitch);
+                                                     uint32_t row_pitch,
+                                                     uint32_t depth_pitch);
+
+/* Rows of memory (block rows / luma+chroma rows) and depth slices of
+ * one subresource; both 0 when the desc is unknown. */
+void npt_d3d11_texture_get_map_extent(const struct npt_d3d11_texture *t,
+                                      uint32_t subresource,
+                                      uint32_t *out_rows,
+                                      uint32_t *out_depth);
 
 /* Returns the full-pitch footprint of a no-box UpdateSubresource and
  * stores the D3D-guaranteed readable extent of its source in
@@ -306,6 +315,7 @@ struct npt_d3d11_texture_aux {
    uint32_t mip_levels, array_size;
    DXGI_FORMAT format;
    uint32_t bytes_per_pixel;
+   bool has_desc;
    uint32_t usage, cpu_access_flags, bind_flags, misc_flags;
    uint32_t sample_count, sample_quality;
    D3D11_TEXTURE_LAYOUT texture_layout;

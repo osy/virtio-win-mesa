@@ -528,6 +528,7 @@ npt_dxgi_format_bytes_per_pixel(DXGI_FORMAT fmt)
    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
    case DXGI_FORMAT_B8G8R8X8_TYPELESS:
    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+   case DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM:
       return 4;
    case DXGI_FORMAT_R8G8_TYPELESS:
    case DXGI_FORMAT_R8G8_UNORM:
@@ -544,6 +545,8 @@ npt_dxgi_format_bytes_per_pixel(DXGI_FORMAT fmt)
    case DXGI_FORMAT_B5G6R5_UNORM:
    case DXGI_FORMAT_B5G5R5A1_UNORM:
    case DXGI_FORMAT_B4G4R4A4_UNORM:
+   case DXGI_FORMAT_A8P8:
+   case 191: /* DXGI_FORMAT_A4B4G4R4_UNORM (Windows 11 24H2 SDK) */
       return 2;
    case DXGI_FORMAT_R8_TYPELESS:
    case DXGI_FORMAT_R8_UNORM:
@@ -551,6 +554,9 @@ npt_dxgi_format_bytes_per_pixel(DXGI_FORMAT fmt)
    case DXGI_FORMAT_R8_SNORM:
    case DXGI_FORMAT_R8_SINT:
    case DXGI_FORMAT_A8_UNORM:
+   case DXGI_FORMAT_P8:
+   case DXGI_FORMAT_AI44:
+   case DXGI_FORMAT_IA44:
       return 1;
    default:
       return 0;
@@ -642,6 +648,16 @@ npt_dxgi_format_row_bytes(DXGI_FORMAT fmt, uint32_t texel_width)
       return texel_width * 8u;
    case DXGI_FORMAT_R1_UNORM:
       return (texel_width + 7u) / 8u;
+   case DXGI_FORMAT_NV12:
+   case DXGI_FORMAT_NV11:
+   case DXGI_FORMAT_420_OPAQUE:
+   case DXGI_FORMAT_P208:
+      /* Planar 8-bit: one luma byte per texel; the chroma plane(s) are
+       * extra rows of the same pitch (npt_dxgi_format_subresource_rows). */
+      return texel_width;
+   case DXGI_FORMAT_P010:
+   case DXGI_FORMAT_P016:
+      return texel_width * 2u;
    default:
       return texel_width * npt_dxgi_format_bytes_per_pixel(fmt);
    }
@@ -689,6 +705,7 @@ npt_d3d11_texture_set_desc(struct npt_d3d11_texture *t,
    aux->sample_count = d->sample_count ? d->sample_count : 1;
    aux->sample_quality = d->sample_quality;
    aux->texture_layout = d->texture_layout;
+   aux->has_desc = true;
 }
 
 void
@@ -785,7 +802,7 @@ bool
 npt_d3d11_texture_has_desc(const struct npt_d3d11_texture *t)
 {
    const struct npt_d3d11_texture_aux *aux = tex_aux(t);
-   return aux && aux->bytes_per_pixel != 0;
+   return aux && aux->has_desc;
 }
 
 bool
@@ -793,8 +810,9 @@ npt_d3d11_texture_is_mappable(const struct npt_d3d11_texture *t)
 {
    const struct npt_d3d11_texture_aux *aux = tex_aux(t);
    if (!aux) return false;
-   if (aux->bytes_per_pixel == 0 ||
-       aux->width == 0 || aux->height == 0 || aux->depth == 0)
+   if (aux->width == 0 || aux->height == 0 || aux->depth == 0 ||
+       npt_dxgi_format_row_bytes(aux->format, aux->width) == 0 ||
+       npt_dxgi_format_subresource_rows(aux->format, aux->height) == 0)
       return false;
    if (aux->usage == D3D11_USAGE_DYNAMIC)
       return (aux->cpu_access_flags & D3D11_CPU_ACCESS_WRITE) != 0;
@@ -817,23 +835,44 @@ texture_subresource_mip(const struct npt_d3d11_texture_aux *aux, uint32_t subres
    return subresource % mips;
 }
 
-/* Full row_pitch * rows * depth footprint of one subresource: the
- * region a Map hands out and an Unmap transfers, charging the full
- * pitch for every row including the last. */
+/* Footprint of one mapped subresource at the host's pitches: every
+ * row of memory charged at the full row pitch, and every slice but the
+ * last at the full depth pitch (a depth pitch below one slice's rows
+ * is treated as unpadded).  This is the region a Map hands out and an
+ * Unmap transfers. */
 uint32_t
 npt_d3d11_texture_get_subresource_byte_size(const struct npt_d3d11_texture *t,
                                             uint32_t subresource,
-                                            uint32_t row_pitch)
+                                            uint32_t row_pitch,
+                                            uint32_t depth_pitch)
+{
+   uint32_t rows = 0, d = 0;
+   npt_d3d11_texture_get_map_extent(t, subresource, &rows, &d);
+   if (!rows || !d) return 0;
+   const uint64_t slice = (uint64_t)row_pitch * rows;
+   const uint64_t strides = (d > 1u && depth_pitch >= slice)
+      ? (uint64_t)depth_pitch * (d - 1u)
+      : slice * (d - 1u);
+   const uint64_t size = strides + slice;
+   /* 0 also means "cannot size this" to both callers. */
+   return size && size <= 0xffffffffu ? (uint32_t)size : 0;
+}
+
+/* Rows of memory and depth slices in one subresource: block rows for
+ * the compressed families, luma + chroma rows for the planar ones. */
+void
+npt_d3d11_texture_get_map_extent(const struct npt_d3d11_texture *t,
+                                 uint32_t subresource,
+                                 uint32_t *out_rows, uint32_t *out_depth)
 {
    const struct npt_d3d11_texture_aux *aux = tex_aux(t);
-   if (!aux) return 0;
+   *out_rows = 0;
+   *out_depth = 0;
+   if (!aux) return;
    const uint32_t mip = texture_subresource_mip(aux, subresource);
-   const uint32_t rows =
-      npt_dxgi_format_subresource_rows(aux->format, mip_dim(aux->height, mip));
-   const uint32_t d = mip_dim(aux->depth, mip);
-   const uint64_t size = (uint64_t)row_pitch * rows * d;
-   /* 0 also means "cannot size this" to both callers. */
-   return size <= 0xffffffffu ? (uint32_t)size : 0;
+   *out_rows = npt_dxgi_format_subresource_rows(aux->format,
+                                                mip_dim(aux->height, mip));
+   *out_depth = mip_dim(aux->depth, mip);
 }
 
 /* Sizes of a no-box UpdateSubresource transfer.  The return value is
@@ -916,10 +955,15 @@ npt_d3d11_texture_ensure_map_shmem(struct npt_d3d11_texture *t)
    if (!npt_d3d11_texture_is_mappable(t)) return false;
    struct npt_d3d11_texture_aux *aux = tex_aux(t);
    if (!aux) return false;
-   const uint32_t row_bytes = aux->width * aux->bytes_per_pixel;
+   /* Mip 0 of the largest subresource, with the row pitch rounded up
+    * to the 256-byte alignment the host backends stay within. */
+   const uint32_t row_bytes =
+      npt_dxgi_format_row_bytes(aux->format, aux->width);
+   const uint32_t rows =
+      npt_dxgi_format_subresource_rows(aux->format, aux->height);
    const uint32_t aligned_row_pitch = (row_bytes + 255u) & ~255u;
    const uint64_t per_slot = (uint64_t)aligned_row_pitch *
-                             (uint64_t)aux->height *
+                             (uint64_t)rows *
                              (uint64_t)aux->depth;
    const uint64_t aligned_slot = (per_slot + 63u) & ~(uint64_t)63u;
    /* Per-slot cap; slots are lazily allocated up to NPT_D3D_MAP_SLOT_MAX. */
