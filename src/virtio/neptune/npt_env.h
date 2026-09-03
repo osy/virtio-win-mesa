@@ -93,12 +93,6 @@ extern struct npt_env npt_env;
 
 void npt_env_init(void);
 
-/* OR bits into npt_env.perf regardless of the environment (initializes
- * the env first).  Used by entry points whose API contract mandates a
- * mode -- e.g. D3D12CreateDevice forces MULTI_RING before the device
- * singleton latches it.  Must run before npt_device_acquire(). */
-void npt_env_force_perf(uint64_t perf_bits);
-
 /* unlikely(): "perf disabled" is the rare bisect path. */
 #define NPT_PERF(category)  (unlikely(npt_env.perf & NPT_PERF_##category))
 #define NPT_DEBUG(category) (unlikely(npt_env.debug & NPT_DEBUG_##category))

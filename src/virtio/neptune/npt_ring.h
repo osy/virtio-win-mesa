@@ -450,11 +450,6 @@ npt_ring_stage_flush_mask(struct npt_ring *ring, uint64_t mask);
 void
 npt_ring_stage_flush_all(struct npt_ring *ring);
 
-/* Turn staging off for good, publishing everything first.  For a device
- * that switches to the multi-ring model after the ring exists. */
-void
-npt_ring_stage_disable(struct npt_ring *ring);
-
 /*
  * Queue a COM_RELEASE for host_id on the calling thread's ring (primary
  * when the thread has none).  Ring FIFO orders it after this thread's

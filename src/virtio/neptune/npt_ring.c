@@ -586,13 +586,6 @@ npt_ring_stage_flush_all(struct npt_ring *ring)
    }
 }
 
-void
-npt_ring_stage_disable(struct npt_ring *ring)
-{
-   ring->staging = false;
-   npt_ring_stage_flush_all(ring);
-}
-
 /* Ring teardown: detach every stage; a stage whose thread is gone is
  * freed here, a live one by its thread at exit.  Whatever is still
  * staged is dropped with the ring. */

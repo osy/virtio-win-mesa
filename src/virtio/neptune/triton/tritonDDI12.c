@@ -18,12 +18,6 @@
 #include "triton12_tables.h"
 #include "npt_env.h"
 
-/* npt_device.h can't be included here: its vendored protocol DirectX
- * types collide with the SDK headers this TU already pulls. */
-#include <stdbool.h>
-extern bool npt_d3d12_from_ddi;
-
-
 HRESULT
 npt_d3d12_create_device_internal(IUnknown *pAdapter,
                                  D3D_FEATURE_LEVEL MinimumFeatureLevel,
@@ -1678,9 +1672,6 @@ __declspec(dllexport)
 HRESULT APIENTRY OpenAdapter12(D3D12DDIARG_OPENADAPTER *pOpenData)
 {
     TR_LOG("OpenAdapter12");
-
-    /* Pins the D3D12 command queues to the primary ring (npt_device.h). */
-    npt_d3d12_from_ddi = true;
 
     if (!pOpenData || !pOpenData->pAdapterFuncs)
         return E_INVALIDARG;

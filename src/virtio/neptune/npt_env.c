@@ -73,10 +73,3 @@ npt_env_init(void)
 {
    NPT_CALL_ONCE(g_npt_env_init_state, npt_env_init_impl());
 }
-
-void
-npt_env_force_perf(uint64_t perf_bits)
-{
-   npt_env_init();
-   npt_env.perf |= perf_bits;
-}
