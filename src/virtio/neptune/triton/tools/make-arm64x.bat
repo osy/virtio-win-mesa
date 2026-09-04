@@ -46,6 +46,7 @@ set "EC_MODULE=neptune_umd_ec"
 rem --- Resolve locations relative to this script. -----------------------------
 set "SCRIPT_DIR=%~dp0"
 set "SRC_DEF=%SCRIPT_DIR%..\neptune_umd.def"
+set "SRC_RC=%SCRIPT_DIR%..\neptune_umd.rc"
 
 rem --- Parse arguments. -------------------------------------------------------
 if "%~1"=="" goto :usage
@@ -61,6 +62,7 @@ if "%~3"=="" (
 if not exist "%DLL_A%"   ( echo [error] input DLL not found: %DLL_A%& exit /b 1 )
 if not exist "%DLL_B%"   ( echo [error] input DLL not found: %DLL_B%& exit /b 1 )
 if not exist "%SRC_DEF%" ( echo [error] export def not found: %SRC_DEF%& exit /b 1 )
+if not exist "%SRC_RC%"  ( echo [error] version resource not found: %SRC_RC%& exit /b 1 )
 
 rem --- Locate VsDevCmd.bat via vswhere. ---------------------------------------
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -170,6 +172,16 @@ if errorlevel 1 ( echo [error] cl failed building the arm64 stub object.& popd &
 cl /nologo /c /arm64EC /Foempty_ec.obj empty.cpp
 if errorlevel 1 ( echo [error] cl failed building the arm64ec stub object.& popd & goto :fail )
 
+rem --- Version resource: the forwarder is the file Windows registers as the UMD,
+rem     so it carries the payload's version (the INF DriverVer). ----------------
+set "UMD_VERSION="
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "(Get-Item -LiteralPath '%NATIVE_INPUT%').VersionInfo.FileVersion"`) do set "UMD_VERSION=%%V"
+if not defined UMD_VERSION ( echo [error] %NATIVE_INPUT% carries no file version.& popd & goto :fail )
+set "UMD_VERSION_COMMA=%UMD_VERSION:.=,%"
+echo [info] version        : %UMD_VERSION%
+rc /nologo /dVER=%UMD_VERSION% /dVER_COMMA=%UMD_VERSION_COMMA% /fo version.res "%SRC_RC%"
+if errorlevel 1 ( echo [error] rc failed building the version resource.& popd & goto :fail )
+
 rem --- Import libs materializing each view's forwarder exports. ----------------
 lib /nologo /machine:arm64 /def:"%NAT_DEF%" /out:forward_native.lib
 if errorlevel 1 ( echo [error] lib failed for the native view.& popd & goto :fail )
@@ -179,7 +191,7 @@ if errorlevel 1 ( echo [error] lib failed for the EC view.& popd & goto :fail )
 rem --- Link the ARM64X forwarder DLL. -----------------------------------------
 link /nologo /dll /noentry /machine:arm64x ^
   /defArm64Native:"%NAT_DEF%" /def:"%EC_DEF%" ^
-  empty_arm64.obj empty_ec.obj ^
+  empty_arm64.obj empty_ec.obj version.res ^
   /out:%BASENAME%.dll forward_native.lib forward_ec.lib
 if errorlevel 1 ( echo [error] link failed producing the arm64x forwarder.& popd & goto :fail )
 popd

@@ -248,6 +248,12 @@ option(
   description : 'Native Windows packaging: off = COM-only DLLs, ddi = Triton DDI DLL only, both = produce both side-by-side',
 )
 option(
+  'npt_umd_version',
+  type : 'string',
+  value : '0.0.0.0',
+  description : 'File version (a.b.c.d) stamped into the Triton UMD DLLs; the driver package builder passes its INF DriverVer, which Windows requires the UMD file version to match.',
+)
+option(
   'amdgpu-virtio',
   type : 'boolean',
   value : false,

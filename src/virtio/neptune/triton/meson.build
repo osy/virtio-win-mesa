@@ -29,9 +29,19 @@ triton_incs = [
   include_directories('..'),
 ]
 
+umd_version = get_option('npt_umd_version')
+if umd_version.split('.').length() != 4
+  error('npt_umd_version must be four dot-separated numbers, got "@0@"'.format(umd_version))
+endif
+umd_version_rc = import('windows').compile_resources(
+  files('neptune_umd.rc'),
+  args : ['/dVER=' + umd_version,
+          '/dVER_COMMA=' + ','.join(umd_version.split('.'))],
+)
+
 libneptune_umd = shared_library(
   'neptune_umd',
-  [npt_common_src, triton_src,
+  [npt_common_src, triton_src, umd_version_rc,
    files('../npt_entry_d3d11.c', '../npt_entry_dxgi.c',
          '../npt_entry_d3d12.c')],
   include_directories : triton_incs,
