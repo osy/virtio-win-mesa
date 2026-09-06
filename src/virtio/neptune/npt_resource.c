@@ -816,7 +816,11 @@ npt_d3d11_texture_is_mappable(const struct npt_d3d11_texture *t)
       return false;
    if (aux->usage == D3D11_USAGE_DYNAMIC)
       return (aux->cpu_access_flags & D3D11_CPU_ACCESS_WRITE) != 0;
-   if (aux->usage == D3D11_USAGE_STAGING)
+   /* Staging textures, and default textures created with CPU access:
+    * the UMD reports UMA, so the runtime allows Map on the latter
+    * (D3D11_FEATURE_DATA_D3D11_OPTIONS2.MapOnDefaultTextures) and the HLK
+    * substitutes them for staging copies. */
+   if (aux->usage == D3D11_USAGE_STAGING || aux->usage == D3D11_USAGE_DEFAULT)
       return (aux->cpu_access_flags &
               (D3D11_CPU_ACCESS_WRITE | D3D11_CPU_ACCESS_READ)) != 0;
    return false;
@@ -966,8 +970,10 @@ npt_d3d11_texture_ensure_map_shmem(struct npt_d3d11_texture *t)
                              (uint64_t)rows *
                              (uint64_t)aux->depth;
    const uint64_t aligned_slot = (per_slot + 63u) & ~(uint64_t)63u;
-   /* Per-slot cap; slots are lazily allocated up to NPT_D3D_MAP_SLOT_MAX. */
-   if (per_slot == 0 || aligned_slot > (uint64_t)(64u << 20)) {
+   /* Per-slot cap: 2 GB, the largest a slot's 32-bit size carries (a
+    * 16384 x 16384 subresource of a 16-byte format is 4 GB and cannot be
+    * mapped); slots are lazily allocated up to NPT_D3D_MAP_SLOT_MAX. */
+   if (per_slot == 0 || aligned_slot > (uint64_t)(2048u << 20)) {
       npt_log("texture_ensure_map_shmem: bad size");
       return false;
    }
