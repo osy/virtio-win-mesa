@@ -21,8 +21,8 @@ struct npt_ring;
  * Dual refcount: pub_ref is what AddRef/Release expose to the app;
  * priv_ref is the runtime's internal hold (in-flight RPCs, parent
  * coupling).  Destruction only happens when both reach zero.  A child
- * wrapper holds a priv_ref on its parent for the duration of its own
- * pub_ref>0 lifetime, mirroring the D3D11DeviceChild contract.
+ * wrapper holds a priv_ref on its parent for the child's entire wrapper
+ * lifetime, including while pub_ref is zero but private holds keep it alive.
  */
 struct npt_object {
    uint64_t id;
