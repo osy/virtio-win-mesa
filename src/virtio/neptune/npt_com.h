@@ -154,17 +154,18 @@ npt_com_self_device(void *self)
 }
 
 /*
- * Default IUnknown::AddRef: bump pub_ref; on 0->1, bump priv_ref and
- * AddRef the parent wrapper (parent coupling, see npt_object.h).
+ * Default IUnknown::AddRef: bump pub_ref; on 0->1, bump the matching
+ * self priv_ref.  Parent coupling lasts for the wrapper's entire lifetime
+ * and is independent of temporary pub_ref==0 periods.
  * Returns the new public refcount.
  */
 uint32_t NPT_STDMETHODCALLTYPE
 npt_com_default_addref(void *self);
 
 /*
- * Default IUnknown::Release: dec pub_ref; on 1->0, dec the matching
- * priv_ref pair (and parent's).  Final priv_ref==0 evicts from cache,
- * sends COM_RELEASE, and frees the wrapper.
+ * Default IUnknown::Release: dec pub_ref; on 1->0, dec the matching self
+ * priv_ref.  Final priv_ref==0 evicts from cache, sends COM_RELEASE, frees
+ * the wrapper, and drops its wrapper-lifetime parent hold.
  */
 uint32_t NPT_STDMETHODCALLTYPE
 npt_com_default_release(void *self);

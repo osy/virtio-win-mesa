@@ -207,15 +207,15 @@ npt_com_default_addref(void *self)
    struct npt_com_base *com = self;
    uint32_t prev = atomic_fetch_add(&com->base.pub_ref, 1);
    if (prev == 0) {
-      /* 0->1: take a priv hold on self and parent. */
+      /* 0->1: take the matching private hold on self.  The parent
+       * hold lasts for the wrapper's entire lifetime. */
       atomic_fetch_add(&com->base.priv_ref, 1);
-      if (com->base.parent)
-         atomic_fetch_add(&com->base.parent->base.priv_ref, 1);
    }
    return prev + 1;
 }
 
 static void npt_com_destroy(struct npt_com_base *com);
+static void npt_com_destroy_cascade(struct npt_com_base *com);
 static struct npt_ring *npt_com_acquire_dc_sc_ring(struct npt_device *dev);
 static void npt_com_release_dc_sc_ring(struct npt_device *dev);
 
@@ -227,21 +227,14 @@ npt_com_default_release(void *self)
    const uint32_t cur = prev - 1;
    if (cur == 0) {
       /* Drop the QI memo's wrapper holds while our own 0->1 priv hold
-       * is still in place: each memoized wrapper's release decrements
-       * our priv_ref (parent coupling), and that hold keeps the count
-       * above zero so the cascade cannot destroy us mid-flush. */
+       * is still in place: a memoized child reaching final destruction
+       * may drop its wrapper-lifetime parent hold on us, and this hold
+       * keeps the count above zero during the flush. */
       npt_com_qi_memo_flush(com);
-      /* 1->0: drop the matching priv holds taken on 0->1. */
-      struct npt_com_base *parent = com->base.parent;
+      /* 1->0: drop the matching private hold on self. */
       uint32_t priv = atomic_fetch_sub(&com->base.priv_ref, 1) - 1;
       if (priv == 0)
-         npt_com_destroy(com);
-      if (parent) {
-         uint32_t parent_priv =
-            atomic_fetch_sub(&parent->base.priv_ref, 1) - 1;
-         if (parent_priv == 0 && atomic_load(&parent->base.pub_ref) == 0)
-            npt_com_destroy(parent);
-      }
+         npt_com_destroy_cascade(com);
    }
    return cur;
 }
@@ -273,10 +266,9 @@ npt_com_destroy(struct npt_com_base *com)
 {
    /* Re-entry guard: aux_destroy may release cached child wrappers
     * (swapchain backbuffer cache, device immediate-context cache).  A
-    * child's default_release decrements its parent's priv_ref via the
-    * 0->1 AddRef matching pattern, and when the last cached child
-    * drops the parent's priv_ref to 0 with pub_ref already 0,
-    * default_release would recurse into npt_com_destroy on the same
+    * child's final destruction drops its wrapper-lifetime parent hold,
+    * and when the last cached child drops our priv_ref to 0 with
+    * pub_ref already 0, that could recurse into destruction of the same
     * parent -- freeing aux/com while the outer call is still running.
     * Bumping priv_ref here keeps every in-aux_destroy decrement >=1,
     * so the cascade gate inside default_release stays shut. */
@@ -315,6 +307,25 @@ npt_com_destroy(struct npt_com_base *com)
    free(com);
    for (uint32_t i = 0; i < device_refs; i++)
       npt_device_release();
+}
+
+/* A child keeps its parent alive for the child's whole wrapper lifetime,
+ * including periods where pub_ref is zero but descendants still hold
+ * priv_refs on it.  Drop that hold only after the child is actually
+ * destroyed, then propagate final destruction up the parent chain. */
+static void
+npt_com_destroy_cascade(struct npt_com_base *com)
+{
+   struct npt_com_base *parent = com->base.parent;
+   npt_com_destroy(com);
+
+   if (!parent)
+      return;
+
+   uint32_t parent_priv =
+      atomic_fetch_sub(&parent->base.priv_ref, 1) - 1;
+   if (parent_priv == 0 && atomic_load(&parent->base.pub_ref) == 0)
+      npt_com_destroy_cascade(parent);
 }
 
 /*
