@@ -84,6 +84,11 @@ typedef struct TRITON_DEVICE {
      * still referenced here; we clear from those destroy paths. */
     struct TRITON_SHADER           *pCurrentVS;
     struct TRITON_ELEMENTLAYOUT    *pCurrentLayout;
+    /* Bound GS and DS, for a stream-output-only GS (tritonShader.c): its
+     * host object is made from the DS's, else the VS's, bytecode, so a change
+     * of either stage rebinds it. Weak refs, cleared from the destroy path. */
+    struct TRITON_SHADER           *pCurrentGS;
+    struct TRITON_SHADER           *pCurrentDS;
 
     /* The reconciled VS currently bound on the context, or NULL when the app's
      * own VS is bound.  A reconciled VS belongs to one layout; if a resolve
@@ -390,6 +395,18 @@ typedef struct TRITON_SHADER {
         ID3D11DomainShader      *pDS;
         ID3D11ComputeShader     *pCS;
     } u;
+    /* Stream-output-only GS (created without bytecode): no GS runs, the
+     * bound VS/DS output is streamed. The DDI declaration is kept as given;
+     * the host object is made from the source stage's bytecode once both are
+     * bound and remade when the source changes (SoSourceCookie). */
+    BOOL                   fSoOnly;
+    D3D11DDIARG_STREAM_OUTPUT_DECLARATION_ENTRY *pSoDecl;
+    UINT                   cSoDecl;
+    UINT                   SoStrides[D3D11_SO_BUFFER_SLOT_COUNT];
+    UINT                   cSoStrides;
+    UINT                   SoRasterizedStream;
+    ID3D11GeometryShader  *pSoOnlyGS;
+    UINT64                 SoSourceCookie;
 } TRITON_SHADER, *PTRITON_SHADER;
 
 /* View-list plumbing + rotation support (tritonView.c). */

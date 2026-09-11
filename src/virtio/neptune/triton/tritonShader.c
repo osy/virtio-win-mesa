@@ -138,6 +138,10 @@ static void tritonCreateShaderCommon(D3D10DDI_HDEVICE hDevice, TRITON_SHADER_KIN
     s->cbBytecode     = 0;
     s->u.pDeviceChild = NULL;
     s->cookie         = ++pD->nextShaderCookie;
+    s->fSoOnly        = FALSE;
+    s->pSoDecl        = NULL;
+    s->cSoDecl        = 0;
+    s->pSoOnlyGS      = NULL;
 
     const SIZE_T cbTokens = tritonShaderTokenBytes(pShaderCode);
     /* Compute shaders have no input/output signature; HS/DS carry an
@@ -230,10 +234,16 @@ tritonDestroyShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     PTRITON_SHADER s = (PTRITON_SHADER)(hShader.pDrvPrivate);
     if (!s) return;
     if (pD && pD->pCurrentVS == s) pD->pCurrentVS = NULL;
+    if (pD && pD->pCurrentGS == s) pD->pCurrentGS = NULL;
+    if (pD && pD->pCurrentDS == s) pD->pCurrentDS = NULL;
     if (s->u.pDeviceChild) { ID3D11DeviceChild_Release(s->u.pDeviceChild); s->u.pDeviceChild = NULL; }
+    if (s->pSoOnlyGS)      { ID3D11GeometryShader_Release(s->pSoOnlyGS);  s->pSoOnlyGS = NULL; }
+    if (s->pSoDecl)        { HeapFree(GetProcessHeap(), 0, s->pSoDecl);    s->pSoDecl = NULL; }
     if (s->pBytecode)      { HeapFree(GetProcessHeap(), 0, s->pBytecode);  s->pBytecode = NULL; }
     s->cbBytecode = 0;
 }
+
+static void tritonBindSoOnlyGS(PTRITON_DEVICE pD);
 
 void APIENTRY
 tritonVsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
@@ -246,6 +256,7 @@ tritonVsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     pD->pBoundReconVS = NULL;
     pD->pCurrentVS = s;
     tritonResolveInputLayout(pD);
+    tritonBindSoOnlyGS(pD);
 }
 
 void APIENTRY
@@ -264,6 +275,11 @@ tritonGsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
     PTRITON_SHADER s  = (PTRITON_SHADER)(hShader.pDrvPrivate);
     if (!pD) return;
+    pD->pCurrentGS = s;
+    if (s && s->fSoOnly) {
+        tritonBindSoOnlyGS(pD);
+        return;
+    }
     ID3D11DeviceContext1_GSSetShader(pD->pCtx1,
         (s && s->u.pGS) ? s->u.pGS : NULL, NULL, 0);
 }
@@ -284,8 +300,10 @@ tritonDsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
     PTRITON_SHADER s  = (PTRITON_SHADER)(hShader.pDrvPrivate);
     if (!pD) return;
+    pD->pCurrentDS = s;
     ID3D11DeviceContext1_DSSetShader(pD->pCtx1,
         (s && s->u.pDS) ? s->u.pDS : NULL, NULL, 0);
+    tritonBindSoOnlyGS(pD);
 }
 
 void APIENTRY
@@ -460,96 +478,28 @@ tritonCalcPrivateGSWithSOSize(D3D10DDI_HDEVICE hDev, const VOID *pArgs)
     return sizeof(TRITON_SHADER);
 }
 
-void APIENTRY
-tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
-                        const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *pArgs,
-                        D3D10DDI_HSHADER hShader,
-                        D3D10DDI_HRTSHADER hRTShader,
-                        const VOID *pSigsRaw)
+/* Fills the API SO declaration for a DDI one against the output signature
+ * of the bytecode that will feed it. The DDI gives Stream + RegisterIndex +
+ * RegisterMask + OutputSlot; SemanticName/Index come from the signature
+ * (OSG5 for SM5, OSGN for SM4). A register the signature lacks becomes a
+ * gap entry (NULL name) rather than a failure -- an all-gap declaration is
+ * rejected outright by the runtime, a partial one silently drops those
+ * attributes and shifts the buffer layout -- so it is logged. `dxsigs` is
+ * caller storage the names point into for as long as `dstEntries` is used. */
+static void tritonFillSoDecl(const void *pBytecode, SIZE_T cbBytecode,
+                             const D3D11DDIARG_STREAM_OUTPUT_DECLARATION_ENTRY *pDdi,
+                             UINT NumEntries,
+                             D3D11_SO_DECLARATION_ENTRY *dstEntries,
+                             TritonDxbcSig *dxsigs /* [128] */)
 {
-    PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
-    PTRITON_SHADER s  = (PTRITON_SHADER)(hShader.pDrvPrivate);
-    if (!pD || !s) return;
-    s->kind            = TRITON_SHADER_GS;
-    s->pBytecode      = NULL;
-    s->cbBytecode     = 0;
-    s->u.pDeviceChild = NULL;
-    s->cookie         = ++pD->nextShaderCookie;
-    /* ID3D11Device1::CreateGeometryShaderWithStreamOutput mandates
-     * non-NULL bytecode; SO-alias shaders (no bytecode, decls only) have
-     * no equivalent. */
-    if (!pArgs->pShaderCode) {
-        TR_LOG("CreateGSWithSO: NULL pShaderCode (SO-alias shader unsupported)");
-        tritonSetError(pD, E_NOTIMPL);
-        return;
-    }
-    if (pArgs->NumEntries > D3D11_SO_STREAM_COUNT * D3D11_SO_OUTPUT_COMPONENT_COUNT) {
-        TR_LOG("CreateGSWithSO: NumEntries %u exceeds SO decl cap", pArgs->NumEntries);
-        tritonSetError(pD, E_INVALIDARG);
-        return;
-    }
-
-    const SIZE_T cbTokens = tritonShaderTokenBytes(pArgs->pShaderCode);
-    TritonStageSigs sigs;
-    tritonUnpackSigs(pSigsRaw, FALSE, &sigs);
-
-    if (sigs.cIn > 4096 || sigs.cOut > 4096) {
-        TR_LOG("CreateGSWithSO: signature counts exceed 4096 (in=%u out=%u)",
-               sigs.cIn, sigs.cOut);
-        tritonSetError(pD, E_INVALIDARG);
-        return;
-    }
-
-    SIZE_T cbDxbc = 0;
-    void *pDxbc = tritonBuildDxbc(pArgs->pShaderCode, cbTokens,
-                                   sigs.pIn,  sigs.cIn,
-                                   sigs.pOut, sigs.cOut,
-                                   NULL, 0,
-                                   tritonSigStride(pD),
-                                   &cbDxbc);
-    if (!pDxbc) {
-        TR_LOG("CreateGSWithSO: tritonBuildDxbc failed");
-        tritonSetError(pD, E_OUTOFMEMORY);
-        return;
-    }
-    s->pBytecode  = pDxbc;
-    s->cbBytecode = cbDxbc;
-
-    /* The SO declaration's SemanticName/Index must match the GS's output
-     * signature. Since we synthesise that signature from the DDI entries
-     * and the shader's declarations, the parser normally returns matching
-     * names -- but a miss degrades the entry to a gap rather than failing, so
-     * report it: an all-gap declaration is rejected outright by the runtime,
-     * while a partial one succeeds and silently drops those attributes and
-     * shifts the buffer layout. */
-    TritonDxbcSig dxsigs[128];
-    const UINT cDxSigs = tritonDxbcParseSig(s->pBytecode, s->cbBytecode,
-                                             FALSE, dxsigs,
-                                             sizeof(dxsigs) / sizeof(dxsigs[0]));
+    const UINT cDxSigs = tritonDxbcParseSig(pBytecode, cbBytecode, FALSE,
+                                             dxsigs, 128);
     if (cDxSigs == 0)
         TR_LOG("CreateGSWithSO: no output signature parsed; every SO entry "
                "will be a gap");
 
-    D3D11_SO_DECLARATION_ENTRY soStack[D3D11_SO_STREAM_COUNT *
-                                       D3D11_SO_OUTPUT_COMPONENT_COUNT];
-    D3D11_SO_DECLARATION_ENTRY *soEntries = soStack;
-    if (pArgs->NumEntries > (sizeof(soStack) / sizeof(soStack[0]))) {
-        soEntries = (D3D11_SO_DECLARATION_ENTRY *)(
-            HeapAlloc(GetProcessHeap(), 0,
-                      pArgs->NumEntries * sizeof(D3D11_SO_DECLARATION_ENTRY)));
-        if (!soEntries) {
-            TR_LOG("CreateGSWithSO: HeapAlloc for SO entries failed");
-            HeapFree(GetProcessHeap(), 0, s->pBytecode);
-            s->pBytecode = NULL;
-            s->cbBytecode = 0;
-            tritonSetError(pD, E_OUTOFMEMORY);
-            return;
-        }
-    }
-
-    for (UINT i = 0; i < pArgs->NumEntries; ++i) {
-        const D3D11DDIARG_STREAM_OUTPUT_DECLARATION_ENTRY *src =
-            &pArgs->pOutputStreamDecl[i];
+    for (UINT i = 0; i < NumEntries; ++i) {
+        const D3D11DDIARG_STREAM_OUTPUT_DECLARATION_ENTRY *src = &pDdi[i];
 
         /* Convert 4-bit RegisterMask -> contiguous (start, count). */
         BYTE m = src->RegisterMask & 0xF;
@@ -581,7 +531,7 @@ tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
                    "no output-signature match; emitting a gap",
                    i, src->Stream, src->RegisterIndex, src->RegisterMask);
 
-        D3D11_SO_DECLARATION_ENTRY *dst = &soEntries[i];
+        D3D11_SO_DECLARATION_ENTRY *dst = &dstEntries[i];
         dst->Stream         = src->Stream;
         dst->SemanticName   = sig ? sig->Name : NULL;   /* gap entry: NULL */
         dst->SemanticIndex  = sig ? sig->SemanticIndex : 0;
@@ -589,6 +539,91 @@ tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
         dst->ComponentCount = count;
         dst->OutputSlot     = (BYTE)src->OutputSlot;
     }
+}
+
+void APIENTRY
+tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
+                        const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *pArgs,
+                        D3D10DDI_HSHADER hShader,
+                        D3D10DDI_HRTSHADER hRTShader,
+                        const VOID *pSigsRaw)
+{
+    PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
+    PTRITON_SHADER s  = (PTRITON_SHADER)(hShader.pDrvPrivate);
+    if (!pD || !s) return;
+    s->kind            = TRITON_SHADER_GS;
+    s->pBytecode      = NULL;
+    s->cbBytecode     = 0;
+    s->u.pDeviceChild = NULL;
+    s->cookie         = ++pD->nextShaderCookie;
+    s->fSoOnly        = FALSE;
+    s->pSoDecl        = NULL;
+    s->cSoDecl        = 0;
+    s->pSoOnlyGS      = NULL;
+    if (pArgs->NumEntries > D3D11_SO_STREAM_COUNT * D3D11_SO_OUTPUT_COMPONENT_COUNT) {
+        TR_LOG("CreateGSWithSO: NumEntries %u exceeds SO decl cap", pArgs->NumEntries);
+        tritonSetError(pD, E_INVALIDARG);
+        return;
+    }
+    if (pArgs->NumStrides > D3D11_SO_BUFFER_SLOT_COUNT) {
+        TR_LOG("CreateGSWithSO: NumStrides %u exceeds SO buffer slots", pArgs->NumStrides);
+        tritonSetError(pD, E_INVALIDARG);
+        return;
+    }
+    /* No bytecode: a stream-output-only GS. The host makes one from the
+     * source stage's bytecode, which is only known once that stage is bound,
+     * so keep the declaration and build the object in tritonBindSoOnlyGS. */
+    if (!pArgs->pShaderCode) {
+        const SIZE_T cbDecl = pArgs->NumEntries * sizeof(*s->pSoDecl);
+        if (cbDecl) {
+            s->pSoDecl = (D3D11DDIARG_STREAM_OUTPUT_DECLARATION_ENTRY *)
+                HeapAlloc(GetProcessHeap(), 0, cbDecl);
+            if (!s->pSoDecl) {
+                tritonSetError(pD, E_OUTOFMEMORY);
+                return;
+            }
+            memcpy(s->pSoDecl, pArgs->pOutputStreamDecl, cbDecl);
+        }
+        s->cSoDecl = pArgs->NumEntries;
+        s->cSoStrides = pArgs->NumStrides;
+        memcpy(s->SoStrides, pArgs->BufferStridesInBytes,
+               pArgs->NumStrides * sizeof(UINT));
+        s->SoRasterizedStream = pArgs->RasterizedStream;
+        s->fSoOnly = TRUE;
+        return;
+    }
+
+    const SIZE_T cbTokens = tritonShaderTokenBytes(pArgs->pShaderCode);
+    TritonStageSigs sigs;
+    tritonUnpackSigs(pSigsRaw, FALSE, &sigs);
+
+    if (sigs.cIn > 4096 || sigs.cOut > 4096) {
+        TR_LOG("CreateGSWithSO: signature counts exceed 4096 (in=%u out=%u)",
+               sigs.cIn, sigs.cOut);
+        tritonSetError(pD, E_INVALIDARG);
+        return;
+    }
+
+    SIZE_T cbDxbc = 0;
+    void *pDxbc = tritonBuildDxbc(pArgs->pShaderCode, cbTokens,
+                                   sigs.pIn,  sigs.cIn,
+                                   sigs.pOut, sigs.cOut,
+                                   NULL, 0,
+                                   tritonSigStride(pD),
+                                   &cbDxbc);
+    if (!pDxbc) {
+        TR_LOG("CreateGSWithSO: tritonBuildDxbc failed");
+        tritonSetError(pD, E_OUTOFMEMORY);
+        return;
+    }
+    s->pBytecode  = pDxbc;
+    s->cbBytecode = cbDxbc;
+
+    D3D11_SO_DECLARATION_ENTRY soEntries[D3D11_SO_STREAM_COUNT *
+                                         D3D11_SO_OUTPUT_COMPONENT_COUNT];
+    TritonDxbcSig dxsigs[128];
+    tritonFillSoDecl(s->pBytecode, s->cbBytecode, pArgs->pOutputStreamDecl,
+                     pArgs->NumEntries, soEntries, dxsigs);
 
     HRESULT hr = ID3D11Device1_CreateGeometryShaderWithStreamOutput(
         pD->pDev1,
@@ -601,15 +636,50 @@ tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
     if (FAILED(hr)) {
         TR_LOG("CreateGSWithSO: D3D11 create failed 0x%08lx", hr);
         s->u.pGS = NULL;
-        /* No pfnDestroyShader after a create error — free the container. */
+        /* No pfnDestroyShader after a create error - free the container. */
         HeapFree(GetProcessHeap(), 0, s->pBytecode);
         s->pBytecode  = NULL;
         s->cbBytecode = 0;
         tritonSetError(pD, hr);
     }
+}
 
-    if (soEntries != soStack)
-        HeapFree(GetProcessHeap(), 0, soEntries);
+/* Binds the host object of a stream-output-only GS, made from the bound
+ * source stage's bytecode (DS when tessellating, else VS) and remade when
+ * that stage changed since the last bind. Nothing binds until a source
+ * exists. */
+static void tritonBindSoOnlyGS(PTRITON_DEVICE pD)
+{
+    PTRITON_SHADER gs = pD->pCurrentGS;
+    if (!gs || !gs->fSoOnly)
+        return;
+    PTRITON_SHADER src = pD->pCurrentDS ? pD->pCurrentDS : pD->pCurrentVS;
+    if (!src || !src->pBytecode) {
+        ID3D11DeviceContext1_GSSetShader(pD->pCtx1, NULL, NULL, 0);
+        return;
+    }
+    if (!gs->pSoOnlyGS || gs->SoSourceCookie != src->cookie) {
+        if (gs->pSoOnlyGS) {
+            ID3D11GeometryShader_Release(gs->pSoOnlyGS);
+            gs->pSoOnlyGS = NULL;
+        }
+        D3D11_SO_DECLARATION_ENTRY soEntries[D3D11_SO_STREAM_COUNT *
+                                             D3D11_SO_OUTPUT_COMPONENT_COUNT];
+        TritonDxbcSig dxsigs[128];
+        tritonFillSoDecl(src->pBytecode, src->cbBytecode, gs->pSoDecl,
+                         gs->cSoDecl, soEntries, dxsigs);
+        HRESULT hr = ID3D11Device1_CreateGeometryShaderWithStreamOutput(
+            pD->pDev1, src->pBytecode, src->cbBytecode,
+            soEntries, gs->cSoDecl, gs->SoStrides, gs->cSoStrides,
+            gs->SoRasterizedStream, NULL, &gs->pSoOnlyGS);
+        if (FAILED(hr)) {
+            TR_LOG("SO-only GS: D3D11 create from %s bytecode failed 0x%08lx",
+                   pD->pCurrentDS ? "DS" : "VS", hr);
+            gs->pSoOnlyGS = NULL;
+        }
+        gs->SoSourceCookie = src->cookie;
+    }
+    ID3D11DeviceContext1_GSSetShader(pD->pCtx1, gs->pSoOnlyGS, NULL, 0);
 }
 
 /* Map a DXGI vertex format to the DXBC input-signature component type its

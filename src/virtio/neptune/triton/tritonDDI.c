@@ -831,6 +831,8 @@ static HRESULT APIENTRY tritonCreateDevice(D3D10DDI_HADAPTER hAdapter,
     p->FeatureLevel   = D3D_FEATURE_LEVEL_11_0;
     p->pCurrentVS     = NULL;
     p->pCurrentLayout = NULL;
+    p->pCurrentGS     = NULL;
+    p->pCurrentDS     = NULL;
     p->nextShaderCookie = 0;
     p->hRTCoreLayer   = pArgs->hRTCoreLayer;
     /* The CREATEDEVICE callbacks are a union: every member aliases the
