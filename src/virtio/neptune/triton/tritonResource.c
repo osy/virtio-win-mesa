@@ -15,6 +15,9 @@
 
 #include "virtio/virtio-gpu/wddm_hw.h"   /* VIOGPU resource / shared-allocation ABI */
 
+/* tritonQuery.c; the DDI table in tritonDDI.c carries the same prototype. */
+void APIENTRY tritonCheckFormatSupport(D3D10DDI_HDEVICE, DXGI_FORMAT, UINT *);
+
 SIZE_T APIENTRY
 tritonCalcPrivateResourceSize(D3D10DDI_HDEVICE hDevice,
                               const D3D11DDIARG_CREATERESOURCE *pArgs)
@@ -284,6 +287,25 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
         r->Depth  = pArgs->pMipInfoList[0].TexelDepth;
     } else {
         r->Width = r->Height = r->Depth = 0;
+    }
+
+    /* A host create is asynchronous and reports nothing back, so a texture
+     * whose format the host cannot make must be refused here: forwarded, the
+     * app holds a texture that never existed, its first Map comes back
+     * DEVICE_REMOVED, and a test then recreates its device per case until
+     * the host GPU runs out of memory. The video, palettized and R1 formats
+     * have no Metal pixel format and report no support bits at all.
+     * E_OUTOFMEMORY is the create error the runtime hands back to the app. */
+    if (pArgs->ResourceDimension != D3D10DDIRESOURCE_BUFFER &&
+        pArgs->Format != DXGI_FORMAT_UNKNOWN) {
+        UINT ddiSupport = 0;
+        tritonCheckFormatSupport(hDevice, pArgs->Format, &ddiSupport);
+        if (ddiSupport == 0) {
+            TR_LOG("CreateResource: format %u has no host support; refused",
+                   (UINT)pArgs->Format);
+            tritonSetError(pD, E_OUTOFMEMORY);
+            return;
+        }
     }
 
     /* Display primaries are ordinary host textures with a linear dmabuf
