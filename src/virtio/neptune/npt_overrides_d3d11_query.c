@@ -51,6 +51,45 @@ npt_query_data_size_for_type(D3D11_QUERY type)
    }
 }
 
+/* A create normally goes out async and reports nothing back, so a query
+ * type the host cannot make would otherwise fail only at first GetData,
+ * tearing the context down.  The first create of each D3D11_QUERY type
+ * instead goes out with a reply and the host's HRESULT decides.  One
+ * word per type: 0 = unprobed, 1 = the host creates the type (async
+ * path from then on), anything else = the latched failing HRESULT,
+ * answered guest-side without a round trip.  Racing probes are benign
+ * (last write wins, both hold a host answer). */
+#define NPT_QUERY_TYPE_SLOTS (D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM3 + 1)
+static _Atomic int32_t npt_query_create_hr[NPT_QUERY_TYPE_SLOTS];
+
+static bool
+npt_query_probe_state(UINT type, int32_t *state)
+{
+   if (type >= NPT_QUERY_TYPE_SLOTS)
+      return false;
+   *state = atomic_load_explicit(&npt_query_create_hr[type],
+                                 memory_order_acquire);
+   return true;
+}
+
+/* Transport failures are returned but never latched: a reply mismatch
+ * decodes as DEVICE_REMOVED and an encoder that could not acquire
+ * returns E_OUTOFMEMORY, neither of which is the host's answer. */
+static void
+npt_query_probe_latch(UINT type, HRESULT hr)
+{
+   int32_t state;
+   if (NPT_SUCCEEDED(hr))
+      state = 1;
+   else if (hr != (HRESULT)0x887A0005 /* DXGI_ERROR_DEVICE_REMOVED */ &&
+            hr != (HRESULT)0x8007000E /* E_OUTOFMEMORY */)
+      state = (int32_t)hr;
+   else
+      return;
+   atomic_store_explicit(&npt_query_create_hr[type], state,
+                         memory_order_release);
+}
+
 static void query_aux_destroy(void *aux_raw);
 
 static void
@@ -148,6 +187,28 @@ static HRESULT NPT_STDMETHODCALLTYPE
 dev_CreateQuery_override(void *self, const D3D11_QUERY_DESC *pQueryDesc,
                          ID3D11Query **ppQuery)
 {
+   int32_t state;
+   if (pQueryDesc && ppQuery &&
+       npt_query_probe_state(pQueryDesc->Query, &state) && state != 1) {
+      if (state != 0) {
+         *ppQuery = NULL;
+         return (HRESULT)state;
+      }
+      ID3D11Query *raw = NULL;
+      HRESULT hr = npt_call_ID3D11Device_CreateQuery(
+         npt_com_self_ring(self), npt_com_self_id(self), pQueryDesc, &raw);
+      npt_query_probe_latch(pQueryDesc->Query, hr);
+      if (NPT_SUCCEEDED(hr) && raw) {
+         *ppQuery = (ID3D11Query *)npt_com_get_or_wrap(
+            npt_com_self_device(self), &NPT_IID_ID3D11Query,
+            (uint64_t)(uintptr_t)raw, (struct npt_com_base *)self);
+         npt_d3d11_query_finalize_create(npt_com_self_device(self), *ppQuery,
+                                         pQueryDesc->Query);
+      } else {
+         *ppQuery = NULL;
+      }
+      return hr;
+   }
    HRESULT hr = npt_id3d11device_default_CreateQuery(self, pQueryDesc, ppQuery);
    if (NPT_SUCCEEDED(hr) && pQueryDesc && ppQuery && *ppQuery) {
       npt_d3d11_query_finalize_create(npt_com_self_device(self), *ppQuery,
@@ -161,6 +222,28 @@ dev_CreatePredicate_override(void *self,
                              const D3D11_QUERY_DESC *pPredicateDesc,
                              ID3D11Predicate **ppPredicate)
 {
+   int32_t state;
+   if (pPredicateDesc && ppPredicate &&
+       npt_query_probe_state(pPredicateDesc->Query, &state) && state != 1) {
+      if (state != 0) {
+         *ppPredicate = NULL;
+         return (HRESULT)state;
+      }
+      ID3D11Predicate *raw = NULL;
+      HRESULT hr = npt_call_ID3D11Device_CreatePredicate(
+         npt_com_self_ring(self), npt_com_self_id(self), pPredicateDesc, &raw);
+      npt_query_probe_latch(pPredicateDesc->Query, hr);
+      if (NPT_SUCCEEDED(hr) && raw) {
+         *ppPredicate = (ID3D11Predicate *)npt_com_get_or_wrap(
+            npt_com_self_device(self), &NPT_IID_ID3D11Predicate,
+            (uint64_t)(uintptr_t)raw, (struct npt_com_base *)self);
+         npt_d3d11_query_finalize_create(npt_com_self_device(self),
+                                         *ppPredicate, pPredicateDesc->Query);
+      } else {
+         *ppPredicate = NULL;
+      }
+      return hr;
+   }
    HRESULT hr = npt_id3d11device_default_CreatePredicate(
       self, pPredicateDesc, ppPredicate);
    if (NPT_SUCCEEDED(hr) && pPredicateDesc && ppPredicate && *ppPredicate) {
@@ -188,11 +271,34 @@ static HRESULT NPT_STDMETHODCALLTYPE
 dev3_CreateQuery1_override(void *self, const D3D11_QUERY_DESC1 *pQueryDesc1,
                            ID3D11Query1 **ppQuery1)
 {
+   /* DESC1::Query is the same D3D11_QUERY enum, so the probe cache is
+    * shared with CreateQuery; ContextType doesn't affect host support
+    * or feedback sizing. */
+   int32_t state;
+   if (pQueryDesc1 && ppQuery1 &&
+       npt_query_probe_state(pQueryDesc1->Query, &state) && state != 1) {
+      if (state != 0) {
+         *ppQuery1 = NULL;
+         return (HRESULT)state;
+      }
+      ID3D11Query1 *raw = NULL;
+      HRESULT hr = npt_call_ID3D11Device3_CreateQuery1(
+         npt_com_self_ring(self), npt_com_self_id(self), pQueryDesc1, &raw);
+      npt_query_probe_latch(pQueryDesc1->Query, hr);
+      if (NPT_SUCCEEDED(hr) && raw) {
+         *ppQuery1 = (ID3D11Query1 *)npt_com_get_or_wrap(
+            npt_com_self_device(self), &NPT_IID_ID3D11Query1,
+            (uint64_t)(uintptr_t)raw, (struct npt_com_base *)self);
+         npt_d3d11_query_finalize_create(npt_com_self_device(self),
+                                         *ppQuery1, pQueryDesc1->Query);
+      } else {
+         *ppQuery1 = NULL;
+      }
+      return hr;
+   }
    HRESULT hr = npt_id3d11device3_default_CreateQuery1(
       self, pQueryDesc1, ppQuery1);
    if (NPT_SUCCEEDED(hr) && pQueryDesc1 && ppQuery1 && *ppQuery1) {
-      /* DESC1::Query is the same D3D11_QUERY enum; ContextType
-       * doesn't affect feedback sizing. */
       npt_d3d11_query_finalize_create(npt_com_self_device(self),
                                       *ppQuery1, pQueryDesc1->Query);
    }

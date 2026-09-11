@@ -14,6 +14,7 @@
 
 #include "triton.h"
 #include "triton_log.h"
+#include "tritonSharedBridge.h"
 
 static D3D11_QUERY tritonQueryDdiToD3D11(D3D10DDI_QUERY q)
 {
@@ -25,18 +26,52 @@ static D3D11_QUERY tritonQueryDdiToD3D11(D3D10DDI_QUERY q)
     case D3D10DDI_QUERY_PIPELINESTATS:
     case D3D11DDI_QUERY_PIPELINESTATS:                  return D3D11_QUERY_PIPELINE_STATISTICS;
     case D3D10DDI_QUERY_OCCLUSIONPREDICATE:             return D3D11_QUERY_OCCLUSION_PREDICATE;
-    case D3D10DDI_QUERY_STREAMOUTPUTSTATS:
+    /* The aggregate D3D10-era types cover every stream, not stream 0. */
+    case D3D10DDI_QUERY_STREAMOUTPUTSTATS:              return D3D11_QUERY_SO_STATISTICS;
     case D3D11DDI_QUERY_STREAMOUTPUTSTATS_STREAM0:      return D3D11_QUERY_SO_STATISTICS_STREAM0;
     case D3D11DDI_QUERY_STREAMOUTPUTSTATS_STREAM1:      return D3D11_QUERY_SO_STATISTICS_STREAM1;
     case D3D11DDI_QUERY_STREAMOUTPUTSTATS_STREAM2:      return D3D11_QUERY_SO_STATISTICS_STREAM2;
     case D3D11DDI_QUERY_STREAMOUTPUTSTATS_STREAM3:      return D3D11_QUERY_SO_STATISTICS_STREAM3;
-    case D3D10DDI_QUERY_STREAMOVERFLOWPREDICATE:
+    case D3D10DDI_QUERY_STREAMOVERFLOWPREDICATE:         return D3D11_QUERY_SO_OVERFLOW_PREDICATE;
     case D3D11DDI_QUERY_STREAMOVERFLOWPREDICATE_STREAM0: return D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM0;
     case D3D11DDI_QUERY_STREAMOVERFLOWPREDICATE_STREAM1: return D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM1;
     case D3D11DDI_QUERY_STREAMOVERFLOWPREDICATE_STREAM2: return D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM2;
     case D3D11DDI_QUERY_STREAMOVERFLOWPREDICATE_STREAM3: return D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM3;
     default: return D3D11_QUERY_EVENT;
     }
+}
+
+/* The runtime reaches CreateQuery for ID3D11Device::CreatePredicate too; the
+ * query type, not the PREDICATEHINT misc flag, says which the app called.
+ * SetPredication takes an ID3D11Predicate, so a predicate type made as a
+ * plain host query is a type confusion there: the draw is dropped whenever
+ * the predicate should have let it through. */
+static bool tritonQueryIsPredicate(D3D11_QUERY q)
+{
+    switch (q) {
+    case D3D11_QUERY_OCCLUSION_PREDICATE:
+    case D3D11_QUERY_SO_OVERFLOW_PREDICATE:
+    case D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM0:
+    case D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM1:
+    case D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM2:
+    case D3D11_QUERY_SO_OVERFLOW_PREDICATE_STREAM3:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* The COM client probes each query type's first create with a sync
+ * round trip and latches a host refusal, so a failed create here is the
+ * host's own answer.  It must not be swallowed: the runtime thinks the
+ * query exists and its GetData never completes.  E_OUTOFMEMORY is a
+ * create error the runtime hands back to the app instead of removing
+ * the device.  Both create entry points call this. */
+static void tritonQueryCreateFailed(PTRITON_DEVICE pD, D3D11_QUERY q,
+                                    HRESULT hr)
+{
+    TR_LOG("CreateQuery: type %d failed 0x%08lx; refused", (int)q, hr);
+    tritonSetError(pD, E_OUTOFMEMORY);
 }
 
 SIZE_T APIENTRY
@@ -58,18 +93,17 @@ tritonCreateQuery(D3D10DDI_HDEVICE hDevice, const D3D10DDIARG_CREATEQUERY *pArgs
     d.Query     = tritonQueryDdiToD3D11(pArgs->Query);
     d.MiscFlags = (pArgs->MiscFlags & D3D10DDI_QUERY_MISCFLAG_PREDICATEHINT)
                   ? D3D11_QUERY_MISC_PREDICATEHINT : 0;
-    /* PREDICATEHINT means the runtime intends to use this with
-     * SetPredication. CreatePredicate returns an ID3D11Predicate, which
-     * derives from ID3D11Query, so the result fits the existing slot. */
+    /* CreatePredicate returns an ID3D11Predicate, which derives from
+     * ID3D11Query, so the result fits the existing slot. */
     HRESULT hr;
-    if (d.MiscFlags & D3D11_QUERY_MISC_PREDICATEHINT) {
+    if (tritonQueryIsPredicate(d.Query)) {
         ID3D11Predicate *pPred = NULL;
         hr = ID3D11Device1_CreatePredicate(pD->pDev1, &d, &pPred);
         q->pQuery = (ID3D11Query *)pPred;
     } else {
         hr = ID3D11Device1_CreateQuery(pD->pDev1, &d, &q->pQuery);
     }
-    if (FAILED(hr)) { TR_LOG("CreateQuery: 0x%08lx", hr); q->pQuery = NULL; }
+    if (FAILED(hr)) { tritonQueryCreateFailed(pD, d.Query, hr); q->pQuery = NULL; }
 }
 
 void APIENTRY
@@ -740,7 +774,7 @@ tritonCreateQuery_WDDM2_0(D3D10DDI_HDEVICE hDevice,
     d.ContextType = tritonContextFlagToEnum(pArgs->ContextType);
 
     HRESULT hr;
-    if (d.MiscFlags & D3D11_QUERY_MISC_PREDICATEHINT) {
+    if (tritonQueryIsPredicate(d.Query)) {
         /* No CreatePredicate1 with ContextType in D3D11.3; fall back to
          * the 11.0 path (ContextType discarded for predicates). */
         D3D11_QUERY_DESC d0 = { d.Query, d.MiscFlags };
@@ -752,5 +786,5 @@ tritonCreateQuery_WDDM2_0(D3D10DDI_HDEVICE hDevice,
         hr = ID3D11Device3_CreateQuery1(pD->pDev3, &d, &pQuery1);
         q->pQuery = (ID3D11Query *)pQuery1;
     }
-    if (FAILED(hr)) { TR_LOG("CreateQuery_WDDM2_0: 0x%08lx", hr); q->pQuery = NULL; }
+    if (FAILED(hr)) { tritonQueryCreateFailed(pD, d.Query, hr); q->pQuery = NULL; }
 }
