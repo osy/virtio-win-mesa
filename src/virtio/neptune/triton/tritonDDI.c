@@ -436,8 +436,12 @@ static void tritonFillD3D11DeviceFuncs(D3D11DDI_DEVICEFUNCS *p)
     p->pfnSetTextFilterSize                         = (PFND3D10DDI_SETTEXTFILTERSIZE)TR_STUB_V;
 
     /* 10.1 entries */
-    p->pfnResourceConvert                           = (PFND3D10DDI_RESOURCECOPY)TR_STUB_V;
-    p->pfnResourceConvertRegion                     = (PFND3D10DDI_RESOURCECOPYREGION)TR_STUB_V;
+    /* The runtime routes copies between a packed or block-compressed format
+     * and its same-size uncompressed twin (R9G9B9E5 <-> R32_UINT, BC1 <->
+     * R32G32_UINT, ...) through these instead of ResourceCopy; D3D11 on the
+     * host performs the reinterpretation, so they are the same copies. */
+    p->pfnResourceConvert                           = tritonResourceCopy;
+    p->pfnResourceConvertRegion                     = tritonResourceCopyRegion;
 
     /* 11.0 entries */
     p->pfnDrawIndexedInstancedIndirect              = tritonDrawIndexedInstancedIndirect;
@@ -506,6 +510,9 @@ static void tritonFillD3D11_1DeviceFuncs(D3D11_1DDI_DEVICEFUNCS *p)
     p->pfnDsSetConstantBuffers                      = tritonCs_DS_Set11_1;
     p->pfnCsSetConstantBuffers                      = tritonCs_CS_Set11_1;
     p->pfnResourceCopyRegion                        = tritonResourceCopyRegion_11_1;
+    /* From the 11.1 funcs on, pfnResourceConvertRegion is the CopyFlags-
+     * taking PFND3D11_1DDI_RESOURCECOPYREGION as well. */
+    p->pfnResourceConvertRegion                     = tritonResourceCopyRegion_11_1;
     p->pfnResourceUpdateSubresourceUP               = tritonResourceUpdateSubresourceUP_11_1;
     p->pfnFlush                                     = tritonFlush11_1;
     p->pfnCalcPrivateBlendStateSize                 = tritonCalcPrivateBlendStateSize;
