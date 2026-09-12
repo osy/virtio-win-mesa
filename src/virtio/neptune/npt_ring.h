@@ -333,6 +333,10 @@ npt_ring_create(struct npt_device *device,
 void
 npt_ring_destroy(struct npt_ring *ring);
 
+/* DLL_PROCESS_DETACH on a dynamic unload: free the per-thread stage key. */
+void
+npt_ring_unload(void);
+
 
 /* Used for transport commands that must stay ordered with ring
  * commands (notably RESOURCE_UPDATE, which must precede any Draw

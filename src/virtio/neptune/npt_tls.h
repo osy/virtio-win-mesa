@@ -37,6 +37,10 @@ struct npt_tls_ring {
 void
 npt_tls_once_init(void);
 
+/* DLL_PROCESS_DETACH on a dynamic unload: free the per-thread key. */
+void
+npt_tls_unload(void);
+
 /* Falls back to dev->ring on TLS unavailable, ring-create failure,
  * or when multi-ring is disabled. */
 struct npt_ring *

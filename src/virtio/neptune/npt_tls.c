@@ -71,6 +71,19 @@ npt_tls_once_init(void)
    }
 }
 
+/* Dynamic unload of the driver: free the key so its destructor (code in
+ * this DLL) is not called by the loader after the image is gone. */
+void
+npt_tls_unload(void)
+{
+   int expected = 2;
+   if (!atomic_compare_exchange_strong_explicit(
+          &npt_tls_init_state, &expected, 3,
+          memory_order_acq_rel, memory_order_acquire))
+      return;
+   tss_delete(npt_tls_key);
+}
+
 static bool
 npt_tls_key_valid(void)
 {

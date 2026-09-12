@@ -355,6 +355,19 @@ npt_ring_stage_thread_exit(void *data)
    npt_tl_stage = NULL;
 }
 
+/* Dynamic unload of the driver: the stage key's destructor is code in this
+ * DLL, and the loader does not drop it with the image -- process exit
+ * would call it after FreeLibrary.  Freeing the key runs the destructor
+ * for every thread's stage now, while the code is still mapped. */
+void
+npt_ring_unload(void)
+{
+   if (!npt_stage_key_ok)
+      return;
+   npt_stage_key_ok = false;
+   tss_delete(npt_stage_key);
+}
+
 static inline npt_ring_stage_ref
 npt_ring_stage_ref_pack(const struct npt_ring_stage *stage, uint64_t epoch)
 {
