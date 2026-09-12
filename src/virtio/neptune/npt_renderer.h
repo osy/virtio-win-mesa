@@ -385,6 +385,13 @@ void
 npt_renderer_shmem_unref_async(struct npt_renderer *renderer,
                                struct npt_renderer_shmem *shmem);
 
+/* Retires every reaper entry that names \p renderer, on the calling
+ * thread, and waits for a batch the reaper is already running.  Must
+ * precede npt_renderer_destroy: an entry left behind would call
+ * shmem_ops.destroy through the freed renderer. */
+void
+npt_renderer_shmem_reaper_drain(struct npt_renderer *renderer);
+
 static inline int
 npt_renderer_create_host_blob(struct npt_renderer *renderer,
                               uint64_t blob_id, uint64_t size)

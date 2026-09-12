@@ -42,6 +42,11 @@ static struct {
    mtx_t mutex;
    cnd_t cond;
    struct list_head queue;
+   /* A detached batch is being destroyed outside the lock; idle_cond is
+    * broadcast when it lands.  Drains wait on it, since the batch may
+    * name the renderer being torn down. */
+   bool busy;
+   cnd_t idle_cond;
 } g_shmem_reaper;
 
 #if defined(_WIN32)
@@ -59,6 +64,7 @@ static void *shmem_reaper_main(void *arg)
       struct list_head batch;
       list_replace(&g_shmem_reaper.queue, &batch);
       list_inithead(&g_shmem_reaper.queue);
+      g_shmem_reaper.busy = true;
       mtx_unlock(&g_shmem_reaper.mutex);
 
       while (!list_is_empty(&batch)) {
@@ -68,6 +74,11 @@ static void *shmem_reaper_main(void *arg)
          e->renderer->shmem_ops.destroy(e->renderer, e->shmem);
          free(e);
       }
+
+      mtx_lock(&g_shmem_reaper.mutex);
+      g_shmem_reaper.busy = false;
+      cnd_broadcast(&g_shmem_reaper.idle_cond);
+      mtx_unlock(&g_shmem_reaper.mutex);
    }
 #if defined(_WIN32)
    return 0;
@@ -81,6 +92,8 @@ shmem_reaper_init_impl(void)
 {
    mtx_init(&g_shmem_reaper.mutex, mtx_plain);
    cnd_init(&g_shmem_reaper.cond);
+   cnd_init(&g_shmem_reaper.idle_cond);
+   g_shmem_reaper.busy = false;
    list_inithead(&g_shmem_reaper.queue);
 #if defined(_WIN32)
    HANDLE h = CreateThread(NULL, 0, shmem_reaper_main, NULL, 0, NULL);
@@ -127,6 +140,39 @@ npt_renderer_shmem_unref_async(struct npt_renderer *renderer,
                                struct npt_renderer_shmem *shmem)
 {
    shmem_reaper_unref(renderer, shmem);
+}
+
+void
+npt_renderer_shmem_reaper_drain(struct npt_renderer *renderer)
+{
+   /* Nothing was ever queued: the reaper does not exist. */
+   if (atomic_load(&g_shmem_reaper.state) != 2)
+      return;
+
+   struct list_head mine;
+   list_inithead(&mine);
+
+   mtx_lock(&g_shmem_reaper.mutex);
+   list_for_each_entry_safe(struct shmem_reap_entry, e,
+                            &g_shmem_reaper.queue, head) {
+      if (e->renderer == renderer) {
+         list_del(&e->head);
+         list_addtail(&e->head, &mine);
+      }
+   }
+   /* A batch already detached may still hold this renderer's entries;
+    * it finishes with the renderer alive. */
+   while (g_shmem_reaper.busy)
+      cnd_wait(&g_shmem_reaper.idle_cond, &g_shmem_reaper.mutex);
+   mtx_unlock(&g_shmem_reaper.mutex);
+
+   while (!list_is_empty(&mine)) {
+      struct shmem_reap_entry *e =
+         list_first_entry(&mine, struct shmem_reap_entry, head);
+      list_del(&e->head);
+      e->renderer->shmem_ops.destroy(e->renderer, e->shmem);
+      free(e);
+   }
 }
 
 void

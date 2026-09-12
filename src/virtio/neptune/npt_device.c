@@ -422,6 +422,9 @@ npt_device_destroy(struct npt_device *dev)
    mtx_destroy(&dev->instance_rings_mutex);
    mtx_destroy(&dev->tls_rings_mutex);
    npt_wrapper_cache_fini(&dev->wrapper_cache);
+   /* The pools above handed their shmems to the reaper; retire the ones
+    * that name this renderer before it goes away. */
+   npt_renderer_shmem_reaper_drain(dev->renderer);
    npt_renderer_destroy(dev->renderer);
    free(dev);
 }
