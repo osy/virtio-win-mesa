@@ -89,6 +89,30 @@ tritonHostCaps12Snapshot(struct triton_host_caps12 *s, ID3D12Device **ppDev)
     HC12_QUERY(TRITON_HC12_OPTIONS11, TRITON_HC12_FEATURE_OPTIONS11, options11);
 #undef HC12_QUERY
 
+    /* GLOBAL_REALTIME queue priority is answered per queue type; fold the
+     * three answers into one DDI queue-flag mask.  A query the host
+     * rejects leaves that type out. */
+    {
+        static const struct { D3D12_COMMAND_LIST_TYPE type; UINT flag; } kTypes[] = {
+            { D3D12_COMMAND_LIST_TYPE_DIRECT,  0x1 /* D3D12DDI_COMMAND_QUEUE_FLAG_3D */ },
+            { D3D12_COMMAND_LIST_TYPE_COMPUTE, 0x2 /* ..._COMPUTE */ },
+            { D3D12_COMMAND_LIST_TYPE_COPY,    0x4 /* ..._COPY */ },
+        };
+        for (UINT i = 0; i < sizeof(kTypes) / sizeof(kTypes[0]); i++) {
+            D3D12_FEATURE_DATA_COMMAND_QUEUE_PRIORITY q;
+            memset(&q, 0, sizeof(q));
+            q.CommandListType = kTypes[i].type;
+            q.Priority = D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME;
+            asked++;
+            if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(
+                    dev, D3D12_FEATURE_COMMAND_QUEUE_PRIORITY, &q, sizeof(q)))) {
+                s->have |= TRITON_HC12_QUEUE_PRIORITY;
+                if (q.PriorityForTypeIsSupported)
+                    s->globalRealtimeQueueFlags |= kTypes[i].flag;
+            }
+        }
+    }
+
     /* SHADER_MODEL is "ask high, get told what you may have": an
      * unknown model is E_INVALIDARG, so walk down from the newest. */
     {

@@ -53,6 +53,7 @@ enum {
     TRITON_HC12_OPTIONS7     = 1u << 10,
     TRITON_HC12_OPTIONS9     = 1u << 11,
     TRITON_HC12_OPTIONS11    = 1u << 12,
+    TRITON_HC12_QUEUE_PRIORITY = 1u << 13,
 };
 
 /* Feature ids past the SDK the driver is built against are still asked
@@ -92,6 +93,9 @@ struct triton_host_caps12 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7           options7;
     struct triton_hc12_options9                 options9;
     struct triton_hc12_options11                options11;
+    /* COMMAND_QUEUE_PRIORITY at GLOBAL_REALTIME, one D3D12DDI_COMMAND_QUEUE_FLAG
+     * bit per queue type the host accepts (3D, COMPUTE, COPY). */
+    UINT                                        globalRealtimeQueueFlags;
 };
 
 /* Stand up an inner Neptune ID3D12Device and fill \p out from it.  On

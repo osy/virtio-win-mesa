@@ -696,11 +696,92 @@ t12ShaderBytecode(D3D12DDI_HSHADER h, D3D12_SHADER_BYTECODE *out)
     out->BytecodeLength  = (s && s->pDxbc) ? s->cbDxbc : 0;
 }
 
-static HRESULT APIENTRY
-t12CreatePipelineState(D3D12DDI_HDEVICE hDevice,
-                       const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *pArgs,
-                       D3D12DDI_HPIPELINESTATE hPipelineState,
-                       D3D12DDI_HRTPIPELINESTATE hRTPipelineState)
+/* Append one {type, payload} record to a pipeline-state stream, laid out
+ * as CD3DX12_PIPELINE_STATE_STREAM_SUBOBJECT does: the record starts
+ * pointer-aligned, the payload at its own alignment. */
+static void
+t12StreamPut(unsigned char *buf, SIZE_T *off,
+             D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type,
+             const void *payload, SIZE_T size, SIZE_T align)
+{
+    SIZE_T at = (*off + sizeof(void *) - 1) & ~(sizeof(void *) - 1);
+    memcpy(buf + at, &type, sizeof(type));
+    at = (at + sizeof(type) + align - 1) & ~(align - 1);
+    memcpy(buf + at, payload, size);
+    *off = (at + size + sizeof(void *) - 1) & ~(sizeof(void *) - 1);
+}
+
+/* Mesh pipelines have no graphics-desc form: the host takes them as a
+ * subobject stream (ID3D12Device2::CreatePipelineState) carrying the
+ * amplification and mesh stages in place of the vertex stages. */
+static HRESULT
+t12CreateMeshPipelineState(PTRITON12_DEVICE p,
+                           const D3D12_GRAPHICS_PIPELINE_STATE_DESC *gd,
+                           const D3D12DDIARG_CREATE_PIPELINE_STATE_0075 *pArgs,
+                           TRITON12_PSO *pso)
+{
+    D3D12_SHADER_BYTECODE as, ms;
+    t12ShaderBytecode(pArgs->hAmplificationShader, &as);
+    t12ShaderBytecode(pArgs->hMeshShader, &ms);
+    if (!ms.pShaderBytecode)
+        return E_INVALIDARG;
+
+    unsigned char buf[1024];
+    SIZE_T off = 0;
+#define PUT(tag, ptr, T) \
+    t12StreamPut(buf, &off, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_##tag, \
+                 (ptr), sizeof(T), __alignof(T))
+    PUT(ROOT_SIGNATURE, &gd->pRootSignature, ID3D12RootSignature *);
+    if (as.pShaderBytecode)
+        PUT(AS, &as, D3D12_SHADER_BYTECODE);
+    PUT(MS, &ms, D3D12_SHADER_BYTECODE);
+    if (gd->PS.pShaderBytecode)
+        PUT(PS, &gd->PS, D3D12_SHADER_BYTECODE);
+    PUT(BLEND, &gd->BlendState, D3D12_BLEND_DESC);
+    PUT(SAMPLE_MASK, &gd->SampleMask, UINT);
+    PUT(RASTERIZER, &gd->RasterizerState, D3D12_RASTERIZER_DESC);
+    PUT(DEPTH_STENCIL, &gd->DepthStencilState, D3D12_DEPTH_STENCIL_DESC);
+    PUT(PRIMITIVE_TOPOLOGY, &gd->PrimitiveTopologyType, D3D12_PRIMITIVE_TOPOLOGY_TYPE);
+    {
+        /* D3D12_RT_FORMAT_ARRAY, which this SDK header set lacks. */
+        struct { DXGI_FORMAT RTFormats[8]; UINT NumRenderTargets; } rts;
+        memset(&rts, 0, sizeof(rts));
+        rts.NumRenderTargets = gd->NumRenderTargets;
+        for (UINT i = 0; i < 8; i++)
+            rts.RTFormats[i] = gd->RTVFormats[i];
+        t12StreamPut(buf, &off, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+                     &rts, sizeof(rts), __alignof(UINT));
+    }
+    PUT(DEPTH_STENCIL_FORMAT, &gd->DSVFormat, DXGI_FORMAT);
+    PUT(SAMPLE_DESC, &gd->SampleDesc, DXGI_SAMPLE_DESC);
+    PUT(NODE_MASK, &gd->NodeMask, UINT);
+#undef PUT
+
+    ID3D12Device2 *dev2 = NULL;
+    HRESULT hr = ID3D12Device_QueryInterface(p->pDev, &IID_ID3D12Device2,
+                                             (void **)&dev2);
+    if (FAILED(hr))
+        return hr;
+    D3D12_PIPELINE_STATE_STREAM_DESC sd;
+    sd.SizeInBytes = off;
+    sd.pPipelineStateSubobjectStream = buf;
+    hr = ID3D12Device2_CreatePipelineState(dev2, &sd, &IID_ID3D12PipelineState,
+                                           (void **)&pso->pPSO);
+    ID3D12Device2_Release(dev2);
+    TR_LOG("12.CreatePipelineState(mesh): as=%d rts=%u stream=%zu -> 0x%08lx",
+           (int)(as.pShaderBytecode != NULL), gd->NumRenderTargets,
+           (size_t)off, (unsigned long)hr);
+    return hr;
+}
+
+/* pArgs75 names the mesh/amplification stages when the runtime asked
+ * through the _0075 slot; NULL from the _0022 table. */
+static HRESULT
+t12CreatePipelineStateImpl(D3D12DDI_HDEVICE hDevice,
+                           const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *pArgs,
+                           const D3D12DDIARG_CREATE_PIPELINE_STATE_0075 *pArgs75,
+                           D3D12DDI_HPIPELINESTATE hPipelineState,
+                           D3D12DDI_HRTPIPELINESTATE hRTPipelineState)
 {
     PTRITON12_DEVICE p = triton12Device(hDevice);
     TRITON12_PSO *pso = (TRITON12_PSO *)hPipelineState.pDrvPrivate;
@@ -846,12 +927,30 @@ t12CreatePipelineState(D3D12DDI_HDEVICE hDevice,
         gd.RTVFormats[i] = pArgs->RTVFormats[i];
     gd.DSVFormat = pArgs->DSVFormat;
     gd.SampleDesc = pArgs->SampleDesc;
+    gd.NodeMask = pArgs->NodeMask;
+
+    if (pArgs75 && (pArgs75->hMeshShader.pDrvPrivate ||
+                    pArgs75->hAmplificationShader.pDrvPrivate))
+        return t12CreateMeshPipelineState(p, &gd, pArgs75, pso);
 
     hr = ID3D12Device_CreateGraphicsPipelineState(
         p->pDev, &gd, &IID_ID3D12PipelineState, (void **)&pso->pPSO);
-    TR_LOG("12.CreatePipelineState(graphics): rts=%u -> 0x%08lx",
-           pArgs->NumRenderTargets, (unsigned long)hr);
+    TR_LOG("12.CreatePipelineState(graphics): rts=%u rtv0=%d dsv=%d samples=%u "
+           "forced=%u -> 0x%08lx",
+           pArgs->NumRenderTargets, (int)gd.RTVFormats[0], (int)gd.DSVFormat,
+           gd.SampleDesc.Count, gd.RasterizerState.ForcedSampleCount,
+           (unsigned long)hr);
     return hr;
+}
+
+static HRESULT APIENTRY
+t12CreatePipelineState(D3D12DDI_HDEVICE hDevice,
+                       const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *pArgs,
+                       D3D12DDI_HPIPELINESTATE hPipelineState,
+                       D3D12DDI_HRTPIPELINESTATE hRTPipelineState)
+{
+    return t12CreatePipelineStateImpl(hDevice, pArgs, NULL, hPipelineState,
+                                      hRTPipelineState);
 }
 
 static VOID APIENTRY
@@ -865,9 +964,8 @@ t12DestroyPipelineState(D3D12DDI_HDEVICE hDevice, D3D12DDI_HPIPELINESTATE h)
     }
 }
 
-/* _0075 appends hMeshShader/hAmplificationShader to the PSO args; with
- * MeshShaderTier 0 the runtime never sets them and the _0010 prefix the
- * handlers read is unchanged. */
+/* _0075 appends hMeshShader/hAmplificationShader to the PSO args; the
+ * _0010 prefix the graphics path reads is unchanged. */
 static SIZE_T APIENTRY
 t12CalcPrivatePipelineStateSize0075(D3D12DDI_HDEVICE hDevice,
                                     const D3D12DDIARG_CREATE_PIPELINE_STATE_0075 *pArgs)
@@ -882,27 +980,33 @@ t12CreatePipelineState0075(D3D12DDI_HDEVICE hDevice,
                            D3D12DDI_HPIPELINESTATE hPso,
                            D3D12DDI_HRTPIPELINESTATE hRTPso)
 {
-    if (pArgs && (pArgs->hMeshShader.pDrvPrivate ||
-                  pArgs->hAmplificationShader.pDrvPrivate)) {
-        TR_LOG("12.CreatePipelineState(0075): mesh pipeline requested with "
-               "MeshShaderTier 0");
-        return E_INVALIDARG;
-    }
-    return t12CreatePipelineState(
-        hDevice, (const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *)pArgs, hPso,
-        hRTPso);
+    return t12CreatePipelineStateImpl(
+        hDevice, (const D3D12DDIARG_CREATE_PIPELINE_STATE_0010 *)pArgs, pArgs,
+        hPso, hRTPso);
+}
+
+/* _0026 keeps _0010's hRootSignature / pShaderCode / IOSignatures prefix
+ * (the union gains a Mesh member), so the common store reads it as-is.
+ * Mesh stages are DXIL-only, which the host takes verbatim; no
+ * signature rebuild is involved. */
+static VOID APIENTRY
+t12CreateMeshShader(D3D12DDI_HDEVICE hDevice,
+                    const D3D12DDIARG_CREATE_SHADER_0026 *pArgs,
+                    D3D12DDI_HSHADER hShader)
+{
+    (void)hDevice;
+    t12CreateShaderCommon((const D3D12DDIARG_CREATE_SHADER_0010 *)pArgs,
+                          hShader, "ms", 0);
 }
 
 static VOID APIENTRY
-t12CreateMeshShaderUnsupported(D3D12DDI_HDEVICE hDevice,
-                               const D3D12DDIARG_CREATE_SHADER_0026 *pArgs,
-                               D3D12DDI_HSHADER hShader)
+t12CreateAmplificationShader(D3D12DDI_HDEVICE hDevice,
+                             const D3D12DDIARG_CREATE_SHADER_0026 *pArgs,
+                             D3D12DDI_HSHADER hShader)
 {
-    PTRITON12_SHADER s = (PTRITON12_SHADER)hShader.pDrvPrivate;
-    (void)hDevice; (void)pArgs;
-    if (s)
-        memset(s, 0, sizeof(*s));
-    TR_STUB("12.CreateMesh/AmplificationShader");
+    (void)hDevice;
+    t12CreateShaderCommon((const D3D12DDIARG_CREATE_SHADER_0010 *)pArgs,
+                          hShader, "as", 0);
 }
 
 static SIZE_T APIENTRY
@@ -915,8 +1019,8 @@ triton12InstallPipelineFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t)
 {
     t->pfnCalcPrivatePipelineStateSize = t12CalcPrivatePipelineStateSize0075;
     t->pfnCreatePipelineState          = t12CreatePipelineState0075;
-    t->pfnCreateAmplificationShader    = t12CreateMeshShaderUnsupported;
-    t->pfnCreateMeshShader             = t12CreateMeshShaderUnsupported;
+    t->pfnCreateAmplificationShader    = t12CreateAmplificationShader;
+    t->pfnCreateMeshShader             = t12CreateMeshShader;
     t->pfnCalcPrivateMeshShaderSize    = t12CalcPrivateMeshShaderSize;
 }
 

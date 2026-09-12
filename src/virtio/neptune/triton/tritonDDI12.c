@@ -422,10 +422,9 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (OPT12_AT(0027)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0027 *o =
                 (D3D12DDI_D3D12_OPTIONS_DATA_0027 *)pArgs->pData;
-            CAP12_TODO("OPTIONS.ProgrammableSamplePositionsTier",
+            CAP12_HOST("OPTIONS.ProgrammableSamplePositionsTier",
                        o->ProgrammableSamplePositionsTier, OPTIONS2,
-                       hc->options2.ProgrammableSamplePositionsTier, 0,
-                       "pfnSetSamplePositions (command list _0030+) not implemented");
+                       hc->options2.ProgrammableSamplePositionsTier);
         }
         if (OPT12_AT(0031)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0031 *o =
@@ -532,9 +531,10 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (OPT12_AT(0073)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0073 *o =
                 (D3D12DDI_D3D12_OPTIONS_DATA_0073 *)pArgs->pData;
-            CAP12_TODO("OPTIONS.MeshShaderTier", o->MeshShaderTier, OPTIONS7,
-                       hc->options7.MeshShaderTier, 0,
-                       "pfnCreateMeshShader/pfnCreateAmplificationShader/pfnDispatchMesh not implemented");
+            /* D3D12DDI_MESH_SHADER_TIER_1 and D3D12_MESH_SHADER_TIER_1 are
+             * both 10. */
+            CAP12_HOST("OPTIONS.MeshShaderTier", o->MeshShaderTier, OPTIONS7,
+                       hc->options7.MeshShaderTier);
             CAP12_TODO("OPTIONS.SamplerFeedbackTier", o->SamplerFeedbackTier,
                        OPTIONS7, hc->options7.SamplerFeedbackTier, 0,
                        "pfnCreateSamplerFeedbackUnorderedAccessView not implemented");
@@ -549,11 +549,10 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (OPT12_AT(0081)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0081 *o =
                 (D3D12DDI_D3D12_OPTIONS_DATA_0081 *)pArgs->pData;
-            CAP12_TODO("OPTIONS.MeshShaderSupportsFullRangeRenderTargetArrayIndex",
+            CAP12_HOST("OPTIONS.MeshShaderSupportsFullRangeRenderTargetArrayIndex",
                        o->MeshShaderSupportsFullRangeRenderTargetArrayIndex,
                        OPTIONS9,
-                       hc->options9.MeshShaderSupportsFullRangeRenderTargetArrayIndex,
-                       FALSE, "mesh shader DDI not implemented");
+                       hc->options9.MeshShaderSupportsFullRangeRenderTargetArrayIndex);
         }
 #undef OPT12_AT
         break;
@@ -767,6 +766,20 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (pArgs->DataSize >= sizeof(D3D12DDICAPS_HARDWARE_SCHEDULING_CAPS_0050))
             ((D3D12DDICAPS_HARDWARE_SCHEDULING_CAPS_0050 *)pArgs->pData)
                 ->ComputeQueuesPer3DQueue = 0;
+        break;
+    }
+    case D3D12DDICAPS_TYPE_0023_UMD_BASED_COMMAND_QUEUE_PRIORITY: {
+        /* The runtime answers D3D12_FEATURE_COMMAND_QUEUE_PRIORITY for
+         * GLOBAL_REALTIME from this mask; the host queue takes the
+         * priority at create (t12CreateCommandQueue0023). */
+        if (pArgs->DataSize >= sizeof(D3D12DDICAPS_UMD_BASED_COMMAND_QUEUE_PRIORITY_DATA_0023)) {
+            D3D12DDICAPS_UMD_BASED_COMMAND_QUEUE_PRIORITY_DATA_0023 *o =
+                (D3D12DDICAPS_UMD_BASED_COMMAND_QUEUE_PRIORITY_DATA_0023 *)pArgs->pData;
+            CAP12_HOST("QUEUE_PRIORITY.SupportedQueueFlagsForGlobalRealtimeQueues",
+                       o->SupportedQueueFlagsForGlobalRealtimeQueues,
+                       QUEUE_PRIORITY,
+                       (D3D12DDI_COMMAND_QUEUE_FLAGS)hc->globalRealtimeQueueFlags);
+        }
         break;
     }
     case D3D12DDICAPS_TYPE_0073_SUPPORT_BATCHED_MARKERS: {

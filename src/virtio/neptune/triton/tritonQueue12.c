@@ -65,7 +65,12 @@ t12CalcPrivateCommandQueueSize(D3D12DDI_HDEVICE hDevice,
 
 static HRESULT APIENTRY
 t12CreateCommandQueue(D3D12DDI_HDEVICE hDevice,
-                      const D3D12DDIARG_CREATECOMMANDQUEUE_0001 *pArgs)
+                      const D3D12DDIARG_CREATECOMMANDQUEUE_0001 *pArgs);
+
+static HRESULT
+t12CreateCommandQueueWithPriority(D3D12DDI_HDEVICE hDevice,
+                                  const D3D12DDIARG_CREATECOMMANDQUEUE_0001 *pArgs,
+                                  D3D12_COMMAND_QUEUE_PRIORITY priority)
 {
     PTRITON12_DEVICE p = triton12Device(hDevice);
     PTRITON12_QUEUE q = pArgs ? (PTRITON12_QUEUE)pArgs->hDrvCommandQueue.pDrvPrivate : NULL;
@@ -77,10 +82,11 @@ t12CreateCommandQueue(D3D12DDI_HDEVICE hDevice,
     D3D12_COMMAND_QUEUE_DESC desc;
     memset(&desc, 0, sizeof(desc));
     desc.Type = t12QueueFlagsToApiType(pArgs->QueueFlags);
+    desc.Priority = priority;
     HRESULT hr = ID3D12Device_CreateCommandQueue(
         p->pDev, &desc, &IID_ID3D12CommandQueue, (void **)&q->pQueue);
-    TR_LOG("12.CreateCommandQueue: flags=0x%x -> 0x%08lx",
-           (unsigned)pArgs->QueueFlags, (unsigned long)hr);
+    TR_LOG("12.CreateCommandQueue: flags=0x%x priority=%d -> 0x%08lx",
+           (unsigned)pArgs->QueueFlags, (int)priority, (unsigned long)hr);
     if (FAILED(hr))
         return hr;
 
@@ -505,9 +511,26 @@ t12CalcPrivateCommandQueueSize0023(D3D12DDI_HDEVICE hDevice,
     return sizeof(TRITON12_QUEUE);
 }
 
+static HRESULT APIENTRY
+t12CreateCommandQueue(D3D12DDI_HDEVICE hDevice,
+                      const D3D12DDIARG_CREATECOMMANDQUEUE_0001 *pArgs)
+{
+    return t12CreateCommandQueueWithPriority(
+        hDevice, pArgs, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+}
+
 /* _0023 moved the two queue handles out of the arg struct and added
- * QueueCreationFlags (GLOBAL_REALTIME_PRIORITY), which the host queue
- * does not model. */
+ * QueueCreationFlags: GLOBAL_REALTIME_PRIORITY is only requested for
+ * the queue types GetCaps(UMD_BASED_COMMAND_QUEUE_PRIORITY) admitted,
+ * and becomes the host queue's priority. */
+static D3D12_COMMAND_QUEUE_PRIORITY
+t12QueueCreationPriority(D3D12DDI_COMMAND_QUEUE_CREATION_FLAGS flags)
+{
+    return (flags & D3D12DDI_COMMAND_QUEUE_CREATION_FLAG_GLOBAL_REALTIME_PRIORITY)
+               ? D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME
+               : D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+}
+
 static HRESULT APIENTRY
 t12CreateCommandQueue0023(D3D12DDI_HDEVICE hDevice,
                           const D3D12DDIARG_CREATECOMMANDQUEUE_0023 *pArgs,
@@ -522,7 +545,8 @@ t12CreateCommandQueue0023(D3D12DDI_HDEVICE hDevice,
     a.hRTCommandQueue  = hRTCommandQueue;
     a.QueueFlags       = pArgs->QueueFlags;
     a.NodeMask         = pArgs->NodeMask;
-    return t12CreateCommandQueue(hDevice, &a);
+    return t12CreateCommandQueueWithPriority(
+        hDevice, &a, t12QueueCreationPriority(pArgs->QueueCreationFlags));
 }
 
 static SIZE_T APIENTRY
@@ -549,7 +573,8 @@ t12CreateCommandQueue0050(D3D12DDI_HDEVICE hDevice,
     a.hRTCommandQueue  = hRTCommandQueue;
     a.QueueFlags       = pArgs->QueueFlags;
     a.NodeMask         = pArgs->NodeMask;
-    return t12CreateCommandQueue(hDevice, &a);
+    return t12CreateCommandQueueWithPriority(
+        hDevice, &a, t12QueueCreationPriority(pArgs->QueueCreationFlags));
 }
 
 void

@@ -766,6 +766,8 @@ t12OMSetRenderTargets(D3D12DDI_HCOMMANDLIST hList, UINT Num,
     D3D12_CPU_DESCRIPTOR_HANDLE rts[8];
     D3D12_CPU_DESCRIPTOR_HANDLE dsv;
     UINT n = (Num > 8) ? 8 : Num;
+    TR_LOG("12.OMSetRenderTargets: num=%u single=%d dsv=%d", Num, (int)SingleHandle,
+           (int)(pDSV != NULL));
     /* SingleHandle: the API reads only rts[0] as a range start. */
     for (UINT i = 0; i < n && pRTs; i++)
         rts[i].ptr = (SIZE_T)pRTs[SingleHandle ? 0 : i].ptr;
@@ -1355,8 +1357,23 @@ static VOID APIENTRY
 t12SetSamplePositions(D3D12DDI_HCOMMANDLIST hList, UINT NumSamplesPerPixel,
                       UINT NumPixels, D3D12DDI_SAMPLE_POSITION *pPositions)
 {
-    (void)hList; (void)NumSamplesPerPixel; (void)NumPixels; (void)pPositions;
-    TR_STUB("12.SetSamplePositions");
+    /* D3D12DDI_SAMPLE_POSITION and D3D12_SAMPLE_POSITION are both
+     * {INT8 X; INT8 Y}, so the array passes through unchanged. */
+    PTRITON12_LIST l = t12List(hList);
+    ID3D12GraphicsCommandList1 *l1 = NULL;
+    if (!l || !l->pList)
+        return;
+    TR_LOG("12.SetSamplePositions: samples=%u pixels=%u first=(%d,%d)",
+           NumSamplesPerPixel, NumPixels,
+           (NumSamplesPerPixel && NumPixels && pPositions) ? pPositions[0].X : 0,
+           (NumSamplesPerPixel && NumPixels && pPositions) ? pPositions[0].Y : 0);
+    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
+            l->pList, &IID_ID3D12GraphicsCommandList1, (void **)&l1))) {
+        ID3D12GraphicsCommandList1_SetSamplePositions(
+            l1, NumSamplesPerPixel, NumPixels,
+            (D3D12_SAMPLE_POSITION *)pPositions);
+        ID3D12GraphicsCommandList1_Release(l1);
+    }
 }
 
 static VOID APIENTRY
@@ -1373,6 +1390,8 @@ t12ResourceResolveSubresourceRegion(D3D12DDI_HCOMMANDLIST hList,
     ID3D12GraphicsCommandList1 *l1 = NULL;
     if (!l || !l->pList || !d || !d->pResource || !src || !src->pResource)
         return;
+    TR_LOG("12.ResolveSubresourceRegion: dst=%p sub=%u (%u,%u) src=%p sub=%u fmt=%d mode=%d",
+           (void *)d, DstSub, DstX, DstY, (void *)src, SrcSub, (int)Format, (int)Mode);
     if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
             l->pList, &IID_ID3D12GraphicsCommandList1, (void **)&l1))) {
         D3D12_RECT rc;
@@ -1650,7 +1669,17 @@ t12ImplicitShaderCacheControl(D3D12DDI_HDEVICE hDevice,
 
 static VOID APIENTRY
 t12DispatchMesh(D3D12DDI_HCOMMANDLIST hList, UINT x, UINT y, UINT z)
-{ (void)hList; (void)x; (void)y; (void)z; TR_STUB("12.DispatchMesh"); }
+{
+    PTRITON12_LIST l = t12List(hList);
+    ID3D12GraphicsCommandList6 *l6 = NULL;
+    if (!l || !l->pList)
+        return;
+    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
+            l->pList, &IID_ID3D12GraphicsCommandList6, (void **)&l6))) {
+        ID3D12GraphicsCommandList6_DispatchMesh(l6, x, y, z);
+        ID3D12GraphicsCommandList6_Release(l6);
+    }
+}
 
 void
 triton12InstallListDeviceFuncs0080(D3D12DDI_DEVICE_FUNCS_CORE_0080 *t)
