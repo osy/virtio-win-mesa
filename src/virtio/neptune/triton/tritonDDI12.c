@@ -119,6 +119,15 @@ triton12DestroyDevice(D3D12DDI_HDEVICE hDevice)
         ID3D12Device_Release(p->pDev);
         p->pDev = NULL;
     }
+    /* Tear down the paging queue (t12RequestResidency); the residency
+     * requests it granted die with this device's allocations. */
+    if (p->hPagingQueue && p->KTCallbacks.pfnDestroyPagingQueueCb) {
+        D3DDDI_DESTROYPAGINGQUEUE dpq;
+        memset(&dpq, 0, sizeof(dpq));
+        dpq.hPagingQueue = p->hPagingQueue;
+        p->KTCallbacks.pfnDestroyPagingQueueCb(p->hRTDevice.handle, &dpq);
+        p->hPagingQueue = 0;
+    }
     if (p->QueueLockInit) {
         p->QueueLockInit = FALSE;
         p->QueueCount = 0;

@@ -79,6 +79,18 @@ typedef struct TRITON12_DEVICE
      * tritonPresentEnsureRuntimeCtx. */
     BOOL                         RuntimeCtxInited;
 
+    /* WDDM2 paging queue for the residency requests t12RequestResidency
+     * makes on the KM allocations this driver mints (shared-blob exports
+     * and present companions).  Created lazily on the first such
+     * allocation; hPagingQueue==0 with PagingQueueTried set means the
+     * runtime left the paging callbacks NULL or the create failed, and
+     * every request is a no-op.  Creation is guarded by QueueLock.
+     * PagingFenceVa is the queue's monitored-fence value CPU VA, polled
+     * when MakeResident answers E_PENDING. */
+    D3DKMT_HANDLE                hPagingQueue;
+    volatile const UINT64       *PagingFenceVa;
+    BOOL                         PagingQueueTried;
+
     /* ---- cross-queue submission ordering (see t12OrderAgainstSiblings) ----
      *
      * Registry of this device's command queues.  Needed because the app's

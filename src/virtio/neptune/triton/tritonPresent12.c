@@ -52,6 +52,93 @@ t12EnsureRuntimeCtx(PTRITON12_DEVICE p)
     (void)t12Escape(p, &esc);
 }
 
+/* Give a KM allocation this driver minted a residency reference.
+ *
+ * VidMm refuses any DMA buffer that references an allocation holding no
+ * residency request (VIDMM_GLOBAL::ReferenceDmaBuffer, "Failed to reference
+ * DMA buffer: Allocation is not requested to be resident") and marks the
+ * device in error, which the runtime surfaces as "D3D12: Removing Device".
+ * A flip present carries no DMA buffer, so composited games and DWM never
+ * meet this; a blt-model present does -- D3D9On12's windowed presents, and
+ * every redirected present the OS builds itself -- and dies on its first
+ * frame.  The D3D12 runtime makes the heaps it owns resident but never the
+ * allocations pfnAllocateCb hands back to the driver, so the request is
+ * ours to make, as the D3D11 path does in tritonPresentRequestResidency.
+ *
+ * Rendering rides the npt ring and references no KM allocations, so the
+ * request exists purely for the OS's present packet.  An E_PENDING answer
+ * is waited out on the paging queue's monitored fence: a present built
+ * against the allocation before the operation completes still dies the
+ * same way.  Requests are never revoked; the reference dies with the
+ * allocation when the runtime frees it. */
+static void
+t12RequestResidency(PTRITON12_DEVICE p, D3DKMT_HANDLE hAllocation)
+{
+    if (!hAllocation)
+        return;
+    if (!p->PagingQueueTried) {
+        if (!p->QueueLockInit)
+            return;
+        EnterCriticalSection(&p->QueueLock);
+        if (!p->PagingQueueTried) {
+            if (p->KTCallbacks.pfnCreatePagingQueueCb &&
+                p->KTCallbacks.pfnMakeResidentCb) {
+                D3DDDICB_CREATEPAGINGQUEUE pq;
+                memset(&pq, 0, sizeof(pq)); /* PRIORITY_NORMAL, adapter 0 */
+                HRESULT hr = p->KTCallbacks.pfnCreatePagingQueueCb(
+                    p->hRTDevice.handle, &pq);
+                if (SUCCEEDED(hr) && pq.hPagingQueue) {
+                    p->hPagingQueue  = pq.hPagingQueue;
+                    p->PagingFenceVa = (volatile const UINT64 *)
+                        pq.FenceValueCPUVirtualAddress;
+                    TR_LOG("12.residency: paging queue created (fence va=%p)",
+                           pq.FenceValueCPUVirtualAddress);
+                } else {
+                    TR_LOG("12.residency: CreatePagingQueue failed 0x%08lx -- "
+                           "a blt-model present of a driver allocation will "
+                           "remove the device", (unsigned long)hr);
+                }
+            } else {
+                TR_LOG("12.residency: runtime offers no paging-queue/"
+                       "MakeResident callbacks");
+            }
+            p->PagingQueueTried = TRUE;
+        }
+        LeaveCriticalSection(&p->QueueLock);
+    }
+    if (!p->hPagingQueue)
+        return;
+
+    D3DDDI_MAKERESIDENT mr;
+    memset(&mr, 0, sizeof(mr));
+    mr.hPagingQueue   = p->hPagingQueue;
+    mr.NumAllocations = 1;
+    mr.AllocationList = &hAllocation;
+    HRESULT hr = p->KTCallbacks.pfnMakeResidentCb(p->hRTDevice.handle, &mr);
+    if (hr == E_PENDING && p->PagingFenceVa) {
+        /* Creation-time waits are rare and short: poll the plain monotonic
+         * fence value with a yield and a loud timeout. */
+        const ULONGLONG deadline = GetTickCount64() + 5000;
+        while (*p->PagingFenceVa < mr.PagingFenceValue) {
+            if (GetTickCount64() > deadline) {
+                TR_LOG("12.residency: paging fence wait TIMED OUT (alloc=0x%x "
+                       "fence=%llu < %llu)", hAllocation,
+                       (unsigned long long)*p->PagingFenceVa,
+                       (unsigned long long)mr.PagingFenceValue);
+                return;
+            }
+            Sleep(0);
+        }
+        TR_LOG("12.residency: MakeResident(alloc=0x%x) completed async "
+               "(fence %llu)", hAllocation,
+               (unsigned long long)mr.PagingFenceValue);
+    } else if (FAILED(hr)) {
+        TR_LOG("12.residency: MakeResident(alloc=0x%x) FAILED 0x%08lx -- a "
+               "blt-model present referencing it will remove the device",
+               hAllocation, (unsigned long)hr);
+    }
+}
+
 BOOL
 triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
                            BOOL primary, ID3D12Resource *pSurf)
@@ -136,6 +223,7 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
         return FALSE;
     }
     r->hKMAllocation = ai.hAllocation;
+    t12RequestResidency(p, ai.hAllocation);
     TR_LOG_HOT("12.shared: exporter blob_id=0x%llx alloc=0x%x %llux%u primary=%d",
            (unsigned long long)o->blob_id, ai.hAllocation,
            (unsigned long long)r->Desc.Width, r->Desc.Height, primary);
