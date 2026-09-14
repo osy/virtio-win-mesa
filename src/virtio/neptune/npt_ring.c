@@ -765,6 +765,13 @@ npt_ring_send_com_release(struct npt_device *dev, uint64_t host_id)
    if (!ring)
       ring = dev->ring;
 
+   /* The last release follows every use of the object in program order,
+    * but a use another thread staged (a list recorded on one thread and
+    * released from another) is not on the ring yet, and the release
+    * would decode ahead of it.  Publish every stage first; the ring
+    * snapshot below is the multi-ring equivalent. */
+   npt_ring_stage_flush_all(ring);
+
    /* Every other ring's published position rides with the release
     * (struct npt_cmd_com_release): this thread reads those tails
     * exactly, the host would read them through its cache with a lag. */
