@@ -139,6 +139,24 @@ t12RequestResidency(PTRITON12_DEVICE p, D3DKMT_HANDLE hAllocation)
     }
 }
 
+void
+triton12DeallocateKM(PTRITON12_DEVICE p, D3DKMT_HANDLE *phAllocation)
+{
+    if (!p || !phAllocation || !*phAllocation)
+        return;
+    if (p->pUMCallbacks && p->pUMCallbacks->pfnDeallocateCb) {
+        D3D12DDICB_DEALLOCATE_0022 da;
+        memset(&da, 0, sizeof(da));
+        da.NumAllocations = 1;
+        da.HandleList     = phAllocation;
+        HRESULT hr = p->pUMCallbacks->pfnDeallocateCb(p->hRTDevice, &da);
+        if (FAILED(hr))
+            TR_LOG("12.dealloc: pfnDeallocateCb(alloc=0x%x) failed 0x%08lx",
+                   *phAllocation, (unsigned long)hr);
+    }
+    *phAllocation = 0;
+}
+
 BOOL
 triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
                            BOOL primary, ID3D12Resource *pSurf)
@@ -222,6 +240,8 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
                (unsigned long)hr);
         return FALSE;
     }
+    /* A residency-only placeholder being replaced by the real export. */
+    triton12DeallocateKM(p, &r->hKMAllocation);
     r->hKMAllocation = ai.hAllocation;
     t12RequestResidency(p, ai.hAllocation);
     TR_LOG_HOT("12.shared: exporter blob_id=0x%llx alloc=0x%x %llux%u primary=%d",
@@ -324,8 +344,7 @@ t12CheckResourceAllocationHandle(D3D12DDI_HDEVICE hDevice,
     PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hResource.pDrvPrivate;
     if (!p || !r)
         return 0;
-    /* Replace a residency-only placeholder with a real export; the runtime
-     * frees the orphaned placeholder with the resource. */
+    /* Replace a residency-only placeholder with a real export. */
     if (!r->hKMAllocation || r->ResidencyOnlyAlloc) {
         if (triton12RegisterSharedBlob(p, r, FALSE, NULL))
             r->ResidencyOnlyAlloc = FALSE;

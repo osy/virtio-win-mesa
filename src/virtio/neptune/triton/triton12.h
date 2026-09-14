@@ -362,6 +362,10 @@ BOOL triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
  * wddm_hw.h).  Returns FALSE when the resource already has one or the
  * allocation callback is unavailable. */
 BOOL triton12RegisterResidencyAlloc(PTRITON12_DEVICE p, PTRITON12_RESOURCE r);
+/* Free a KM allocation this driver minted with pfnAllocateCb (shared blob
+ * or residency-only placeholder) and clear *phAllocation.  The runtime does
+ * not free driver-minted allocations with the resource. */
+void triton12DeallocateKM(PTRITON12_DEVICE p, D3DKMT_HANDLE *phAllocation);
 
 /* The bare allocation, for objects with no TRITON12_RESOURCE (standalone
  * heaps).  Returns 0 on failure. */

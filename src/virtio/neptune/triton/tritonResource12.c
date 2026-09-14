@@ -599,9 +599,9 @@ static VOID APIENTRY
 t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
                           D3D12DDI_HRESOURCE hResource)
 {
+    PTRITON12_DEVICE p = triton12Device(hDevice);
     PTRITON12_HEAP h = (PTRITON12_HEAP)hHeap.pDrvPrivate;
     PTRITON12_RESOURCE r = (PTRITON12_RESOURCE)hResource.pDrvPrivate;
-    (void)hDevice;
     if (r && r->pCompanion) {
         ID3D12Resource_Release(r->pCompanion);
         r->pCompanion = NULL;
@@ -610,6 +610,10 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
         ID3D12Resource_Release(r->pResource);
         r->pResource = NULL;
     }
+    /* The KM allocation owns the virtio blob; deallocating it unrefs the
+     * host resource once every opener has closed. */
+    if (r)
+        triton12DeallocateKM(p, &r->hKMAllocation);
     if (h) {
         /* h->pResource is a borrow of r->pResource (committed) -- the
          * release above covers it. */
@@ -618,6 +622,7 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
             h->pHeap = NULL;
         }
         h->pResource = NULL;
+        triton12DeallocateKM(p, &h->hKMAllocation);
     }
 }
 
