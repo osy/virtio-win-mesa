@@ -103,9 +103,10 @@ npt_detect_wc_atomic_ok(void)
 
 /*
  * Adaptive backoff with watchdog.  After warn_order iters, check the
- * ring's ALIVE bit (host sets every NPT_RING_WATCHDOG_REPORT_PERIOD_US);
- * too many misses = host wedged.  `ring` may be NULL when the watchdog
- * isn't wanted (pre-shmem-map paths).
+ * ring's heartbeat counter (the host's ring monitor advances it every
+ * NPT_RING_WATCHDOG_REPORT_PERIOD_US) or, on hosts without one, the ALIVE
+ * bit; too many misses = host worker gone.  `ring` may be NULL when the
+ * watchdog isn't wanted (pre-shmem-map paths).
  */
 static void
 npt_ring_relax(struct npt_ring *ring, uint32_t *iter)
@@ -134,6 +135,36 @@ npt_ring_relax(struct npt_ring *ring, uint32_t *iter)
          atomic_load_explicit(ring->status, memory_order_seq_cst);
       if (status & NPT_RING_STATUS_FATAL_BIT)
          return;
+      const uint32_t beat = status >> NPT_RING_STATUS_HEARTBEAT_SHIFT;
+      if (beat != 0 || ring->heartbeat_seen != 0) {
+         /* The monitor ticks the counter from its own host thread, so it
+          * keeps moving while the ring thread sits in a long command and
+          * stops only when the worker process is gone or frozen.  Checks
+          * here are at least three report periods apart, so a counter
+          * that stands still across max_misses checks is a dead worker:
+          * mark the renderer lost so every wait bails and the runtime
+          * removes the device, instead of waiting forever for a reply
+          * nobody will write.  Reading the counter needs no RMW, which is
+          * what makes this usable where ALIVE cannot be cleared. */
+         if (beat != ring->heartbeat_seen) {
+            ring->heartbeat_seen = beat;
+            ring->watchdog_misses = 0;
+         } else if (++ring->watchdog_misses >= max_misses) {
+            const uint32_t head =
+               atomic_load_explicit(ring->head, memory_order_acquire);
+            const uint32_t tail =
+               atomic_load_explicit(ring->tail, memory_order_acquire);
+            npt_log("watchdog: ring %llu heartbeat stopped at %u for %u "
+                    "checks, head=%u tail=%u cur=%u -- host worker gone; "
+                    "marking renderer lost",
+                    (unsigned long long)ring->id, beat, ring->watchdog_misses,
+                    head, tail, ring->cur);
+            if (ring->renderer)
+               npt_renderer_set_lost(ring->renderer);
+            ring->watchdog_misses = 0;
+         }
+         return;
+      }
 
       if (status & NPT_RING_STATUS_ALIVE_BIT) {
          /* Clearing ALIVE (so a host re-set is detectable) is the ring's only

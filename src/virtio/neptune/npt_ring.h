@@ -285,10 +285,14 @@ struct npt_ring {
    /* buffer_size >> NPT_RING_DIRECT_ORDER. */
    uint32_t direct_size;
 
-   /* Bumped each time npt_ring_relax sees ALIVE cleared; reset on
-    * ALIVE set.  abort()s if it hits the threshold so a wedged host
-    * fails loudly instead of spinning forever. */
+   /* Bumped each time npt_ring_relax finds the host heartbeat
+    * unchanged (or, on hosts without the counter, ALIVE cleared); reset
+    * when it moves.  At the threshold the renderer is marked lost so a
+    * dead host worker fails the device instead of spinning forever. */
    uint32_t watchdog_misses;
+   /* Heartbeat counter (status bits 8..31) as of the last watchdog
+    * check; 0 until the host has ticked once. */
+   uint32_t heartbeat_seen;
 
    /* Virtqueue-seqno roundtrip counter.  Minted outside ring->lock, so
     * seqnos can enter the ring out of order; the host stores the maximum
