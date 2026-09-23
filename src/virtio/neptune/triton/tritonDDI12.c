@@ -147,12 +147,19 @@ triton12GetSupportedVersions(D3D12DDI_HADAPTER hAdapter,
                              UINT32 *puEntries,
                              UINT64 *pSupportedDDIInterfaceVersions)
 {
-    (void)hAdapter;
-    /* One revision: _0082 (R8).  A lower revision is not a weaker
-     * promise but a different one -- smaller tables the fill must know
-     * how to populate -- so the list holds exactly the build
-     * FillDDITable assembles. */
-    static const UINT64 kSupportedVersions[] = { D3D12DDI_SUPPORTED_0082 };
+    /* One revision.  A lower revision is not a weaker promise but a
+     * different one -- smaller tables the fill must know how to populate
+     * -- so the list holds exactly the build FillDDITable assembles:
+     * _0082 (R8) on a host with a DXIL front end, _0022 (R3) without
+     * one.  The R8 contract makes the runtime refuse a driver that
+     * advertises no DXIL (D3D12CreateDevice fails DXGI_ERROR_UNSUPPORTED
+     * right after its caps sweep); under R3 the SM 5.1-only list at
+     * FL 11_1 is accepted.  FillDDITable copies the _0022 image for an
+     * R3-sized table. */
+    PTRITON12_ADAPTER pAdapter = (PTRITON12_ADAPTER)hAdapter.pDrvPrivate;
+    const BOOL hostDxil = pAdapter && (pAdapter->HostCaps & TRITON_HOSTCAP_DXIL);
+    const UINT64 kSupportedVersions[] = { hostDxil ? D3D12DDI_SUPPORTED_0082
+                                                   : D3D12DDI_SUPPORTED_0022 };
     const UINT32 kCount = 1;
 
     if (!puEntries)
@@ -607,8 +614,16 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
             /* R4..R7: Native16BitOps is the only addition. */
             D3D12DDI_SHADER_CAPS_0042 *pCaps =
                 (D3D12DDI_SHADER_CAPS_0042 *)pArgs->pData;
-            CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
-                       OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
+            /* Native 16-bit shader ops require SM 6.2 (MSDN,
+             * D3D12_FEATURE_DATA_D3D12_OPTIONS4); a no-DXIL host
+             * advertises SM 5.1 only, so it must not claim them. */
+            if (hostCaps & TRITON_HOSTCAP_DXIL)
+                CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
+                           OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
+            else
+                CAP12_FIXED("SHADER.Native16BitOps", pCaps->Native16BitOps,
+                            OPTIONS4, hc->options4.Native16BitShaderOpsSupported,
+                            0, "SM 6.2 requirement; SM 5.1 only (no-DXIL host)");
         }
         if (pArgs->DataSize >= sizeof(D3D12DDI_SHADER_CAPS_0082)) {
             /* Reached only once the advertised DDI revision is >= R8;
@@ -616,8 +631,13 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
              * DXIL, so host truth applies as-is. */
             D3D12DDI_SHADER_CAPS_0082 *pCaps =
                 (D3D12DDI_SHADER_CAPS_0082 *)pArgs->pData;
-            CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
-                       OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
+            if (hostCaps & TRITON_HOSTCAP_DXIL)
+                CAP12_HOST("SHADER.Native16BitOps", pCaps->Native16BitOps,
+                           OPTIONS4, hc->options4.Native16BitShaderOpsSupported);
+            else
+                CAP12_FIXED("SHADER.Native16BitOps", pCaps->Native16BitOps,
+                            OPTIONS4, hc->options4.Native16BitShaderOpsSupported,
+                            0, "SM 6.2 requirement; SM 5.1 only (no-DXIL host)");
             /* The host reports these but executes only the min/max subset:
              * on D3DMetal 3.0/4.0b2 a dispatch containing a 64-bit
              * Add/And/Or/Xor/Exchange/CompareExchange writes nothing at all,
@@ -1615,6 +1635,10 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
                 triton12InstallPipelineFuncs0080(t80);
                 triton12InstallResourceFuncs0080(t80);
                 triton12InstallListDeviceFuncs0080(t80);
+            } else {
+                /* R3 (_0022) negotiation on a no-DXIL host: the
+                 * runtime's table is the _0022 image itself. */
+                memcpy(pTable, &image, sizeof(image));
             }
         }
 
