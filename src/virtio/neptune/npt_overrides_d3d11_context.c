@@ -16,6 +16,7 @@
 #include "npt_ring.h"
 
 #include "neptune-protocol/npt_protocol_client_id3d11devicecontext.h"
+#include "neptune-protocol/npt_protocol_guest_id3d11devicecontext.h"
 
 #define NPT_REGISTER_OVERRIDE_D3D11_DEVICE_CONTEXT4(m, f) \
    NPT_REGISTER_OVERRIDE(id3d11devicecontext4, m, f)
@@ -495,13 +496,27 @@ ctx_GetData_override(void *self, ID3D11Asynchronous *pAsync, void *pData,
       return NPT_S_OK;
    }
 
-   /* DONOTFLUSH: caller polls; return S_FALSE locally.  Otherwise
-    * the spec allows GetData to flush the immediate context, so go
-    * sync to drive result availability. */
+   /* Not ready.  DONOTFLUSH: caller polls; S_FALSE locally.  Without
+    * it the spec lets GetData flush the immediate context, and S_FALSE
+    * is still the answer while the result is outstanding -- so give the
+    * host its GetData (which flushes there) without waiting for the
+    * reply, once per End, and answer S_FALSE.  The host's feedback poll
+    * publishes the result into the slot when the query completes, so a
+    * title that polls a query every frame never waits on a round trip. */
    if (GetDataFlags & 0x1u /* D3D11_ASYNC_GETDATA_DONOTFLUSH */)
       return NPT_S_FALSE;
-   return npt_id3d11devicecontext_default_GetData(self, pAsync, pData,
-                                                  DataSize, GetDataFlags);
+   uint32_t flushed = atomic_load_explicit(&aux->flushed_version,
+                                           memory_order_relaxed);
+   if (flushed != expected &&
+       atomic_compare_exchange_strong_explicit(&aux->flushed_version,
+                                               &flushed, expected,
+                                               memory_order_relaxed,
+                                               memory_order_relaxed)) {
+      npt_async_ID3D11DeviceContext_GetData(npt_com_self_ring(self),
+                                            npt_com_self_id(self), pAsync,
+                                            pData, DataSize, GetDataFlags);
+   }
+   return NPT_S_FALSE;
 }
 
 /* CopyFlags hints (DISCARD, NO_OVERWRITE) are advisory in the host

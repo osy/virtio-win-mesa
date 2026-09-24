@@ -103,6 +103,7 @@ query_aux_init(struct npt_com_base *com,
    aux->base.registered = false;
    aux->query_data_size = 0;
    atomic_store_explicit(&aux->local_version, 0, memory_order_relaxed);
+   atomic_store_explicit(&aux->flushed_version, UINT32_MAX, memory_order_relaxed);
    com->aux_destroy = query_aux_destroy;
    /* aux_init runs before we know D3D11_QUERY_DESC::Query, which
     * determines result size -- finalize_create handles registration. */

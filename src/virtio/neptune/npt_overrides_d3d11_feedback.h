@@ -42,6 +42,11 @@ struct npt_d3d11_query_aux {
     * that count on each result, so a GetData racing a stale write from
     * an earlier End sees a mismatch and returns S_FALSE. */
    _Atomic uint32_t local_version;
+
+   /* local_version for which a not-ready GetData without DONOTFLUSH has
+    * already sent the host its (reply-less) GetData, i.e. the flush the
+    * flag asks for.  One per End, however often the app polls. */
+   _Atomic uint32_t flushed_version;
 };
 
 /* Type-safe downcast from an ID3D11Asynchronous (or any tier in the
