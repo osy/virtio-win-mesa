@@ -71,6 +71,57 @@ dev_aux(void *self)
    return ((struct npt_com_base *)self)->aux;
 }
 
+/*
+ * Formats that the current DXMT backend cannot turn into a Metal texture.
+ *
+ * Keep this in sync with the E_FAIL cases in DXMT's dxmt_format.cpp.
+ * Do not submit these creates asynchronously: a failed host-side Create
+ * leaves an unusable Neptune object placeholder behind.
+ */
+static bool
+dev_texture_format_host_creatable(DXGI_FORMAT format)
+{
+   switch (format) {
+   case DXGI_FORMAT_R1_UNORM:
+   case DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM:
+   case DXGI_FORMAT_AYUV:
+   case DXGI_FORMAT_Y410:
+   case DXGI_FORMAT_Y416:
+   case DXGI_FORMAT_NV12:
+   case DXGI_FORMAT_P010:
+   case DXGI_FORMAT_P016:
+   case DXGI_FORMAT_420_OPAQUE:
+   case DXGI_FORMAT_YUY2:
+   case DXGI_FORMAT_Y210:
+   case DXGI_FORMAT_Y216:
+   case DXGI_FORMAT_NV11:
+   case DXGI_FORMAT_AI44:
+   case DXGI_FORMAT_IA44:
+   case DXGI_FORMAT_P8:
+   case DXGI_FORMAT_A8P8:
+   case DXGI_FORMAT_P208:
+   case DXGI_FORMAT_V208:
+   case DXGI_FORMAT_V408:
+   case DXGI_FORMAT_FORCE_UINT:
+      return false;
+   default:
+      return true;
+   }
+}
+
+static HRESULT
+dev_refuse_unsupported_texture(DXGI_FORMAT format, void **out_resource)
+{
+   if (dev_texture_format_host_creatable(format))
+      return NPT_S_OK;
+
+   if (out_resource)
+      *out_resource = NULL;
+
+   /* Match Triton's behaviour for a texture format the host cannot make. */
+   return NPT_E_OUTOFMEMORY;
+}
+
 static HRESULT NPT_STDMETHODCALLTYPE
 dev_CreateBuffer_override(void *self,
                           const D3D11_BUFFER_DESC *pDesc,
@@ -240,6 +291,13 @@ dev_CreateTexture1D_override(void *self,
                               const D3D11_SUBRESOURCE_DATA *pInitialData,
                               ID3D11Texture1D **ppTexture1D)
 {
+   if (pDesc) {
+      HRESULT format_hr = dev_refuse_unsupported_texture(
+         pDesc->Format, (void **)ppTexture1D);
+      if (NPT_FAILED(format_hr))
+         return format_hr;
+   }
+
    struct npt_device *dev = npt_com_self_device(self);
    uint64_t self_id = npt_com_self_id(self);
 
@@ -285,6 +343,13 @@ dev_CreateTexture2D_override(void *self,
                               const D3D11_SUBRESOURCE_DATA *pInitialData,
                               ID3D11Texture2D **ppTexture2D)
 {
+   if (pDesc) {
+      HRESULT format_hr = dev_refuse_unsupported_texture(
+         pDesc->Format, (void **)ppTexture2D);
+      if (NPT_FAILED(format_hr))
+         return format_hr;
+   }
+
    struct npt_device *dev = npt_com_self_device(self);
    uint64_t self_id = npt_com_self_id(self);
 
@@ -330,6 +395,13 @@ dev_CreateTexture3D_override(void *self,
                               const D3D11_SUBRESOURCE_DATA *pInitialData,
                               ID3D11Texture3D **ppTexture3D)
 {
+   if (pDesc) {
+      HRESULT format_hr = dev_refuse_unsupported_texture(
+         pDesc->Format, (void **)ppTexture3D);
+      if (NPT_FAILED(format_hr))
+         return format_hr;
+   }
+
    struct npt_device *dev = npt_com_self_device(self);
    uint64_t self_id = npt_com_self_id(self);
 
@@ -376,6 +448,13 @@ dev3_CreateTexture2D1_override(void *self,
                                const D3D11_SUBRESOURCE_DATA *pInitialData,
                                ID3D11Texture2D1 **ppTexture2D)
 {
+   if (pDesc1) {
+      HRESULT format_hr = dev_refuse_unsupported_texture(
+         pDesc1->Format, (void **)ppTexture2D);
+      if (NPT_FAILED(format_hr))
+         return format_hr;
+   }
+
    struct npt_device *dev = npt_com_self_device(self);
    uint64_t self_id = npt_com_self_id(self);
 
@@ -420,6 +499,13 @@ dev3_CreateTexture3D1_override(void *self,
                                const D3D11_SUBRESOURCE_DATA *pInitialData,
                                ID3D11Texture3D1 **ppTexture3D)
 {
+   if (pDesc1) {
+      HRESULT format_hr = dev_refuse_unsupported_texture(
+         pDesc1->Format, (void **)ppTexture3D);
+      if (NPT_FAILED(format_hr))
+         return format_hr;
+   }
+
    struct npt_device *dev = npt_com_self_device(self);
    uint64_t self_id = npt_com_self_id(self);
 
