@@ -29,6 +29,10 @@ struct npt_d3d11_device_aux {
    void *cached_imm_ctx;
    /* 0..3; ignored when cached_imm_ctx == NULL. */
    int cached_imm_ctx_tier;
+
+   /* Successful host CheckFormatSupport results, cached per format. */
+   UINT format_support[256];
+   uint8_t format_support_valid[256];
 };
 
 static void npt_d3d11_device_aux_init(struct npt_com_base *com,
@@ -72,47 +76,65 @@ dev_aux(void *self)
 }
 
 /*
- * Formats that the current DXMT backend cannot turn into a Metal texture.
- *
- * Keep this in sync with the E_FAIL cases in DXMT's dxmt_format.cpp.
- * Do not submit these creates asynchronously: a failed host-side Create
- * leaves an unusable Neptune object placeholder behind.
+ * CreateTexture is asynchronous on the single-ring path, so a host-side
+ * create failure cannot be reported back after submission.  Ask the active
+ * host backend for format support before the first create and cache successful
+ * answers.  A failed capability query is treated as unsupported rather than
+ * forwarding an object that may never exist.
  */
 static bool
-dev_texture_format_host_creatable(DXGI_FORMAT format)
+dev_texture_format_supported(void *self, DXGI_FORMAT format,
+                             UINT required_support)
 {
-   switch (format) {
-   case DXGI_FORMAT_R1_UNORM:
-   case DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM:
-   case DXGI_FORMAT_AYUV:
-   case DXGI_FORMAT_Y410:
-   case DXGI_FORMAT_Y416:
-   case DXGI_FORMAT_NV12:
-   case DXGI_FORMAT_P010:
-   case DXGI_FORMAT_P016:
-   case DXGI_FORMAT_420_OPAQUE:
-   case DXGI_FORMAT_YUY2:
-   case DXGI_FORMAT_Y210:
-   case DXGI_FORMAT_Y216:
-   case DXGI_FORMAT_NV11:
-   case DXGI_FORMAT_AI44:
-   case DXGI_FORMAT_IA44:
-   case DXGI_FORMAT_P8:
-   case DXGI_FORMAT_A8P8:
-   case DXGI_FORMAT_P208:
-   case DXGI_FORMAT_V208:
-   case DXGI_FORMAT_V408:
-   case DXGI_FORMAT_FORCE_UINT:
-      return false;
-   default:
+   if (format == DXGI_FORMAT_UNKNOWN)
       return true;
+
+   struct npt_d3d11_device_aux *aux = dev_aux(self);
+   const unsigned idx = (unsigned)format;
+   UINT support = 0;
+
+   if (aux && idx < 256u) {
+      mtx_lock(&aux->cache_mutex);
+      const bool valid = aux->format_support_valid[idx] != 0;
+      if (valid)
+         support = aux->format_support[idx];
+      mtx_unlock(&aux->cache_mutex);
+
+      if (valid)
+         return (support & required_support) == required_support;
    }
+
+   const HRESULT hr =
+      npt_id3d11device_default_CheckFormatSupport(self, format, &support);
+
+   if (NPT_FAILED(hr)) {
+      npt_log("CreateTexture: CheckFormatSupport(%u) failed 0x%08x; refused",
+              idx, (unsigned)hr);
+      return false;
+   }
+
+   if (aux && idx < 256u) {
+      mtx_lock(&aux->cache_mutex);
+      aux->format_support[idx] = support;
+      aux->format_support_valid[idx] = 1;
+      mtx_unlock(&aux->cache_mutex);
+   }
+
+   const bool supported =
+      (support & required_support) == required_support;
+
+   if (!supported)
+      npt_log("CreateTexture: format %u support=0x%08x lacks 0x%08x; refused",
+              idx, support, required_support);
+
+   return supported;
 }
 
 static HRESULT
-dev_refuse_unsupported_texture(DXGI_FORMAT format, void **out_resource)
+dev_refuse_unsupported_texture(void *self, DXGI_FORMAT format,
+                               UINT required_support, void **out_resource)
 {
-   if (dev_texture_format_host_creatable(format))
+   if (dev_texture_format_supported(self, format, required_support))
       return NPT_S_OK;
 
    if (out_resource)
@@ -293,7 +315,8 @@ dev_CreateTexture1D_override(void *self,
 {
    if (pDesc) {
       HRESULT format_hr = dev_refuse_unsupported_texture(
-         pDesc->Format, (void **)ppTexture1D);
+         self, pDesc->Format, D3D11_FORMAT_SUPPORT_TEXTURE1D,
+         (void **)ppTexture1D);
       if (NPT_FAILED(format_hr))
          return format_hr;
    }
@@ -345,7 +368,8 @@ dev_CreateTexture2D_override(void *self,
 {
    if (pDesc) {
       HRESULT format_hr = dev_refuse_unsupported_texture(
-         pDesc->Format, (void **)ppTexture2D);
+         self, pDesc->Format, D3D11_FORMAT_SUPPORT_TEXTURE2D,
+         (void **)ppTexture2D);
       if (NPT_FAILED(format_hr))
          return format_hr;
    }
@@ -397,7 +421,8 @@ dev_CreateTexture3D_override(void *self,
 {
    if (pDesc) {
       HRESULT format_hr = dev_refuse_unsupported_texture(
-         pDesc->Format, (void **)ppTexture3D);
+         self, pDesc->Format, D3D11_FORMAT_SUPPORT_TEXTURE3D,
+         (void **)ppTexture3D);
       if (NPT_FAILED(format_hr))
          return format_hr;
    }
@@ -450,7 +475,8 @@ dev3_CreateTexture2D1_override(void *self,
 {
    if (pDesc1) {
       HRESULT format_hr = dev_refuse_unsupported_texture(
-         pDesc1->Format, (void **)ppTexture2D);
+         self, pDesc1->Format, D3D11_FORMAT_SUPPORT_TEXTURE2D,
+         (void **)ppTexture2D);
       if (NPT_FAILED(format_hr))
          return format_hr;
    }
@@ -501,7 +527,8 @@ dev3_CreateTexture3D1_override(void *self,
 {
    if (pDesc1) {
       HRESULT format_hr = dev_refuse_unsupported_texture(
-         pDesc1->Format, (void **)ppTexture3D);
+         self, pDesc1->Format, D3D11_FORMAT_SUPPORT_TEXTURE3D,
+         (void **)ppTexture3D);
       if (NPT_FAILED(format_hr))
          return format_hr;
    }
