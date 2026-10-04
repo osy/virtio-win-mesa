@@ -4,7 +4,7 @@
  *
  * ID3D11DeviceContext{,1..4}: Map/Unmap shadow staging,
  * UpdateSubresource (registry-skipped because pSrcData is unsized),
- * and Begin/End/GetData with shared-memory query feedback.
+ * and End/GetData with shared-memory query feedback.
  */
 
 #include "npt_com.h"
@@ -423,7 +423,7 @@ ctx_UpdateSubresource_override(void *self, ID3D11Resource *pDstResource,
 }
 
 /*
- * Query feedback: each query has a 128-B shmem slot.  Begin clears
+ * Query feedback: each query has a 128-B shmem slot.  End clears
  * the flag and bumps a version; the host's poll writes [result,
  * version, flag=1] when GetData is ready; guest GetData reads
  * locally.
@@ -438,15 +438,24 @@ ctx_query_slot(struct npt_d3d11_query_aux *aux)
       ((uint8_t *)aux->base.fb_shmem->mmap_ptr + aux->base.fb_offset);
 }
 
+/* A query's feedback slot carries (version, ready) in one 64-bit word.
+ * The version counts Ends: the guest bumps it here, before the wire End,
+ * and the host bumps its own count when it executes that End and stamps
+ * it on the result it publishes.  Commands execute in order, so the two
+ * counts agree, and a result published for an earlier End can never
+ * satisfy a GetData for a later one.  Counting Ends rather than Begins
+ * also covers the End-only queries (EVENT, TIMESTAMP), whose reuse must
+ * not be answered with the previous End's result.  The runtime rejects
+ * GetData between Begin and End, so Begin needs no slot update. */
 static void NPT_STDMETHODCALLTYPE
-ctx_Begin_override(void *self, ID3D11Asynchronous *pAsync)
+ctx_End_override(void *self, ID3D11Asynchronous *pAsync)
 {
    struct npt_d3d11_query_aux *aux = npt_d3d11_query_aux_cast(pAsync);
    if (aux && aux->base.registered) {
-      /* Bump version + clear flag BEFORE the wire Begin so a racing
-       * guest GetData sees flag=0 or a version mismatch (S_FALSE).
-       * "New version + old result" is impossible: host writes flag=1
-       * only after the result with release ordering. */
+      /* Clear the flag under the new version BEFORE the wire End, so a
+       * GetData racing the host's write for the previous End sees a
+       * version mismatch (S_FALSE).  The host writes ready only after
+       * the result, with release ordering. */
       uint32_t v = atomic_fetch_add_explicit(&aux->local_version, 1,
                                              memory_order_relaxed) + 1;
       struct npt_query_feedback_slot *slot = ctx_query_slot(aux);
@@ -455,7 +464,7 @@ ctx_Begin_override(void *self, ID3D11Asynchronous *pAsync)
                                memory_order_release);
       }
    }
-   npt_id3d11devicecontext_default_Begin(self, pAsync);
+   npt_id3d11devicecontext_default_End(self, pAsync);
 }
 
 static HRESULT NPT_STDMETHODCALLTYPE
@@ -518,7 +527,7 @@ npt_overrides_d3d11_context_init(void)
                                                ctx_UpdateSubresource_override);
    NPT_REGISTER_OVERRIDE_D3D11_DEVICE_CONTEXT1(UpdateSubresource1,
                                                ctx_UpdateSubresource1_override);
-   NPT_REGISTER_OVERRIDE_D3D11_DEVICE_CONTEXT(Begin,   ctx_Begin_override);
+   NPT_REGISTER_OVERRIDE_D3D11_DEVICE_CONTEXT(End,     ctx_End_override);
    NPT_REGISTER_OVERRIDE_D3D11_DEVICE_CONTEXT(GetData, ctx_GetData_override);
 
    npt_com_register_family(context_tiers, 0, NULL);

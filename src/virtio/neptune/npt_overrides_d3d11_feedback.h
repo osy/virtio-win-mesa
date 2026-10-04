@@ -37,9 +37,10 @@ struct npt_d3d11_query_aux {
    /* Bytes for the host to memcpy each successful poll. */
    uint32_t query_data_size;
 
-   /* Bumped at each Begin before the slot is cleared; host stamps
-    * the version so a GetData racing a stale write from the previous
-    * cycle sees a mismatch and returns S_FALSE. */
+   /* Number of Ends issued; bumped before the slot is cleared and the
+    * wire End is sent.  The host counts the Ends it executes and stamps
+    * that count on each result, so a GetData racing a stale write from
+    * an earlier End sees a mismatch and returns S_FALSE. */
    _Atomic uint32_t local_version;
 };
 
