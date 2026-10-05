@@ -58,6 +58,16 @@ struct npt_device {
    mtx_t feedback_pool_init_mutex;
    _Atomic bool feedback_pool_inited;
    struct npt_shmem_pool feedback_pool;
+   /* Query feedback slots given back by released queries, oldest first
+    * (struct npt_feedback_free_slot).  The pool only bump-allocates, so
+    * a title that creates queries as it renders would otherwise consume a
+    * fresh pool shmem every 128 queries: a blob create and map, later an
+    * unmap, each a host round trip and a KVM memslot change.  A slot is
+    * reused only once the host has run its query's unregister (dev->ring
+    * head past free_seqno): from then on the host never writes it. */
+   mtx_t feedback_free_mutex;
+   struct list_head feedback_free;
+   uint32_t feedback_free_count;
 
    _Atomic uint64_t next_ring_id;
 
@@ -144,6 +154,18 @@ npt_device_alloc_feedback_slot(struct npt_device *dev,
                                uint32_t slot_size,
                                uint32_t *out_offset,
                                bool *out_fresh);
+
+/*
+ * Give a query's feedback slot back for reuse, transferring the caller's
+ * shmem ref.  free_seqno is the dev->ring position returned by the
+ * query's unregister; the slot is not handed out again before the host
+ * head passes it.
+ */
+void
+npt_device_free_feedback_slot(struct npt_device *dev,
+                              struct npt_renderer_shmem *shmem,
+                              uint32_t offset, uint32_t slot_size,
+                              uint32_t free_seqno);
 
 /*
  * Ring for handwritten paths that touch DC state (Map/Unmap, fence

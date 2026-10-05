@@ -23,6 +23,15 @@
 #include "nptunix/npt_unixlib.h"
 #endif
 
+/* A query feedback slot waiting for reuse (dev->feedback_free). */
+struct npt_feedback_free_slot {
+   struct list_head head;
+   struct npt_renderer_shmem *shmem;
+   uint32_t offset;
+   uint32_t slot_size;
+   uint32_t free_seqno;
+};
+
 static inline uint32_t
 npt_wrapper_cache_hash(uint64_t host_id)
 {
@@ -333,6 +342,9 @@ npt_device_create(void)
    mtx_init(&dev->feedback_pool_init_mutex, mtx_plain);
    atomic_store_explicit(&dev->feedback_pool_inited, false,
                          memory_order_relaxed);
+   mtx_init(&dev->feedback_free_mutex, mtx_plain);
+   list_inithead(&dev->feedback_free);
+   dev->feedback_free_count = 0;
 
    npt_event_init(dev);
 
@@ -398,6 +410,13 @@ npt_device_destroy(struct npt_device *dev)
    npt_event_fini(dev);
    npt_shmem_pool_fini(dev->renderer, &dev->data_pool);
    npt_shmem_pool_fini(dev->renderer, &dev->map_pool);
+   list_for_each_entry_safe(struct npt_feedback_free_slot, f,
+                            &dev->feedback_free, head) {
+      npt_renderer_shmem_unref(dev->renderer, f->shmem);
+      free(f);
+   }
+   list_inithead(&dev->feedback_free);
+   mtx_destroy(&dev->feedback_free_mutex);
    if (atomic_load_explicit(&dev->feedback_pool_inited,
                             memory_order_acquire)) {
       npt_shmem_pool_fini(dev->renderer, &dev->feedback_pool);
@@ -537,6 +556,67 @@ npt_device_alloc_data(struct npt_device *dev, size_t size, size_t *out_offset)
                                size, out_offset, NULL);
 }
 
+/* Bounds the shmem refs the free list can pin; past it a released slot is
+ * dropped instead of kept. */
+#define NPT_FEEDBACK_FREE_MAX 4096u
+
+void
+npt_device_free_feedback_slot(struct npt_device *dev,
+                              struct npt_renderer_shmem *shmem,
+                              uint32_t offset, uint32_t slot_size,
+                              uint32_t free_seqno)
+{
+   if (!dev || !shmem)
+      return;
+   slot_size = (slot_size + NPT_FEEDBACK_SLOT_ALIGN - 1u) &
+               ~(NPT_FEEDBACK_SLOT_ALIGN - 1u);
+   struct npt_feedback_free_slot *f = NULL;
+   if (!atomic_load_explicit(&dev->shutting_down, memory_order_acquire))
+      f = malloc(sizeof(*f));
+   if (!f) {
+      npt_renderer_shmem_unref(dev->renderer, shmem);
+      return;
+   }
+   f->shmem = shmem;
+   f->offset = offset;
+   f->slot_size = slot_size;
+   f->free_seqno = free_seqno;
+   mtx_lock(&dev->feedback_free_mutex);
+   if (dev->feedback_free_count >= NPT_FEEDBACK_FREE_MAX) {
+      mtx_unlock(&dev->feedback_free_mutex);
+      npt_renderer_shmem_unref(dev->renderer, shmem);
+      free(f);
+      return;
+   }
+   list_addtail(&f->head, &dev->feedback_free);
+   dev->feedback_free_count++;
+   mtx_unlock(&dev->feedback_free_mutex);
+}
+
+/* Oldest free slot of this size whose unregister the host has run, or
+ * NULL.  Every slot on the list was freed through dev->ring, whose
+ * seqnos only grow, so the oldest entry of a size is the first one that
+ * can be ready. */
+static struct npt_feedback_free_slot *
+npt_device_take_free_feedback_slot(struct npt_device *dev, uint32_t slot_size)
+{
+   struct npt_feedback_free_slot *found = NULL;
+   mtx_lock(&dev->feedback_free_mutex);
+   list_for_each_entry(struct npt_feedback_free_slot, f,
+                       &dev->feedback_free, head) {
+      if (f->slot_size != slot_size)
+         continue;
+      if (npt_ring_seqno_passed(dev->ring, f->free_seqno)) {
+         list_del(&f->head);
+         dev->feedback_free_count--;
+         found = f;
+      }
+      break;
+   }
+   mtx_unlock(&dev->feedback_free_mutex);
+   return found;
+}
+
 struct npt_renderer_shmem *
 npt_device_alloc_feedback_slot(struct npt_device *dev,
                                uint32_t slot_size,
@@ -547,6 +627,22 @@ npt_device_alloc_feedback_slot(struct npt_device *dev,
       return NULL;
    slot_size = (slot_size + NPT_FEEDBACK_SLOT_ALIGN - 1u) &
                ~(NPT_FEEDBACK_SLOT_ALIGN - 1u);
+
+   struct npt_feedback_free_slot *reuse =
+      npt_device_take_free_feedback_slot(dev, slot_size);
+   if (reuse) {
+      struct npt_renderer_shmem *shmem = reuse->shmem;
+      const uint32_t off = reuse->offset;
+      free(reuse);
+      /* The host already knows this shmem; zero the slot like a fresh
+       * allocation so no state of the previous query is visible. */
+      memset((uint8_t *)shmem->mmap_ptr + off, 0, slot_size);
+      if (out_offset)
+         *out_offset = off;
+      if (out_fresh)
+         *out_fresh = false;
+      return shmem;
+   }
 
    if (!atomic_load_explicit(&dev->feedback_pool_inited,
                              memory_order_acquire)) {

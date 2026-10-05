@@ -382,6 +382,11 @@ npt_ring_force_roundtrip(struct npt_ring *ring);
 uint32_t
 npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno);
 
+/* Non-blocking twin of npt_ring_wait_seqno: true once head is past
+ * seqno (the host has run everything submitted before it). */
+bool
+npt_ring_seqno_passed(const struct npt_ring *ring, uint32_t seqno);
+
 /* The seqno `head` must reach for everything published on this ring so
  * far to have been decoded.  Reads the shared tail, so it is safe to use
  * as a peer edge target: every byte below it is already visible to the

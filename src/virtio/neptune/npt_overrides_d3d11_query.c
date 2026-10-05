@@ -116,7 +116,18 @@ query_aux_destroy(void *aux_raw)
    struct npt_d3d11_query_aux *aux = aux_raw;
    if (aux->base.registered && aux->base.com && aux->base.com->base.device) {
       struct npt_device *dev = aux->base.com->base.device;
-      npt_dispatch_feedback_unregister_query(dev->ring, aux->base.com->base.id);
+      uint32_t seqno = 0;
+      if (npt_dispatch_feedback_unregister_query(dev->ring,
+                                                 aux->base.com->base.id,
+                                                 &seqno) &&
+          aux->base.fb_shmem) {
+         /* The slot goes back for reuse once the host has run the
+          * unregister; the free list takes over the shmem ref. */
+         npt_device_free_feedback_slot(dev, aux->base.fb_shmem,
+                                       aux->base.fb_offset,
+                                       NPT_QUERY_FEEDBACK_SLOT_SIZE, seqno);
+         aux->base.fb_shmem = NULL;
+      }
    }
    if (aux->base.fb_shmem && aux->base.com && aux->base.com->base.device) {
       npt_renderer_shmem_unref(aux->base.com->base.device->renderer,

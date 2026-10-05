@@ -629,7 +629,8 @@ npt_dispatch_feedback_register_query(struct npt_ring *ring, uint64_t query_id,
 }
 
 bool
-npt_dispatch_feedback_unregister_query(struct npt_ring *ring, uint64_t query_id)
+npt_dispatch_feedback_unregister_query(struct npt_ring *ring, uint64_t query_id,
+                                       uint32_t *out_seqno)
 {
    struct npt_cmd_unregister_query_feedback cmd;
    memset(&cmd, 0, sizeof(cmd));
@@ -638,7 +639,7 @@ npt_dispatch_feedback_unregister_query(struct npt_ring *ring, uint64_t query_id)
                              NPT_TRANSPORT_FEEDBACK_UNREGISTER_QUERY);
    cmd.header.cmd_size = sizeof(cmd);
    cmd.header.object_id = query_id;
-   return npt_ring_submit_raw(ring, &cmd, sizeof(cmd));
+   return npt_ring_submit_raw_seqno(ring, &cmd, sizeof(cmd), out_seqno);
 }
 
 bool

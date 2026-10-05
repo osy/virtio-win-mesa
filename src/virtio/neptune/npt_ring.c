@@ -924,6 +924,12 @@ npt_ring_seqno_status(const struct npt_ring *ring, uint32_t seqno)
    return (int32_t)(npt_ring_load_head(ring) - seqno) >= 0;
 }
 
+bool
+npt_ring_seqno_passed(const struct npt_ring *ring, uint32_t seqno)
+{
+   return npt_ring_seqno_status(ring, seqno);
+}
+
 uint32_t
 npt_ring_wait_seqno(struct npt_ring *ring, uint32_t seqno)
 {

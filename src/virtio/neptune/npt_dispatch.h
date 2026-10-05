@@ -212,8 +212,12 @@ bool npt_dispatch_feedback_register_query(struct npt_ring *ring,
                                           uint32_t fb_offset,
                                           uint32_t query_data_size);
 
+/* *out_seqno (may be NULL): the ring position the host head must pass
+ * for the unregister to have run (after it the host never writes the
+ * query's feedback slot again). */
 bool npt_dispatch_feedback_unregister_query(struct npt_ring *ring,
-                                            uint64_t query_id);
+                                            uint64_t query_id,
+                                            uint32_t *out_seqno);
 
 bool npt_dispatch_feedback_register_fence(struct npt_ring *ring,
                                           uint64_t fence_id,
