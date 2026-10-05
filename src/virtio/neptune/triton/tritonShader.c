@@ -713,10 +713,12 @@ static unsigned char tritonDxgiFormatComp(UINT fmt)
  * SemanticName. We bridge by parsing the current VS's DXBC input
  * signature (ISGN/ISG1) at bind time.
  *
- * Cached per (ElementLayout, VS instance): recreate only when the bound
- * VS changes. The key is the VS's monotonic cookie, not its bytecode
- * heap pointer — a freed VS pointer reused at the same address would
- * otherwise alias a layout built against the old VS's input signature. */
+ * Cached per (ElementLayout, VS instance) in a small LRU set
+ * (TRITON_IL_CACHE_SIZE), so switching between the vertex shaders that
+ * share a layout rebinds instead of rebuilding. The key is the VS's
+ * monotonic cookie, not its bytecode heap pointer — a freed VS pointer
+ * reused at the same address would otherwise alias a layout built against
+ * the old VS's input signature. */
 
 /* Drop a reconciled VS left over from a previous layout.  Costs one pointer
  * test when none was ever bound, which is the common case. */
@@ -739,25 +741,43 @@ void tritonResolveInputLayout(PTRITON_DEVICE pD)
         tritonUnbindReconVs(pD);
         return;
     }
-    if (e->pLayout && e->LayoutVsCookie == vs->cookie) {
-        ID3D11DeviceContext1_IASetInputLayout(pD->pCtx1, e->pLayout);
+    /* Hit: a host layout already built for this VS. */
+    TRITON_IL_ENTRY *ent = NULL;
+    for (UINT i = 0; i < TRITON_IL_CACHE_SIZE; ++i) {
+        if (e->aIl[i].pLayout && e->aIl[i].VsCookie == vs->cookie) {
+            ent = &e->aIl[i];
+            break;
+        }
+    }
+    if (ent) {
+        ent->LastUse = ++e->IlClock;
+        ID3D11DeviceContext1_IASetInputLayout(pD->pCtx1, ent->pLayout);
         /* Bind the format-reconciled VS if this layout needed one; otherwise
          * re-assert the app's VS, so a reconciled VS left bound for a previous
          * layout does not leak into this draw. */
         ID3D11DeviceContext1_VSSetShader(pD->pCtx1,
-            e->pReconVS ? e->pReconVS : vs->u.pVS, NULL, 0);
-        pD->pBoundReconVS = e->pReconVS;
+            ent->pReconVS ? ent->pReconVS : vs->u.pVS, NULL, 0);
+        pD->pBoundReconVS = ent->pReconVS;
         return;
     }
-    if (e->pLayout) {
-        ID3D11InputLayout_Release(e->pLayout);
-        e->pLayout = NULL;
-        e->LayoutVsCookie = 0;
+    /* Miss: build into an empty slot, else evict the least recently used.
+     * Releasing a layout or reconciled VS that is still bound is safe: the
+     * context keeps its own reference until the binding below replaces it. */
+    ent = &e->aIl[0];
+    for (UINT i = 0; i < TRITON_IL_CACHE_SIZE; ++i) {
+        if (!e->aIl[i].pLayout) { ent = &e->aIl[i]; break; }
+        if (e->aIl[i].LastUse < ent->LastUse)
+            ent = &e->aIl[i];
     }
-    if (e->pReconVS) {
-        ID3D11VertexShader_Release(e->pReconVS);
-        e->pReconVS = NULL;
+    if (ent->pLayout) {
+        ID3D11InputLayout_Release(ent->pLayout);
+        ent->pLayout = NULL;
     }
+    if (ent->pReconVS) {
+        ID3D11VertexShader_Release(ent->pReconVS);
+        ent->pReconVS = NULL;
+    }
+    ent->VsCookie = 0;
 
     TritonDxbcSig sigs[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT * 2];
     const UINT cSigs = tritonDxbcParseSig(vs->pBytecode, vs->cbBytecode,
@@ -827,10 +847,10 @@ void tritonResolveInputLayout(PTRITON_DEVICE pD)
                                            compReg, &cbRecon);
     if (pRecon) {
         HRESULT hrv = ID3D11Device1_CreateVertexShader(pD->pDev1, pRecon, cbRecon,
-                                                       NULL, &e->pReconVS);
+                                                       NULL, &ent->pReconVS);
         if (FAILED(hrv)) {
             TR_LOG("ResolveInputLayout: reconciled CreateVertexShader failed 0x%08lx", hrv);
-            e->pReconVS = NULL;
+            ent->pReconVS = NULL;
         }
         HeapFree(GetProcessHeap(), 0, pRecon);
     }
@@ -852,25 +872,26 @@ void tritonResolveInputLayout(PTRITON_DEVICE pD)
     }
 
     HRESULT hr = ID3D11Device1_CreateInputLayout(pD->pDev1, descs, e->NumElements,
-                                                 pSigBc, cbSigBc, &e->pLayout);
+                                                 pSigBc, cbSigBc, &ent->pLayout);
     if (pSynthBc)
         HeapFree(GetProcessHeap(), 0, pSynthBc);
     if (FAILED(hr)) {
         TR_LOG("ResolveInputLayout: CreateInputLayout failed 0x%08lx", hr);
-        e->pLayout = NULL;
-        e->LayoutVsCookie = 0;
-        if (e->pReconVS) {
-            ID3D11VertexShader_Release(e->pReconVS);
-            e->pReconVS = NULL;
+        ent->pLayout = NULL;
+        ent->VsCookie = 0;
+        if (ent->pReconVS) {
+            ID3D11VertexShader_Release(ent->pReconVS);
+            ent->pReconVS = NULL;
         }
         tritonUnbindReconVs(pD);
         return;
     }
-    e->LayoutVsCookie = vs->cookie;
-    ID3D11DeviceContext1_IASetInputLayout(pD->pCtx1, e->pLayout);
+    ent->VsCookie = vs->cookie;
+    ent->LastUse  = ++e->IlClock;
+    ID3D11DeviceContext1_IASetInputLayout(pD->pCtx1, ent->pLayout);
     ID3D11DeviceContext1_VSSetShader(pD->pCtx1,
-        e->pReconVS ? e->pReconVS : vs->u.pVS, NULL, 0);
-    pD->pBoundReconVS = e->pReconVS;
+        ent->pReconVS ? ent->pReconVS : vs->u.pVS, NULL, 0);
+    pD->pBoundReconVS = ent->pReconVS;
 }
 
 /* WDDM 2.0: RetrieveShaderComment. Triton's shader path is pure DXBC

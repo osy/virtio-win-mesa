@@ -355,17 +355,29 @@ typedef struct TRITON_SAMPLER {
     ID3D11SamplerState   *pState;
 } TRITON_SAMPLER, *PTRITON_SAMPLER;
 
+/* One host input layout built for one VS (see tritonResolveInputLayout). */
+typedef struct TRITON_IL_ENTRY {
+    UINT64                          VsCookie;   /* cookie of the VS it was built against; 0 = empty */
+    ID3D11InputLayout              *pLayout;
+    /* Reconciled VS: a private copy of that VS whose input-signature
+     * component types are retyped from this layout's vertex formats, so
+     * D3DMetal's shader-side fetch reads integer inputs correctly. Bound in
+     * place of the app's VS. NULL when no retyping is needed. */
+    ID3D11VertexShader             *pReconVS;
+    UINT64                          LastUse;    /* LRU stamp from IlClock */
+} TRITON_IL_ENTRY;
+
+/* Input layouts built per element layout: apps routinely pair one layout
+ * with several vertex shaders, and building a host layout is costly
+ * (signature parse, synthesized DXBC + MD5, host CreateInputLayout), so a
+ * small LRU set keeps the ones for the recently bound shaders. */
+#define TRITON_IL_CACHE_SIZE 8
+
 typedef struct TRITON_ELEMENTLAYOUT {
     UINT                            NumElements;
     D3D10DDIARG_INPUT_ELEMENT_DESC *pElements;  /* heap copy (driver-owned) */
-    ID3D11InputLayout              *pLayout;    /* NULL until first VS is known */
-    UINT64                          LayoutVsCookie; /* cookie of the VS pLayout was built against; 0 = none */
-    /* Reconciled VS: a private copy of the bound VS whose input-signature
-     * component types are retyped from this layout's vertex formats, so
-     * D3DMetal's shader-side fetch reads integer inputs correctly. Bound in
-     * place of the app's VS. NULL when no retyping is needed; keyed by
-     * LayoutVsCookie alongside pLayout. */
-    ID3D11VertexShader             *pReconVS;
+    TRITON_IL_ENTRY                 aIl[TRITON_IL_CACHE_SIZE];
+    UINT64                          IlClock;
 } TRITON_ELEMENTLAYOUT, *PTRITON_ELEMENTLAYOUT;
 
 typedef enum TRITON_SHADER_KIND {

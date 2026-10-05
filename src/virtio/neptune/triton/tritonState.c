@@ -476,9 +476,8 @@ tritonCreateElementLayout(D3D10DDI_HDEVICE hDevice,
     PTRITON_ELEMENTLAYOUT e  = (PTRITON_ELEMENTLAYOUT)(hLayout.pDrvPrivate);
     if (!e) return;
     e->NumElements     = pArgs->NumElements;
-    e->pLayout         = NULL;
-    e->LayoutVsCookie  = 0;
-    e->pReconVS        = NULL;
+    memset(e->aIl, 0, sizeof(e->aIl));
+    e->IlClock         = 0;
     /* The runtime may free pArgs->pVertexElements after this returns. */
     const SIZE_T cb = pArgs->NumElements * sizeof(D3D10DDIARG_INPUT_ELEMENT_DESC);
     e->pElements = (D3D10DDIARG_INPUT_ELEMENT_DESC *)(
@@ -501,11 +500,14 @@ tritonDestroyElementLayout(D3D10DDI_HDEVICE hDevice, D3D10DDI_HELEMENTLAYOUT hLa
     PTRITON_ELEMENTLAYOUT e  = (PTRITON_ELEMENTLAYOUT)(hLayout.pDrvPrivate);
     if (!e) return;
     if (pD && pD->pCurrentLayout == e) pD->pCurrentLayout = NULL;
-    if (e->pLayout)   { ID3D11InputLayout_Release(e->pLayout); e->pLayout = NULL; }
-    if (e->pReconVS)  { ID3D11VertexShader_Release(e->pReconVS); e->pReconVS = NULL; }
+    for (UINT i = 0; i < TRITON_IL_CACHE_SIZE; ++i) {
+        TRITON_IL_ENTRY *ent = &e->aIl[i];
+        if (ent->pLayout)  { ID3D11InputLayout_Release(ent->pLayout); ent->pLayout = NULL; }
+        if (ent->pReconVS) { ID3D11VertexShader_Release(ent->pReconVS); ent->pReconVS = NULL; }
+        ent->VsCookie = 0;
+    }
     if (e->pElements) { HeapFree(GetProcessHeap(), 0, e->pElements); e->pElements = NULL; }
     e->NumElements      = 0;
-    e->LayoutVsCookie   = 0;
 }
 
 void APIENTRY
