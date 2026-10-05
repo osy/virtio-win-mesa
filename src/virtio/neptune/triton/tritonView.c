@@ -44,10 +44,10 @@ tritonViewUnlink(TRITON_VIEWLINK *l)
 
 /* Recreate every host view of r against its (rotated) host resource.
  * The wrapper objects and their DDI handles stay put; only the wrapped
- * host COM view is replaced. Descs are recovered from the old views
- * (GetDesc), so nothing has to be stored at create time. Views created
- * through the WDDM 2.0 *View1 paths come back as base views: the only
- * extension field (PlaneSlice) is video-format-only. */
+ * host COM view is replaced, from the desc each view stored at create time
+ * (recovering it with GetDesc would be a synchronous host round trip per
+ * view on every flip-model present).  Views created through the WDDM 2.0
+ * *View1 paths are recreated the same way, keeping PlaneSlice. */
 HRESULT
 tritonResourceRecreateViews(PTRITON_DEVICE pD, PTRITON_RESOURCE r)
 {
@@ -58,46 +58,59 @@ tritonResourceRecreateViews(PTRITON_DEVICE pD, PTRITON_RESOURCE r)
         switch (l->kind) {
         case TRITON_VIEW_RTV: {
             PTRITON_RTVIEW v = CONTAINING_RECORD(l, TRITON_RTVIEW, link);
-            D3D11_RENDER_TARGET_VIEW_DESC d;
             if (!v->pRTV) break;
-            ID3D11RenderTargetView_GetDesc(v->pRTV, &d);
             ID3D11RenderTargetView_Release(v->pRTV);
             v->pRTV = NULL;
-            hr = ID3D11Device1_CreateRenderTargetView(pD->pDev1, r->pResource,
-                                                      &d, &v->pRTV);
+            if (v->fDesc1) {
+                ID3D11RenderTargetView1 *p1 = NULL;
+                hr = ID3D11Device3_CreateRenderTargetView1(pD->pDev3, r->pResource,
+                                                           &v->Desc1, &p1);
+                v->pRTV = (ID3D11RenderTargetView *)p1;
+            } else {
+                hr = ID3D11Device1_CreateRenderTargetView(pD->pDev1, r->pResource,
+                                                          &v->Desc, &v->pRTV);
+            }
             break;
         }
         case TRITON_VIEW_SRV: {
             PTRITON_SRVIEW v = CONTAINING_RECORD(l, TRITON_SRVIEW, link);
-            D3D11_SHADER_RESOURCE_VIEW_DESC d;
             if (!v->pSRV) break;
-            ID3D11ShaderResourceView_GetDesc(v->pSRV, &d);
             ID3D11ShaderResourceView_Release(v->pSRV);
             v->pSRV = NULL;
-            hr = ID3D11Device1_CreateShaderResourceView(pD->pDev1, r->pResource,
-                                                        &d, &v->pSRV);
+            if (v->fDesc1) {
+                ID3D11ShaderResourceView1 *p1 = NULL;
+                hr = ID3D11Device3_CreateShaderResourceView1(pD->pDev3, r->pResource,
+                                                             &v->Desc1, &p1);
+                v->pSRV = (ID3D11ShaderResourceView *)p1;
+            } else {
+                hr = ID3D11Device1_CreateShaderResourceView(pD->pDev1, r->pResource,
+                                                            &v->Desc, &v->pSRV);
+            }
             break;
         }
         case TRITON_VIEW_DSV: {
             PTRITON_DSVIEW v = CONTAINING_RECORD(l, TRITON_DSVIEW, link);
-            D3D11_DEPTH_STENCIL_VIEW_DESC d;
             if (!v->pDSV) break;
-            ID3D11DepthStencilView_GetDesc(v->pDSV, &d);
             ID3D11DepthStencilView_Release(v->pDSV);
             v->pDSV = NULL;
             hr = ID3D11Device1_CreateDepthStencilView(pD->pDev1, r->pResource,
-                                                      &d, &v->pDSV);
+                                                      &v->Desc, &v->pDSV);
             break;
         }
         case TRITON_VIEW_UAV: {
             PTRITON_UAVIEW v = CONTAINING_RECORD(l, TRITON_UAVIEW, link);
-            D3D11_UNORDERED_ACCESS_VIEW_DESC d;
             if (!v->pUAV) break;
-            ID3D11UnorderedAccessView_GetDesc(v->pUAV, &d);
             ID3D11UnorderedAccessView_Release(v->pUAV);
             v->pUAV = NULL;
-            hr = ID3D11Device1_CreateUnorderedAccessView(pD->pDev1, r->pResource,
-                                                         &d, &v->pUAV);
+            if (v->fDesc1) {
+                ID3D11UnorderedAccessView1 *p1 = NULL;
+                hr = ID3D11Device3_CreateUnorderedAccessView1(pD->pDev3, r->pResource,
+                                                              &v->Desc1, &p1);
+                v->pUAV = (ID3D11UnorderedAccessView *)p1;
+            } else {
+                hr = ID3D11Device1_CreateUnorderedAccessView(pD->pDev1, r->pResource,
+                                                             &v->Desc, &v->pUAV);
+            }
             break;
         }
         }
@@ -197,6 +210,8 @@ tritonCreateRenderTargetView(D3D10DDI_HDEVICE hDevice,
         return;
     }
 
+    v->fDesc1 = FALSE;
+    v->Desc   = d;
     HRESULT hr = ID3D11Device1_CreateRenderTargetView(
         pD->pDev1, r->pResource, &d, &v->pRTV);
     if (FAILED(hr)) {
@@ -416,6 +431,8 @@ tritonCreateSRV(D3D10DDI_HDEVICE hDevice,
         tritonSetError(pD, E_INVALIDARG);
         return;
     }
+    v->fDesc1 = FALSE;
+    v->Desc   = d;
     HRESULT hr = ID3D11Device1_CreateShaderResourceView(pD->pDev1, r->pResource, &d, &v->pSRV);
     if (FAILED(hr)) { TR_LOG("CreateSRV: 0x%08lx", hr); v->pSRV = NULL; tritonSetError(pD, hr); return; }
     tritonResourceLinkView(r, &v->link, TRITON_VIEW_SRV);
@@ -498,6 +515,7 @@ tritonCreateDSV(D3D10DDI_HDEVICE hDevice,
         tritonSetError(pD, E_INVALIDARG);
         return;
     }
+    v->Desc = d;
     HRESULT hr = ID3D11Device1_CreateDepthStencilView(pD->pDev1, r->pResource, &d, &v->pDSV);
     if (FAILED(hr)) { TR_LOG("CreateDSV: 0x%08lx", hr); v->pDSV = NULL; tritonSetError(pD, hr); return; }
     tritonResourceLinkView(r, &v->link, TRITON_VIEW_DSV);
@@ -578,6 +596,8 @@ tritonCreateUAV(D3D10DDI_HDEVICE hDevice,
         tritonSetError(pD, E_INVALIDARG);
         return;
     }
+    v->fDesc1 = FALSE;
+    v->Desc   = d;
     HRESULT hr = ID3D11Device1_CreateUnorderedAccessView(pD->pDev1, r->pResource, &d, &v->pUAV);
     if (FAILED(hr)) { TR_LOG("CreateUAV: 0x%08lx", hr); v->pUAV = NULL; tritonSetError(pD, hr); return; }
     tritonResourceLinkView(r, &v->link, TRITON_VIEW_UAV);
@@ -811,6 +831,8 @@ tritonCreateSRV_WDDM2_0(D3D10DDI_HDEVICE hDevice,
         return;
     }
     ID3D11ShaderResourceView1 *pView1 = NULL;
+    v->fDesc1 = TRUE;
+    v->Desc1  = d;
     HRESULT hr = ID3D11Device3_CreateShaderResourceView1(
         pD->pDev3, r->pResource, &d, &pView1);
     if (FAILED(hr)) { TR_LOG("CreateSRV_WDDM2_0: 0x%08lx", hr); pView1 = NULL; tritonSetError(pD, hr); }
@@ -914,6 +936,8 @@ tritonCreateRenderTargetView_WDDM2_0(D3D10DDI_HDEVICE hDevice,
         return;
     }
     ID3D11RenderTargetView1 *pView1 = NULL;
+    v->fDesc1 = TRUE;
+    v->Desc1  = d;
     HRESULT hr = ID3D11Device3_CreateRenderTargetView1(
         pD->pDev3, r->pResource, &d, &pView1);
     if (FAILED(hr)) { TR_LOG("CreateRTV_WDDM2_0: 0x%08lx", hr); pView1 = NULL; tritonSetError(pD, hr); }
@@ -1004,6 +1028,8 @@ tritonCreateUAV_WDDM2_0(D3D10DDI_HDEVICE hDevice,
         return;
     }
     ID3D11UnorderedAccessView1 *pView1 = NULL;
+    v->fDesc1 = TRUE;
+    v->Desc1  = d;
     HRESULT hr = ID3D11Device3_CreateUnorderedAccessView1(
         pD->pDev3, r->pResource, &d, &pView1);
     if (FAILED(hr)) { TR_LOG("CreateUAV_WDDM2_0: 0x%08lx", hr); pView1 = NULL; tritonSetError(pD, hr); }

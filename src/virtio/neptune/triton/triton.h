@@ -315,28 +315,48 @@ typedef struct TRITON_RESOURCE {
     TRITON_VIEWLINK       *pViewList;
 } TRITON_RESOURCE, *PTRITON_RESOURCE;
 
+/* Views keep the host desc they were created with, so recreating them after
+ * a back-buffer rotation (tritonResourceRecreateViews, every flip-model
+ * present) needs no GetDesc round trip to the host.  fDesc1: created through
+ * the WDDM 2.0 *View1 path with the DESC1 member of the union. */
 typedef struct TRITON_RTVIEW {
     PTRITON_RESOURCE                pResource;
     ID3D11RenderTargetView         *pRTV;
     TRITON_VIEWLINK                 link;
+    BOOL                            fDesc1;
+    union {
+        D3D11_RENDER_TARGET_VIEW_DESC  Desc;
+        D3D11_RENDER_TARGET_VIEW_DESC1 Desc1;
+    };
 } TRITON_RTVIEW, *PTRITON_RTVIEW;
 
 typedef struct TRITON_SRVIEW {
     PTRITON_RESOURCE                pResource;
     ID3D11ShaderResourceView       *pSRV;
     TRITON_VIEWLINK                 link;
+    BOOL                            fDesc1;
+    union {
+        D3D11_SHADER_RESOURCE_VIEW_DESC  Desc;
+        D3D11_SHADER_RESOURCE_VIEW_DESC1 Desc1;
+    };
 } TRITON_SRVIEW, *PTRITON_SRVIEW;
 
 typedef struct TRITON_DSVIEW {
     PTRITON_RESOURCE                pResource;
     ID3D11DepthStencilView         *pDSV;
     TRITON_VIEWLINK                 link;
+    D3D11_DEPTH_STENCIL_VIEW_DESC   Desc;
 } TRITON_DSVIEW, *PTRITON_DSVIEW;
 
 typedef struct TRITON_UAVIEW {
     PTRITON_RESOURCE                pResource;
     ID3D11UnorderedAccessView      *pUAV;
     TRITON_VIEWLINK                 link;
+    BOOL                            fDesc1;
+    union {
+        D3D11_UNORDERED_ACCESS_VIEW_DESC  Desc;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC1 Desc1;
+    };
 } TRITON_UAVIEW, *PTRITON_UAVIEW;
 
 typedef struct TRITON_BLENDSTATE {
