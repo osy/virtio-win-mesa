@@ -185,7 +185,7 @@ npt_d3d_map_ring_init(struct npt_d3d_map_ring *r, struct npt_com_base *com)
 static bool
 alloc_slot_locked(struct npt_d3d_map_ring *r, uint32_t idx)
 {
-   if (idx >= NPT_D3D_MAP_SLOT_MAX)
+   if (!r->slots || idx >= r->max_slots)
       return false;
    if (r->slots[idx].shmem)
       return true;
@@ -235,6 +235,22 @@ npt_d3d_map_ring_alloc_shmem(struct npt_d3d_map_ring *r,
       return false;
    }
    r->aligned_slot_size = aligned_slot_size;
+   /* How far a DISCARD-heavy resource may run ahead of the host before a
+    * rotate blocks on the slot the host has not consumed yet.  A title
+    * that maps small constant buffers a few hundred times a frame
+    * otherwise runs its render thread in lockstep with the host ring
+    * thread while neither is saturated.  Small slots cost little pool
+    * space, so they go deeper; large ones keep their pool footprint. */
+   r->max_slots = aligned_slot_size <= 4096u    ? NPT_D3D_MAP_SLOT_MAX :
+                  aligned_slot_size <= 65536u   ? 16u : 8u;
+   if (!r->slots) {
+      r->slots = calloc(r->max_slots, sizeof(*r->slots));
+      if (!r->slots) {
+         r->aligned_slot_size = 0;
+         r->max_slots = 0;
+         return false;
+      }
+   }
    for (uint32_t i = 0; i < NPT_D3D_MAP_SLOT_INIT; i++) {
       if (!alloc_slot_locked(r, i))
          return false;
@@ -245,7 +261,7 @@ npt_d3d_map_ring_alloc_shmem(struct npt_d3d_map_ring *r,
 void
 npt_d3d_map_ring_fini(struct npt_d3d_map_ring *r)
 {
-   if (!r->active_count)
+   if (!r->slots)
       return;
    struct npt_renderer *rndr = r->com->base.device->renderer;
 
@@ -253,23 +269,21 @@ npt_d3d_map_ring_fini(struct npt_d3d_map_ring *r)
     * ring is going away.  Host-side ordering is covered by COM_RELEASE
     * (queued in npt_com_destroy before this fini runs). */
    for (uint32_t i = 0; i < r->active_count; i++) {
-      if (r->slots[i].shmem) {
+      if (r->slots[i].shmem)
          shmem_reaper_unref(rndr, r->slots[i].shmem);
-         r->slots[i].shmem = NULL;
-         r->slots[i].shmem_res_id = 0;
-      }
-      r->slots[i].in_flight = false;
-      r->slots[i].pending_ring = NULL;
    }
+   free(r->slots);
+   r->slots = NULL;
    r->active_count = 0;
    r->aligned_slot_size = 0;
+   r->max_slots = 0;
    r->current_slot = 0;
 }
 
 uint32_t
 npt_d3d_map_ring_rotate_slot(struct npt_d3d_map_ring *r)
 {
-   if (!r->aligned_slot_size)
+   if (!r->slots || !r->active_count)
       return 0;
 
    const uint32_t cnt = r->active_count;
@@ -282,7 +296,7 @@ npt_d3d_map_ring_rotate_slot(struct npt_d3d_map_ring *r)
    }
 
    /* Grow path: bring up a fresh slot at active_count. */
-   if (cnt < NPT_D3D_MAP_SLOT_MAX && alloc_slot_locked(r, cnt)) {
+   if (cnt < r->max_slots && alloc_slot_locked(r, cnt)) {
       r->current_slot = cnt;
       return cnt;
    }
@@ -305,7 +319,7 @@ npt_d3d_map_ring_mark_slot_submitted(struct npt_d3d_map_ring *r,
                                      uint32_t slot, uint32_t seqno,
                                      struct npt_ring *ring)
 {
-   if (slot >= NPT_D3D_MAP_SLOT_MAX)
+   if (slot >= r->active_count)
       return;
    r->slots[slot].pending_seqno = seqno;
    r->slots[slot].pending_ring = ring;
@@ -439,7 +453,8 @@ void
 npt_d3d11_buffer_set_current_slot(struct npt_d3d11_buffer *b, uint32_t slot)
 {
    struct npt_d3d11_buffer_aux *aux = buf_aux(b);
-   if (aux && slot < NPT_D3D_MAP_SLOT_MAX) aux->map_ring.current_slot = slot;
+   if (aux && slot < aux->map_ring.active_count)
+      aux->map_ring.current_slot = slot;
 }
 
 uint32_t
@@ -1018,7 +1033,7 @@ npt_d3d11_texture_ensure_map_shmem(struct npt_d3d11_texture *t)
    const uint64_t aligned_slot = (per_slot + 63u) & ~(uint64_t)63u;
    /* Per-slot cap: 2 GB, the largest a slot's 32-bit size carries (a
     * 16384 x 16384 subresource of a 16-byte format is 4 GB and cannot be
-    * mapped); slots are lazily allocated up to NPT_D3D_MAP_SLOT_MAX. */
+    * mapped); slots are lazily allocated up to the ring's cap. */
    if (per_slot == 0 || aligned_slot > (uint64_t)(2048u << 20)) {
       npt_log("texture_ensure_map_shmem: bad size");
       return false;
@@ -1051,7 +1066,8 @@ uint32_t npt_d3d11_texture_get_current_slot(const struct npt_d3d11_texture *t)
 void npt_d3d11_texture_set_current_slot(struct npt_d3d11_texture *t, uint32_t slot)
 {
    struct npt_d3d11_texture_aux *aux = tex_aux(t);
-   if (aux && slot < NPT_D3D_MAP_SLOT_MAX) aux->map_ring.current_slot = slot;
+   if (aux && slot < aux->map_ring.active_count)
+      aux->map_ring.current_slot = slot;
 }
 
 uint32_t npt_d3d11_texture_slot_offset(const struct npt_d3d11_texture *t, uint32_t slot)

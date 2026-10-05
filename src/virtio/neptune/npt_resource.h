@@ -7,11 +7,11 @@
  * use a plain npt_com_base; buffer and texture families need aux state
  * for staging shmem.
  *
- * Map staging: each resource owns a rename ring with up to
- * NPT_D3D_MAP_SLOT_MAX slots.  Slot 0 is allocated eagerly on first
- * ensure_shmem (sync MAP_RESOURCE always lands on slot 0); additional
- * slots grow lazily when the wrap-around slot is still in flight.  At
- * the cap, rotate falls back to blocking on pending_seqno.  Slots
+ * Map staging: each resource owns a rename ring of slots.  Slot 0 is
+ * allocated eagerly on first ensure_shmem (sync MAP_RESOURCE always lands
+ * on slot 0); additional slots grow lazily when the wrap-around slot is
+ * still in flight, up to a cap that depends on the slot size.  At the
+ * cap, rotate falls back to blocking on pending_seqno.  Slots
  * sub-allocate from the per-device map_pool rather than getting one
  * shmem each, which scales linearly with N on the host.
  */
@@ -30,7 +30,10 @@ struct npt_d3d11_texture;
  * ========================================================================== */
 
 #define NPT_D3D_MAP_SLOT_INIT 1u
-#define NPT_D3D_MAP_SLOT_MAX  8u
+/* Largest per-ring cap; the cap of a ring (max_slots) depends on its slot
+ * size so small, frequently discarded buffers can run further ahead of
+ * the host than large ones (see npt_d3d_map_ring_alloc_shmem). */
+#define NPT_D3D_MAP_SLOT_MAX  32u
 
 struct npt_d3d_map_slot {
    /* Ref into the per-device map_pool's current shmem (NULL until
@@ -51,11 +54,13 @@ struct npt_d3d_map_slot {
 struct npt_d3d_map_ring {
    struct npt_com_base *com;
    uint32_t aligned_slot_size;
+   uint32_t max_slots;      /* growth cap, <= NPT_D3D_MAP_SLOT_MAX */
    uint32_t active_count;
    uint32_t current_slot;
    bool     is_mapped;
    uint32_t last_map_access_flags;
-   struct npt_d3d_map_slot slots[NPT_D3D_MAP_SLOT_MAX];
+   /* max_slots entries, allocated with the first shmem; NULL until then. */
+   struct npt_d3d_map_slot *slots;
 };
 
 /* Slot size depends on per-resource sizing (byte_width / row_pitch *
@@ -75,27 +80,26 @@ void npt_d3d_map_ring_fini(struct npt_d3d_map_ring *r);
 static inline uint32_t
 npt_d3d_map_ring_slot_offset(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= NPT_D3D_MAP_SLOT_MAX) return 0;
+   if (slot >= r->active_count) return 0;
    return r->slots[slot].offset;
 }
 
 static inline void *
 npt_d3d_map_ring_slot_ptr(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= NPT_D3D_MAP_SLOT_MAX || !r->slots[slot].shmem) return NULL;
+   if (slot >= r->active_count || !r->slots[slot].shmem) return NULL;
    return (uint8_t *)r->slots[slot].shmem->mmap_ptr + r->slots[slot].offset;
 }
 
 static inline uint32_t
 npt_d3d_map_ring_slot_res_id(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= NPT_D3D_MAP_SLOT_MAX) return 0;
+   if (slot >= r->active_count) return 0;
    return r->slots[slot].shmem_res_id;
 }
 
-/* Try the next slot in the ring; if it's in flight, grow up to
- * NPT_D3D_MAP_SLOT_MAX before falling back to blocking on
- * pending_seqno. */
+/* Try the next slot in the ring; if it's in flight, grow up to the
+ * ring's max_slots before falling back to blocking on pending_seqno. */
 uint32_t npt_d3d_map_ring_rotate_slot(struct npt_d3d_map_ring *r);
 
 void npt_d3d_map_ring_mark_slot_submitted(struct npt_d3d_map_ring *r,
