@@ -378,17 +378,20 @@ static UINT tritonMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format, UINT Sample
         }
         /* Publish one consistent value per member: read-only depth views and
          * non-renderable members stay 0 (they are exempt from the agreement),
-         * while every render-target-capable member -- the typeless parent AND
-         * each typed target, integer/SINT views included -- reports the family
-         * value.  Lifting the integer sibling UP, rather than dragging the
-         * colour target down to its zero, keeps the family uniform without
-         * losing MSAA on the common render targets. */
+         * while the typeless parent (group[0]) and every render-target- or
+         * depth-capable typed member, integer/SINT views included, report the
+         * family value.  The parent is not judged by the host's bits: a
+         * typeless format has no target capability of its own, yet the
+         * runtime requires it to agree with its targets.  Lifting the integer
+         * sibling UP, rather than dragging the colour target down to its zero,
+         * keeps the family uniform without losing MSAA on the common render
+         * targets. */
         for (unsigned j = 0; j < 7 && group[j] != DXGI_FORMAT_UNKNOWN; j++)
             if ((UINT)group[j] < 256u) {
                 UINT val;
                 if (tritonMsaaReadOnlyDepthView(group[j]))
                     val = 0;
-                else if (tritonHostRenderTargetable(pD, group[j]))
+                else if (j == 0 || tritonHostRenderTargetable(pD, group[j]))
                     val = famMax;
                 else
                     val = 0;
@@ -398,7 +401,8 @@ static UINT tritonMsaaQuality(PTRITON_DEVICE pD, DXGI_FORMAT Format, UINT Sample
         /* Re-derive rather than read back: this format's own entry is what the
          * loop just published, and deriving keeps the >= 256 case correct. */
         if (tritonMsaaReadOnlyDepthView(Format))    return 0;
-        if (tritonHostRenderTargetable(pD, Format)) return famMax;
+        if (Format == group[0] ||
+            tritonHostRenderTargetable(pD, Format)) return famMax;
         return 0;
     }
 
@@ -497,6 +501,26 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
         s2 = fs2.OutFormatSupport2;
     *pOut = tritonTranslateFormatSupport(s1, s2);
 
+    /* A typeless parent reports what its family can do: the host answers for
+     * the typeless format itself carry no target or multisample capability
+     * (the DXGI format-support tables disallow them on typeless formats),
+     * but the runtime holds the parent to the family's MSAA answers. */
+    BOOL familyTargetable = FALSE;
+    const DXGI_FORMAT *family = tritonMsaaGroup(Format);
+    const BOOL parent = family && family[0] == Format;
+    if (parent) {
+        for (unsigned j = 1; j < 7 && family[j] != DXGI_FORMAT_UNKNOWN; j++) {
+            if (tritonMsaaReadOnlyDepthView(family[j]))
+                continue;
+            UINT m = 0;
+            tritonCheckFormatSupport(hDevice, family[j], &m);
+            *pOut |= m & ~(UINT)(D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET |
+                                 D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_LOAD);
+            if (tritonHostRenderTargetable(pD, family[j]))
+                familyTargetable = TRUE;
+        }
+    }
+
     /* Derive MULTISAMPLE_RENDERTARGET from the SAME family-normalized helper
      * CheckMultisampleQualityLevels answers from, so the support bit and the
      * quality-level query agree for every format; the helper already reports 0
@@ -522,7 +546,7 @@ tritonCheckFormatSupport(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pOu
     {
         const BOOL msaaTargetable =
             (*pOut & D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET) ||
-            (s1 & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL);
+            (s1 & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) || familyTargetable;
         if (!msaaTargetable)
             *pOut &= ~(UINT)D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
     }
