@@ -191,13 +191,13 @@ t12ForceRowMajorOnCpuHeap(const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
  * linear-export heap flags (so the host substitutes its linear shm surface
  * for it), whose blob then backs the KM allocation registered against the
  * GAME resource's runtime handle.  The companion starts and stays in
- * COMMON; its only writer is the CopyResource in t12PresentCompanionCopy,
+ * COMMON; its only writer is the present's CopyResource (t12Present),
  * which relies on implicit COMMON-state promotion (verified host-side by
  * d3dmetal-native's present-copy-test). */
-static BOOL
-t12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
-                   const D3D12_HEAP_PROPERTIES *props,
-                   const D3D12_RESOURCE_DESC *desc)
+BOOL
+triton12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
+                        const D3D12_HEAP_PROPERTIES *props,
+                        const D3D12_RESOURCE_DESC *desc)
 {
     const D3D12_HEAP_FLAGS hf =
         D3D12_HEAP_FLAG_ALLOW_DISPLAY | D3D12_HEAP_FLAG_SHARED |
@@ -390,7 +390,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
         }
         if (SUCCEEDED(hr) && shared) {
             if (companion) {
-                if (!t12CreateCompanion(p, r, &props, &desc)) {
+                if (!triton12CreateCompanion(p, r, &props, &desc)) {
                     /* Companion build failed: fall back to an eager
                      * direct share so the swapchain still works -- the
                      * resource becomes an impostor, which renders. */

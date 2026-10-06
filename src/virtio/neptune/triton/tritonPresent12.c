@@ -546,7 +546,7 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
            const D3D12DDIARG_PRESENT_0001 *pArgs, D3D12DDI_PRESENT_0003 *pOut)
 {
     PTRITON12_QUEUE q = (PTRITON12_QUEUE)hQueue.pDrvPrivate;
-    (void)hList;
+    PTRITON12_LIST l = (PTRITON12_LIST)hList.pDrvPrivate;
     if (!pOut)
         return;
     memset(pOut, 0, sizeof(*pOut));
@@ -560,6 +560,21 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
     PTRITON12_RESOURCE dst =
         (PTRITON12_RESOURCE)pArgs->hDstResource.pDrvPrivate;
 
+    /* A source still holding its residency-only placeholder names no memory
+     * for the kernel present to copy from.  D3D9On12 presents plain textures
+     * (no RENDER_TARGET flag, e.g. its A2R10G10B10 back buffer), which the
+     * create path gives no companion; build one here, once. */
+    if (src && src->pResource && !src->pCompanion && q->pDev &&
+        (src->ResidencyOnlyAlloc || !src->hKMAllocation)) {
+        D3D12_RESOURCE_DESC desc;
+        D3D12_HEAP_PROPERTIES props;
+        ID3D12Resource_GetDesc(src->pResource, &desc);
+        memset(&props, 0, sizeof(props));
+        props.Type = D3D12_HEAP_TYPE_DEFAULT;
+        if (triton12CreateCompanion(q->pDev, src, &props, &desc))
+            src->ResidencyOnlyAlloc = FALSE;
+    }
+
     pOut->hSrcAllocation = src ? src->hKMAllocation : 0;
     pOut->hDstAllocation = dst ? dst->hKMAllocation : 0;
     pOut->hContext       = q->hKMContext;
@@ -571,9 +586,20 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
 
     /* Companion-backed back buffer: copy the rendered native frame into
      * the shared companion the KM allocation names, before the arm below
-     * so the GPU-done gate covers the copy. */
-    if (src && src->pCompanion && src->pResource && q->pQueue)
-        t12PresentCompanionCopy(q, src);
+     * so the GPU-done gate covers the copy.  A blt present instead records
+     * the copy at the end of the open list the runtime executes ahead of
+     * the kernel present: a downlevel presenter (D3D9On12, D3D11On12)
+     * records the frame's last writes there, so a copy issued now would
+     * read the previous frame. */
+    if (src && src->pCompanion && src->pResource) {
+        if (pArgs->Flags.Blt && l && l->pList && !l->AwaitingReset) {
+            ID3D12GraphicsCommandList_CopyResource(l->pList, src->pCompanion,
+                                                   src->pResource);
+            pOut->AddedGpuWork = TRUE;
+        } else if (q->pQueue) {
+            t12PresentCompanionCopy(q, src);
+        }
+    }
 
     /* Arm the render->flip token for this frame, then wait for it.
      *

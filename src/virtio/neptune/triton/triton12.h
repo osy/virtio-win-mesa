@@ -367,6 +367,13 @@ BOOL triton12RegisterResidencyAlloc(PTRITON12_DEVICE p, PTRITON12_RESOURCE r);
  * not free driver-minted allocations with the resource. */
 void triton12DeallocateKM(PTRITON12_DEVICE p, D3DKMT_HANDLE *phAllocation);
 
+/* Give r a shared linear companion surface whose blob backs its KM
+ * allocation (the present copies the frame into it); desc/props are
+ * the resource's own.  Replaces a residency-only placeholder. */
+BOOL triton12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
+                             const D3D12_HEAP_PROPERTIES *props,
+                             const D3D12_RESOURCE_DESC *desc);
+
 /* The bare allocation, for objects with no TRITON12_RESOURCE (standalone
  * heaps).  Returns 0 on failure. */
 D3DKMT_HANDLE triton12AllocResidencyOnly(PTRITON12_DEVICE p,
