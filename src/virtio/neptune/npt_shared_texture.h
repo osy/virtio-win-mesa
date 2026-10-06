@@ -79,6 +79,11 @@ uint32_t npt_shared_texture_host_format(uint32_t dxgi_format);
  * B8G8R8A8 with a log. */
 uint32_t npt_shared_texture_virgl_format(uint32_t dxgi_format);
 
+/* Exact DXGI -> enum virgl_formats for a blob the host copies from (a blt
+ * present source), including formats no scanout takes; 0 when there is no
+ * exact match. */
+uint32_t npt_shared_texture_virgl_copy_format(uint32_t dxgi_format);
+
 /* Create a width x height, mips=1, RENDER_TARGET|SHADER_RESOURCE,
  * MISC_SHARED|LINEAR_EXPORT host texture through the device wrapper's
  * vtbl (\p device_wrapper is an ID3D11Device* Neptune COM wrapper).

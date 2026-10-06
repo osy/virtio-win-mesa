@@ -206,10 +206,17 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
     o->cpu_access_flags = 0;
     o->misc_flags       = 0x2;  /* D3D11_RESOURCE_MISC_SHARED */
 
-    if (primary) {
+    /* Describe a non-primary blob too when the host can type it exactly:
+     * the KMD's blt present types the source from ScanoutInfo, and a zero
+     * width makes the host reject the type and the copy (windowed
+     * blt-model presents stay black).  A blob in any other format stays
+     * undescribed -- typed as BGRA8, its row pitch would not fit. */
+    const uint32_t copyFmt = npt_shared_texture_virgl_copy_format(r->Desc.Format);
+    if (primary || copyFmt) {
         o->ScanoutInfo.width      = (ULONG)r->Desc.Width;
         o->ScanoutInfo.height     = r->Desc.Height;
-        o->ScanoutInfo.format     = npt_shared_texture_virgl_format(r->Desc.Format);
+        o->ScanoutInfo.format     = primary
+            ? npt_shared_texture_virgl_format(r->Desc.Format) : copyFmt;
         o->ScanoutInfo.strides[0] = (ULONG)o->planes[0].pitch;
         o->ScanoutInfo.offsets[0] = (ULONG)o->planes[0].offset;
     }
