@@ -225,6 +225,12 @@ typedef void *(*npt_com_ctor_fn)(struct npt_device *dev, uint64_t object_id);
 void
 npt_com_register_default_ctor(const GUID *iid, npt_com_ctor_fn ctor);
 
+/* Replace a ctor installed by the generated default-ctor table.  Intended for
+ * exceptional ABI cases where the wrapper needs different physical vtable
+ * storage while keeping the generated interface implementation. */
+void
+npt_com_replace_ctor(const GUID *iid, npt_com_ctor_fn ctor);
+
 /*
  * Aux state: runtime-allocated per-wrapper side data.  A family
  * declares aux_size and aux_init via npt_com_register_family; on

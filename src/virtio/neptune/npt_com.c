@@ -161,8 +161,9 @@ npt_com_qi_memo_flush(struct npt_com_base *com)
    }
 }
 
-/* Override families patch vtbls in place rather than registering a
- * different ctor, so existing entries are left alone. */
+/* Default registration is insert-only.  Most override families patch vtbls
+ * in place; exceptional ABI cases may replace an existing ctor explicitly
+ * after the generated ctor table has been populated. */
 void
 npt_com_register_default_ctor(const GUID *iid, npt_com_ctor_fn ctor)
 {
@@ -177,6 +178,21 @@ npt_com_register_default_ctor(const GUID *iid, npt_com_ctor_fn ctor)
       e->iid = iid;
       e->ctor = ctor;
    }
+}
+
+void
+npt_com_replace_ctor(const GUID *iid, npt_com_ctor_fn ctor)
+{
+   if (!iid || !ctor)
+      return;
+
+   struct npt_com_ctor_entry *e = npt_com_table_lookup_entry_mut(iid);
+   if (!e || e->iid == NULL) {
+      npt_log("npt_com_replace_ctor: no default ctor registered for IID");
+      return;
+   }
+
+   e->ctor = ctor;
 }
 
 

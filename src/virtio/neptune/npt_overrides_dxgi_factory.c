@@ -285,6 +285,25 @@ static const GUID *const factory_tiers[] = {
    &NPT_IID_IDXGIFactory6, &NPT_IID_IDXGIFactory7, NULL,
 };
 
+/*
+ * Native DXGI hands out one factory object whose vtable is the newest
+ * interface, so a caller that has seen a QueryInterface for a higher tier
+ * succeed may call that tier's methods through the pointer it already
+ * holds.  Every tier wrapper below IDXGIFactory7 is therefore backed by
+ * Factory7-wide storage holding the same methods, keeping its own
+ * QueryInterface so the tiers it answers locally stay those of its
+ * interface.
+ */
+#define FACTORY_WIDE_TIER(NAME, LOWER, IID)                                 static struct npt_idxgifactory7_client_vtbl NAME##_wide_vtbl;                                                                                         static void *                                                              NAME##_wide_ctor(struct npt_device *dev, uint64_t host_id)                 {                                                                             struct npt_com_base *com = npt_##LOWER##_client_create(dev, host_id);      if (com)                                                                      com->lpVtbl = (const void **)&NAME##_wide_vtbl;                         return com;                                                             }                                                                                                                                                     static void                                                                NAME##_wide_install(void)                                                  {                                                                             NAME##_wide_vtbl = npt_idxgifactory7_default_vtbl_storage;                 NAME##_wide_vtbl.QueryInterface = npt_##LOWER##_default_QueryInterface;    NAME##_wide_vtbl.AddRef         = npt_##LOWER##_default_AddRef;            NAME##_wide_vtbl.Release        = npt_##LOWER##_default_Release;           npt_com_replace_ctor(&IID, NAME##_wide_ctor);                           }
+
+FACTORY_WIDE_TIER(factory,  idxgifactory,  NPT_IID_IDXGIFactory)
+FACTORY_WIDE_TIER(factory1, idxgifactory1, NPT_IID_IDXGIFactory1)
+FACTORY_WIDE_TIER(factory2, idxgifactory2, NPT_IID_IDXGIFactory2)
+FACTORY_WIDE_TIER(factory3, idxgifactory3, NPT_IID_IDXGIFactory3)
+FACTORY_WIDE_TIER(factory4, idxgifactory4, NPT_IID_IDXGIFactory4)
+FACTORY_WIDE_TIER(factory5, idxgifactory5, NPT_IID_IDXGIFactory5)
+FACTORY_WIDE_TIER(factory6, idxgifactory6, NPT_IID_IDXGIFactory6)
+
 void
 npt_overrides_dxgi_factory_init(void)
 {
@@ -322,6 +341,16 @@ npt_overrides_dxgi_factory_init(void)
                                        fac2_CreateSwapChainForCoreWindow_override);
    NPT_REGISTER_OVERRIDE_DXGI_FACTORY2(CreateSwapChainForComposition,
                                        fac2_CreateSwapChainForComposition_override);
+
+   /* Clone only after every factory override above has been installed,
+    * so the wide tables carry the same hand-written methods as Factory7. */
+   factory_wide_install();
+   factory1_wide_install();
+   factory2_wide_install();
+   factory3_wide_install();
+   factory4_wide_install();
+   factory5_wide_install();
+   factory6_wide_install();
 
    npt_com_register_family(factory_tiers, 0, NULL);
 }
