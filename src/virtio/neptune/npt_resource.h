@@ -59,7 +59,11 @@ struct npt_d3d_map_ring {
    uint32_t current_slot;
    bool     is_mapped;
    uint32_t last_map_access_flags;
-   /* max_slots entries, allocated with the first shmem; NULL until then. */
+   /* max_slots entries, allocated with the first shmem; NULL until then.
+    * Deferred contexts on other threads map the same resource through
+    * this ring with no lock, and a rotate there publishes a slot's shmem
+    * before it bumps active_count, so the accessors below bound a slot
+    * by the array and its shmem, never by active_count. */
    struct npt_d3d_map_slot *slots;
 };
 
@@ -80,21 +84,21 @@ void npt_d3d_map_ring_fini(struct npt_d3d_map_ring *r);
 static inline uint32_t
 npt_d3d_map_ring_slot_offset(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= r->active_count) return 0;
+   if (!r->slots || slot >= r->max_slots) return 0;
    return r->slots[slot].offset;
 }
 
 static inline void *
 npt_d3d_map_ring_slot_ptr(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= r->active_count || !r->slots[slot].shmem) return NULL;
+   if (!r->slots || slot >= r->max_slots || !r->slots[slot].shmem) return NULL;
    return (uint8_t *)r->slots[slot].shmem->mmap_ptr + r->slots[slot].offset;
 }
 
 static inline uint32_t
 npt_d3d_map_ring_slot_res_id(const struct npt_d3d_map_ring *r, uint32_t slot)
 {
-   if (slot >= r->active_count) return 0;
+   if (!r->slots || slot >= r->max_slots) return 0;
    return r->slots[slot].shmem_res_id;
 }
 

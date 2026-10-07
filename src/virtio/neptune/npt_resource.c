@@ -11,6 +11,7 @@
 #include "npt_shmem_pool.h"
 
 #include "util/list.h"
+#include "util/u_atomic.h"
 
 #include <stdlib.h>
 #if defined(_WIN32)
@@ -244,12 +245,19 @@ npt_d3d_map_ring_alloc_shmem(struct npt_d3d_map_ring *r,
    r->max_slots = aligned_slot_size <= 4096u    ? NPT_D3D_MAP_SLOT_MAX :
                   aligned_slot_size <= 65536u   ? 16u : 8u;
    if (!r->slots) {
-      r->slots = calloc(r->max_slots, sizeof(*r->slots));
-      if (!r->slots) {
+      /* Deferred contexts on other threads can take this first Map at
+       * the same time; the array is published once and the losers'
+       * copies dropped, so no thread ends up with slots the others do
+       * not see. */
+      struct npt_d3d_map_slot *fresh =
+         calloc(r->max_slots, sizeof(*r->slots));
+      if (!fresh) {
          r->aligned_slot_size = 0;
          r->max_slots = 0;
          return false;
       }
+      if (p_atomic_cmpxchg_ptr(&r->slots, NULL, fresh) != NULL)
+         free(fresh);
    }
    for (uint32_t i = 0; i < NPT_D3D_MAP_SLOT_INIT; i++) {
       if (!alloc_slot_locked(r, i))
@@ -319,7 +327,7 @@ npt_d3d_map_ring_mark_slot_submitted(struct npt_d3d_map_ring *r,
                                      uint32_t slot, uint32_t seqno,
                                      struct npt_ring *ring)
 {
-   if (slot >= r->active_count)
+   if (!r->slots || slot >= r->max_slots)
       return;
    r->slots[slot].pending_seqno = seqno;
    r->slots[slot].pending_ring = ring;
@@ -453,7 +461,7 @@ void
 npt_d3d11_buffer_set_current_slot(struct npt_d3d11_buffer *b, uint32_t slot)
 {
    struct npt_d3d11_buffer_aux *aux = buf_aux(b);
-   if (aux && slot < aux->map_ring.active_count)
+   if (aux && slot < NPT_D3D_MAP_SLOT_MAX)
       aux->map_ring.current_slot = slot;
 }
 
@@ -1066,7 +1074,7 @@ uint32_t npt_d3d11_texture_get_current_slot(const struct npt_d3d11_texture *t)
 void npt_d3d11_texture_set_current_slot(struct npt_d3d11_texture *t, uint32_t slot)
 {
    struct npt_d3d11_texture_aux *aux = tex_aux(t);
-   if (aux && slot < aux->map_ring.active_count)
+   if (aux && slot < NPT_D3D_MAP_SLOT_MAX)
       aux->map_ring.current_slot = slot;
 }
 
