@@ -243,7 +243,7 @@ npt_encode_ID3D11Device_CreateTexture1D(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pDesc))
         npt_encode_D3D11_TEXTURE1D_DESC(enc, pDesc);
     if (pInitialData) {
-        npt_encode_array_count(enc, pDesc->MipLevels * pDesc->ArraySize);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInitialData, (uint64_t)(pDesc->MipLevels * pDesc->ArraySize)));
         for (uint32_t _i = 0; _i < (uint32_t)(pDesc->MipLevels * pDesc->ArraySize); _i++)
             npt_encode_D3D11_SUBRESOURCE_DATA(enc, &pInitialData[_i]);
     } else {
@@ -417,7 +417,7 @@ npt_encode_ID3D11Device_CreateTexture2D(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pDesc))
         npt_encode_D3D11_TEXTURE2D_DESC(enc, pDesc);
     if (pInitialData) {
-        npt_encode_array_count(enc, pDesc->MipLevels * pDesc->ArraySize);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInitialData, (uint64_t)(pDesc->MipLevels * pDesc->ArraySize)));
         for (uint32_t _i = 0; _i < (uint32_t)(pDesc->MipLevels * pDesc->ArraySize); _i++)
             npt_encode_D3D11_SUBRESOURCE_DATA(enc, &pInitialData[_i]);
     } else {
@@ -591,7 +591,7 @@ npt_encode_ID3D11Device_CreateTexture3D(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pDesc))
         npt_encode_D3D11_TEXTURE3D_DESC(enc, pDesc);
     if (pInitialData) {
-        npt_encode_array_count(enc, pDesc->MipLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInitialData, (uint64_t)(pDesc->MipLevels)));
         for (uint32_t _i = 0; _i < (uint32_t)(pDesc->MipLevels); _i++)
             npt_encode_D3D11_SUBRESOURCE_DATA(enc, &pInitialData[_i]);
     } else {
@@ -1436,7 +1436,7 @@ npt_encode_ID3D11Device_CreateInputLayout(struct npt_cs_encoder *enc,
     };
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     if (pInputElementDescs) {
-        npt_encode_array_count(enc, NumElements);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInputElementDescs, (uint64_t)(NumElements)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumElements); _i++)
             npt_encode_D3D11_INPUT_ELEMENT_DESC(enc, &pInputElementDescs[_i]);
     } else {
@@ -2016,7 +2016,7 @@ npt_encode_ID3D11Device_CreateGeometryShaderWithStreamOutput(struct npt_cs_encod
     }
     npt_encode_SIZE_T(enc, &BytecodeLength);
     if (pSODeclaration) {
-        npt_encode_array_count(enc, NumEntries);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSODeclaration, (uint64_t)(NumEntries)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumEntries); _i++)
             npt_encode_D3D11_SO_DECLARATION_ENTRY(enc, &pSODeclaration[_i]);
     } else {
@@ -2024,7 +2024,7 @@ npt_encode_ID3D11Device_CreateGeometryShaderWithStreamOutput(struct npt_cs_encod
     }
     npt_encode_UINT(enc, &NumEntries);
     if (pBufferStrides) {
-        npt_encode_array_count(enc, NumStrides);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBufferStrides, (uint64_t)(NumStrides)));
         npt_encode_UINT_array(enc, pBufferStrides, NumStrides);
     } else {
         npt_encode_array_count(enc, 0);
@@ -7259,7 +7259,7 @@ npt_encode_ID3D11Device1_CreateDeviceContextState(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &Flags);
     if (pFeatureLevels) {
-        npt_encode_array_count(enc, FeatureLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pFeatureLevels, (uint64_t)(FeatureLevels)));
         npt_encode_D3D_FEATURE_LEVEL_array(enc, pFeatureLevels, FeatureLevels);
     } else {
         npt_encode_array_count(enc, 0);
@@ -8480,7 +8480,7 @@ npt_encode_ID3D11Device3_CreateTexture2D1(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pDesc1))
         npt_encode_D3D11_TEXTURE2D_DESC1(enc, pDesc1);
     if (pInitialData) {
-        npt_encode_array_count(enc, pDesc1->MipLevels * pDesc1->ArraySize);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInitialData, (uint64_t)(pDesc1->MipLevels * pDesc1->ArraySize)));
         for (uint32_t _i = 0; _i < (uint32_t)(pDesc1->MipLevels * pDesc1->ArraySize); _i++)
             npt_encode_D3D11_SUBRESOURCE_DATA(enc, &pInitialData[_i]);
     } else {
@@ -8654,7 +8654,7 @@ npt_encode_ID3D11Device3_CreateTexture3D1(struct npt_cs_encoder *enc,
     if (npt_encode_simple_pointer(enc, pDesc1))
         npt_encode_D3D11_TEXTURE3D_DESC1(enc, pDesc1);
     if (pInitialData) {
-        npt_encode_array_count(enc, pDesc1->MipLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pInitialData, (uint64_t)(pDesc1->MipLevels)));
         for (uint32_t _i = 0; _i < (uint32_t)(pDesc1->MipLevels); _i++)
             npt_encode_D3D11_SUBRESOURCE_DATA(enc, &pInitialData[_i]);
     } else {

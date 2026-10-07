@@ -1598,7 +1598,7 @@ npt_encode_ID3D12GraphicsCommandList_RSSetViewports(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumViewports);
     if (pViewports) {
-        npt_encode_array_count(enc, NumViewports);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pViewports, (uint64_t)(NumViewports)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumViewports); _i++)
             npt_encode_D3D12_VIEWPORT(enc, &pViewports[_i]);
     } else {
@@ -1717,7 +1717,7 @@ npt_encode_ID3D12GraphicsCommandList_RSSetScissorRects(struct npt_cs_encoder *en
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumRects);
     if (pRects) {
-        npt_encode_array_count(enc, NumRects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRects, (uint64_t)(NumRects)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRects); _i++)
             npt_encode_D3D12_RECT(enc, &pRects[_i]);
     } else {
@@ -2152,7 +2152,7 @@ npt_encode_ID3D12GraphicsCommandList_ResourceBarrier(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumBarriers);
     if (pBarriers) {
-        npt_encode_array_count(enc, NumBarriers);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBarriers, (uint64_t)(NumBarriers)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumBarriers); _i++)
             npt_encode_D3D12_RESOURCE_BARRIER(enc, &pBarriers[_i]);
     } else {
@@ -2350,8 +2350,8 @@ npt_sizeof_ID3D12GraphicsCommandList_SetDescriptorHeaps(const UINT NumDescriptor
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumDescriptorHeaps, max_mode);
-    cmd_size += npt_sizeof_array_count(NumDescriptorHeaps);
-    cmd_size += sizeof(uint64_t) * NumDescriptorHeaps;
+    cmd_size += npt_sizeof_array_count((ppDescriptorHeaps ? NumDescriptorHeaps : 0));
+    cmd_size += sizeof(uint64_t) * (ppDescriptorHeaps ? NumDescriptorHeaps : 0);
     return cmd_size;
 }
 
@@ -4208,7 +4208,7 @@ npt_encode_ID3D12GraphicsCommandList_IASetVertexBuffers(struct npt_cs_encoder *e
     npt_encode_UINT(enc, &StartSlot);
     npt_encode_UINT(enc, &NumViews);
     if (pViews) {
-        npt_encode_array_count(enc, NumViews);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pViews, (uint64_t)(NumViews)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumViews); _i++)
             npt_encode_D3D12_VERTEX_BUFFER_VIEW(enc, &pViews[_i]);
     } else {
@@ -4335,7 +4335,7 @@ npt_encode_ID3D12GraphicsCommandList_SOSetTargets(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &StartSlot);
     npt_encode_UINT(enc, &NumViews);
     if (pViews) {
-        npt_encode_array_count(enc, NumViews);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pViews, (uint64_t)(NumViews)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumViews); _i++)
             npt_encode_D3D12_STREAM_OUTPUT_BUFFER_VIEW(enc, &pViews[_i]);
     } else {
@@ -4466,7 +4466,7 @@ npt_encode_ID3D12GraphicsCommandList_OMSetRenderTargets(struct npt_cs_encoder *e
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumRenderTargetDescriptors);
     if (pRenderTargetDescriptors) {
-        npt_encode_array_count(enc, RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRenderTargetDescriptors, (uint64_t)(RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors)));
         for (uint32_t _i = 0; _i < (uint32_t)(RTsSingleHandleToDescriptorRange ? 1 : NumRenderTargetDescriptors); _i++)
             npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, &pRenderTargetDescriptors[_i]);
     } else {
@@ -4612,7 +4612,7 @@ npt_encode_ID3D12GraphicsCommandList_ClearDepthStencilView(struct npt_cs_encoder
     npt_encode_UINT8(enc, &Stencil);
     npt_encode_UINT(enc, &NumRects);
     if (pRects) {
-        npt_encode_array_count(enc, NumRects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRects, (uint64_t)(NumRects)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRects); _i++)
             npt_encode_D3D12_RECT(enc, &pRects[_i]);
     } else {
@@ -4757,7 +4757,7 @@ npt_encode_ID3D12GraphicsCommandList_ClearRenderTargetView(struct npt_cs_encoder
     npt_encode_FLOAT_array(enc, (const FLOAT *)ColorRGBA, 4);
     npt_encode_UINT(enc, &NumRects);
     if (pRects) {
-        npt_encode_array_count(enc, NumRects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRects, (uint64_t)(NumRects)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRects); _i++)
             npt_encode_D3D12_RECT(enc, &pRects[_i]);
     } else {
@@ -4902,7 +4902,7 @@ npt_encode_ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(struct npt_cs_
     npt_encode_UINT_array(enc, (const UINT *)Values, 4);
     npt_encode_UINT(enc, &NumRects);
     if (pRects) {
-        npt_encode_array_count(enc, NumRects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRects, (uint64_t)(NumRects)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRects); _i++)
             npt_encode_D3D12_RECT(enc, &pRects[_i]);
     } else {
@@ -5055,7 +5055,7 @@ npt_encode_ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(struct npt_cs
     npt_encode_FLOAT_array(enc, (const FLOAT *)Values, 4);
     npt_encode_UINT(enc, &NumRects);
     if (pRects) {
-        npt_encode_array_count(enc, NumRects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRects, (uint64_t)(NumRects)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRects); _i++)
             npt_encode_D3D12_RECT(enc, &pRects[_i]);
     } else {
@@ -6285,8 +6285,8 @@ npt_sizeof_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT(const ID3D12Resource 
     cmd_size += sizeof(uint64_t);
     cmd_size += npt_sizeof_UINT64(&SrcOffset, max_mode);
     cmd_size += npt_sizeof_UINT(&Dependencies, max_mode);
-    cmd_size += npt_sizeof_array_count(Dependencies);
-    cmd_size += sizeof(uint64_t) * Dependencies;
+    cmd_size += npt_sizeof_array_count((ppDependentResources ? Dependencies : 0));
+    cmd_size += sizeof(uint64_t) * (ppDependentResources ? Dependencies : 0);
     cmd_size += npt_sizeof_array_count(pDependentSubresourceRanges ? Dependencies : 0);
     for (uint32_t _i = 0; _i < (pDependentSubresourceRanges ? Dependencies : 0); _i++)
         cmd_size += npt_sizeof_D3D12_SUBRESOURCE_RANGE_UINT64(&pDependentSubresourceRanges[_i], max_mode);
@@ -6327,7 +6327,7 @@ npt_encode_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT(struct npt_cs_encoder
         npt_encode_array_count(enc, 0);
     }
     if (pDependentSubresourceRanges) {
-        npt_encode_array_count(enc, Dependencies);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pDependentSubresourceRanges, (uint64_t)(Dependencies)));
         for (uint32_t _i = 0; _i < (uint32_t)(Dependencies); _i++)
             npt_encode_D3D12_SUBRESOURCE_RANGE_UINT64(enc, &pDependentSubresourceRanges[_i]);
     } else {
@@ -6451,8 +6451,8 @@ npt_sizeof_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT64(const ID3D12Resourc
     cmd_size += sizeof(uint64_t);
     cmd_size += npt_sizeof_UINT64(&SrcOffset, max_mode);
     cmd_size += npt_sizeof_UINT(&Dependencies, max_mode);
-    cmd_size += npt_sizeof_array_count(Dependencies);
-    cmd_size += sizeof(uint64_t) * Dependencies;
+    cmd_size += npt_sizeof_array_count((ppDependentResources ? Dependencies : 0));
+    cmd_size += sizeof(uint64_t) * (ppDependentResources ? Dependencies : 0);
     cmd_size += npt_sizeof_array_count(pDependentSubresourceRanges ? Dependencies : 0);
     for (uint32_t _i = 0; _i < (pDependentSubresourceRanges ? Dependencies : 0); _i++)
         cmd_size += npt_sizeof_D3D12_SUBRESOURCE_RANGE_UINT64(&pDependentSubresourceRanges[_i], max_mode);
@@ -6493,7 +6493,7 @@ npt_encode_ID3D12GraphicsCommandList1_AtomicCopyBufferUINT64(struct npt_cs_encod
         npt_encode_array_count(enc, 0);
     }
     if (pDependentSubresourceRanges) {
-        npt_encode_array_count(enc, Dependencies);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pDependentSubresourceRanges, (uint64_t)(Dependencies)));
         for (uint32_t _i = 0; _i < (uint32_t)(Dependencies); _i++)
             npt_encode_D3D12_SUBRESOURCE_RANGE_UINT64(enc, &pDependentSubresourceRanges[_i]);
     } else {
@@ -6747,7 +6747,7 @@ npt_encode_ID3D12GraphicsCommandList1_SetSamplePositions(struct npt_cs_encoder *
     npt_encode_UINT(enc, &NumSamplesPerPixel);
     npt_encode_UINT(enc, &NumPixels);
     if (pSamplePositions) {
-        npt_encode_array_count(enc, NumSamplesPerPixel * NumPixels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSamplePositions, (uint64_t)(NumSamplesPerPixel * NumPixels)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumSamplesPerPixel * NumPixels); _i++)
             npt_encode_D3D12_SAMPLE_POSITION(enc, &pSamplePositions[_i]);
     } else {
@@ -7148,14 +7148,14 @@ npt_encode_ID3D12GraphicsCommandList2_WriteBufferImmediate(struct npt_cs_encoder
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &Count);
     if (pParams) {
-        npt_encode_array_count(enc, Count);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pParams, (uint64_t)(Count)));
         for (uint32_t _i = 0; _i < (uint32_t)(Count); _i++)
             npt_encode_D3D12_WRITEBUFFERIMMEDIATE_PARAMETER(enc, &pParams[_i]);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pModes) {
-        npt_encode_array_count(enc, Count);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pModes, (uint64_t)(Count)));
         npt_encode_D3D12_WRITEBUFFERIMMEDIATE_MODE_array(enc, pModes, Count);
     } else {
         npt_encode_array_count(enc, 0);
@@ -7388,7 +7388,7 @@ npt_encode_ID3D12GraphicsCommandList4_BeginRenderPass(struct npt_cs_encoder *enc
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumRenderTargets);
     if (pRenderTargets) {
-        npt_encode_array_count(enc, NumRenderTargets);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRenderTargets, (uint64_t)(NumRenderTargets)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumRenderTargets); _i++)
             npt_encode_D3D12_RENDER_PASS_RENDER_TARGET_DESC(enc, &pRenderTargets[_i]);
     } else {
@@ -7878,7 +7878,7 @@ npt_encode_ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(struc
         npt_encode_D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC(enc, pDesc);
     npt_encode_UINT(enc, &NumPostbuildInfoDescs);
     if (pPostbuildInfoDescs) {
-        npt_encode_array_count(enc, NumPostbuildInfoDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pPostbuildInfoDescs, (uint64_t)(NumPostbuildInfoDescs)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumPostbuildInfoDescs); _i++)
             npt_encode_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC(enc, &pPostbuildInfoDescs[_i]);
     } else {
@@ -8008,7 +8008,7 @@ npt_encode_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbui
         npt_encode_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC(enc, pDesc);
     npt_encode_UINT(enc, &NumSourceAccelerationStructures);
     if (pSourceAccelerationStructureData) {
-        npt_encode_array_count(enc, NumSourceAccelerationStructures);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSourceAccelerationStructureData, (uint64_t)(NumSourceAccelerationStructures)));
         npt_encode_D3D12_GPU_VIRTUAL_ADDRESS_array(enc, pSourceAccelerationStructureData, NumSourceAccelerationStructures);
     } else {
         npt_encode_array_count(enc, 0);
@@ -8458,7 +8458,7 @@ npt_encode_ID3D12GraphicsCommandList5_RSSetShadingRate(struct npt_cs_encoder *en
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_D3D12_SHADING_RATE(enc, &baseShadingRate);
     if (combiners) {
-        npt_encode_array_count(enc, D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(combiners, (uint64_t)(D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT)));
         npt_encode_D3D12_SHADING_RATE_COMBINER_array(enc, combiners, D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT);
     } else {
         npt_encode_array_count(enc, 0);
@@ -8798,7 +8798,7 @@ npt_encode_ID3D12GraphicsCommandList7_Barrier(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT32(enc, &NumBarrierGroups);
     if (pBarrierGroups) {
-        npt_encode_array_count(enc, NumBarrierGroups);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBarrierGroups, (uint64_t)(NumBarrierGroups)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumBarrierGroups); _i++)
             npt_encode_D3D12_BARRIER_GROUP(enc, &pBarrierGroups[_i]);
     } else {

@@ -682,7 +682,7 @@ npt_encode_ID3D11VideoContext_SubmitDecoderBuffers(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pDecoder));
     npt_encode_UINT(enc, &NumBuffers);
     if (pBufferDesc) {
-        npt_encode_array_count(enc, NumBuffers);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBufferDesc, (uint64_t)(NumBuffers)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumBuffers); _i++)
             npt_encode_D3D11_VIDEO_DECODER_BUFFER_DESC(enc, &pBufferDesc[_i]);
     } else {
@@ -3672,7 +3672,7 @@ npt_encode_ID3D11VideoContext_VideoProcessorSetStreamPalette(struct npt_cs_encod
     npt_encode_UINT(enc, &StreamIndex);
     npt_encode_UINT(enc, &Count);
     if (pEntries) {
-        npt_encode_array_count(enc, Count);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pEntries, (uint64_t)(Count)));
         npt_encode_UINT_array(enc, pEntries, Count);
     } else {
         npt_encode_array_count(enc, 0);
@@ -6839,7 +6839,7 @@ npt_encode_ID3D11VideoContext_VideoProcessorBlt(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &OutputFrame);
     npt_encode_UINT(enc, &StreamCount);
     if (pStreams) {
-        npt_encode_array_count(enc, StreamCount);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pStreams, (uint64_t)(StreamCount)));
         for (uint32_t _i = 0; _i < (uint32_t)(StreamCount); _i++)
             npt_encode_D3D11_VIDEO_PROCESSOR_STREAM(enc, &pStreams[_i]);
     } else {
@@ -8811,7 +8811,7 @@ npt_encode_ID3D11VideoContext1_SubmitDecoderBuffers1(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pDecoder));
     npt_encode_UINT(enc, &NumBuffers);
     if (pBufferDesc) {
-        npt_encode_array_count(enc, NumBuffers);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBufferDesc, (uint64_t)(NumBuffers)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumBuffers); _i++)
             npt_encode_D3D11_VIDEO_DECODER_BUFFER_DESC1(enc, &pBufferDesc[_i]);
     } else {
@@ -10679,7 +10679,7 @@ npt_encode_ID3D11VideoContext1_VideoProcessorGetBehaviorHints(struct npt_cs_enco
     npt_encode_DXGI_FORMAT(enc, &OutputFormat);
     npt_encode_UINT(enc, &StreamCount);
     if (pStreams) {
-        npt_encode_array_count(enc, StreamCount);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pStreams, (uint64_t)(StreamCount)));
         for (uint32_t _i = 0; _i < (uint32_t)(StreamCount); _i++)
             npt_encode_D3D11_VIDEO_PROCESSOR_STREAM_BEHAVIOR_HINT(enc, &pStreams[_i]);
     } else {
@@ -11472,8 +11472,8 @@ npt_sizeof_ID3D11VideoContext3_DecoderBeginFrame1(const ID3D11VideoDecoder * pDe
     cmd_size += npt_sizeof_array_count(pHistogramOffsets ? NumComponentHistograms : 0);
     if (pHistogramOffsets)
         cmd_size += npt_sizeof_UINT_array(pHistogramOffsets, NumComponentHistograms);
-    cmd_size += npt_sizeof_array_count(NumComponentHistograms);
-    cmd_size += sizeof(uint64_t) * NumComponentHistograms;
+    cmd_size += npt_sizeof_array_count((ppHistogramBuffers ? NumComponentHistograms : 0));
+    cmd_size += sizeof(uint64_t) * (ppHistogramBuffers ? NumComponentHistograms : 0);
     return cmd_size;
 }
 
@@ -11509,7 +11509,7 @@ npt_encode_ID3D11VideoContext3_DecoderBeginFrame1(struct npt_cs_encoder *enc,
     }
     npt_encode_UINT(enc, &NumComponentHistograms);
     if (pHistogramOffsets) {
-        npt_encode_array_count(enc, NumComponentHistograms);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pHistogramOffsets, (uint64_t)(NumComponentHistograms)));
         npt_encode_UINT_array(enc, pHistogramOffsets, NumComponentHistograms);
     } else {
         npt_encode_array_count(enc, 0);
@@ -11688,7 +11688,7 @@ npt_encode_ID3D11VideoContext3_SubmitDecoderBuffers2(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pDecoder));
     npt_encode_UINT(enc, &NumBuffers);
     if (pBufferDesc) {
-        npt_encode_array_count(enc, NumBuffers);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pBufferDesc, (uint64_t)(NumBuffers)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumBuffers); _i++)
             npt_encode_D3D11_VIDEO_DECODER_BUFFER_DESC2(enc, &pBufferDesc[_i]);
     } else {

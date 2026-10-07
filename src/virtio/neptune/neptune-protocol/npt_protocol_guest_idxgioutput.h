@@ -2800,7 +2800,7 @@ npt_encode_IDXGIOutput5_DuplicateOutput1(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &Flags);
     npt_encode_UINT(enc, &SupportedFormatsCount);
     if (pSupportedFormats) {
-        npt_encode_array_count(enc, SupportedFormatsCount);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSupportedFormats, (uint64_t)(SupportedFormatsCount)));
         npt_encode_DXGI_FORMAT_array(enc, pSupportedFormats, SupportedFormatsCount);
     } else {
         npt_encode_array_count(enc, 0);

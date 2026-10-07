@@ -4444,8 +4444,8 @@ npt_sizeof_IDXGISwapChain3_ResizeBuffers1(const UINT BufferCount,const UINT Widt
     cmd_size += npt_sizeof_array_count(pCreationNodeMask ? BufferCount : 0);
     if (pCreationNodeMask)
         cmd_size += npt_sizeof_UINT_array(pCreationNodeMask, BufferCount);
-    cmd_size += npt_sizeof_array_count(BufferCount);
-    cmd_size += sizeof(uint64_t) * BufferCount;
+    cmd_size += npt_sizeof_array_count((ppPresentQueue ? BufferCount : 0));
+    cmd_size += sizeof(uint64_t) * (ppPresentQueue ? BufferCount : 0);
     return cmd_size;
 }
 
@@ -4476,7 +4476,7 @@ npt_encode_IDXGISwapChain3_ResizeBuffers1(struct npt_cs_encoder *enc,
     npt_encode_DXGI_FORMAT(enc, &Format);
     npt_encode_UINT(enc, &SwapChainFlags);
     if (pCreationNodeMask) {
-        npt_encode_array_count(enc, BufferCount);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pCreationNodeMask, (uint64_t)(BufferCount)));
         npt_encode_UINT_array(enc, pCreationNodeMask, BufferCount);
     } else {
         npt_encode_array_count(enc, 0);

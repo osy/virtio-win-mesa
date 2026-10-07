@@ -374,8 +374,8 @@ npt_sizeof_IDXGIDevice_QueryResourceResidency(IUnknown ** ppResources,const DXGI
     const int max_mode = 0;
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
 /* skip pResidencyStatus (output only) */
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
     return cmd_size;
@@ -1085,8 +1085,8 @@ npt_sizeof_IDXGIDevice2_OfferResources(const UINT NumResources,IDXGIResource ** 
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
     cmd_size += npt_sizeof_DXGI_OFFER_RESOURCE_PRIORITY(&Priority, max_mode);
     return cmd_size;
 }
@@ -1241,8 +1241,8 @@ npt_sizeof_IDXGIDevice2_ReclaimResources(const UINT NumResources,IDXGIResource *
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
 /* skip pDiscarded (output only) */
     return cmd_size;
 }
@@ -1635,8 +1635,8 @@ npt_sizeof_IDXGIDevice4_OfferResources1(const UINT NumResources,IDXGIResource **
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
     cmd_size += npt_sizeof_DXGI_OFFER_RESOURCE_PRIORITY(&Priority, max_mode);
     cmd_size += npt_sizeof_UINT(&Flags, max_mode);
     return cmd_size;
@@ -1798,8 +1798,8 @@ npt_sizeof_IDXGIDevice4_ReclaimResources1(const UINT NumResources,IDXGIResource 
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
 /* skip pResults (output only) */
     return cmd_size;
 }

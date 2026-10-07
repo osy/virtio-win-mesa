@@ -615,7 +615,7 @@ npt_encode_D3D11CreateDevice(struct npt_cs_encoder *enc,
     npt_encode_win32_handle(enc, npt_win32_handle_get_id((const void *)(uintptr_t)Software));
     npt_encode_UINT(enc, &Flags);
     if (pFeatureLevels) {
-        npt_encode_array_count(enc, FeatureLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pFeatureLevels, (uint64_t)(FeatureLevels)));
         npt_encode_D3D_FEATURE_LEVEL_array(enc, pFeatureLevels, FeatureLevels);
     } else {
         npt_encode_array_count(enc, 0);
@@ -847,7 +847,7 @@ npt_encode_D3D11CreateDeviceAndSwapChain(struct npt_cs_encoder *enc,
     npt_encode_win32_handle(enc, npt_win32_handle_get_id((const void *)(uintptr_t)Software));
     npt_encode_UINT(enc, &Flags);
     if (pFeatureLevels) {
-        npt_encode_array_count(enc, FeatureLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pFeatureLevels, (uint64_t)(FeatureLevels)));
         npt_encode_D3D_FEATURE_LEVEL_array(enc, pFeatureLevels, FeatureLevels);
     } else {
         npt_encode_array_count(enc, 0);
@@ -1053,8 +1053,8 @@ npt_sizeof_D3D11On12CreateDevice(const IUnknown * pDevice,const UINT Flags,const
     if (pFeatureLevels)
         cmd_size += npt_sizeof_D3D_FEATURE_LEVEL_array(pFeatureLevels, FeatureLevels);
     cmd_size += npt_sizeof_UINT(&FeatureLevels, max_mode);
-    cmd_size += npt_sizeof_array_count(NumQueues);
-    cmd_size += sizeof(uint64_t) * NumQueues;
+    cmd_size += npt_sizeof_array_count((ppCommandQueues ? NumQueues : 0));
+    cmd_size += sizeof(uint64_t) * (ppCommandQueues ? NumQueues : 0);
     cmd_size += npt_sizeof_UINT(&NumQueues, max_mode);
     cmd_size += npt_sizeof_UINT(&NodeMask, max_mode);
 cmd_size += sizeof(uint64_t);  /* ppDevice: guest id */
@@ -1088,7 +1088,7 @@ npt_encode_D3D11On12CreateDevice(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pDevice));
     npt_encode_UINT(enc, &Flags);
     if (pFeatureLevels) {
-        npt_encode_array_count(enc, FeatureLevels);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pFeatureLevels, (uint64_t)(FeatureLevels)));
         npt_encode_D3D_FEATURE_LEVEL_array(enc, pFeatureLevels, FeatureLevels);
     } else {
         npt_encode_array_count(enc, 0);

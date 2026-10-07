@@ -753,7 +753,7 @@ npt_encode_ID3D12DeviceFactory_EnableExperimentalFeatures(struct npt_cs_encoder 
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumFeatures);
     if (pIIDs) {
-        npt_encode_array_count(enc, NumFeatures);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pIIDs, (uint64_t)(NumFeatures)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumFeatures); _i++)
             npt_encode_IID(enc, &pIIDs[_i]);
     } else {
@@ -766,7 +766,7 @@ npt_encode_ID3D12DeviceFactory_EnableExperimentalFeatures(struct npt_cs_encoder 
         npt_encode_array_count(enc, 0);
     }
     if (pConfigurationStructSizes) {
-        npt_encode_array_count(enc, NumFeatures);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pConfigurationStructSizes, (uint64_t)(NumFeatures)));
         npt_encode_UINT_array(enc, pConfigurationStructSizes, NumFeatures);
     } else {
         npt_encode_array_count(enc, 0);

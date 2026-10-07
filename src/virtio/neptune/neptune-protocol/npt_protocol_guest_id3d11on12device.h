@@ -230,8 +230,8 @@ npt_sizeof_ID3D11On12Device_ReleaseWrappedResources(ID3D11Resource ** ppResource
     const int max_mode = 0;
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
     return cmd_size;
 }
@@ -347,8 +347,8 @@ npt_sizeof_ID3D11On12Device_AcquireWrappedResources(ID3D11Resource ** ppResource
     const int max_mode = 0;
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
-    cmd_size += npt_sizeof_array_count(NumResources);
-    cmd_size += sizeof(uint64_t) * NumResources;
+    cmd_size += npt_sizeof_array_count((ppResources ? NumResources : 0));
+    cmd_size += sizeof(uint64_t) * (ppResources ? NumResources : 0);
     cmd_size += npt_sizeof_UINT(&NumResources, max_mode);
     return cmd_size;
 }
@@ -804,8 +804,8 @@ npt_sizeof_ID3D11On12Device2_ReturnUnderlyingResource(const ID3D11Resource * pRe
     cmd_size += npt_sizeof_array_count(pSignalValues ? NumSync : 0);
     if (pSignalValues)
         cmd_size += npt_sizeof_UINT64_array(pSignalValues, NumSync);
-    cmd_size += npt_sizeof_array_count(NumSync);
-    cmd_size += sizeof(uint64_t) * NumSync;
+    cmd_size += npt_sizeof_array_count((ppFences ? NumSync : 0));
+    cmd_size += sizeof(uint64_t) * (ppFences ? NumSync : 0);
     return cmd_size;
 }
 
@@ -830,7 +830,7 @@ npt_encode_ID3D11On12Device2_ReturnUnderlyingResource(struct npt_cs_encoder *enc
     npt_encode_com_handle(enc, npt_object_get_id(pResource11));
     npt_encode_UINT(enc, &NumSync);
     if (pSignalValues) {
-        npt_encode_array_count(enc, NumSync);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSignalValues, (uint64_t)(NumSync)));
         npt_encode_UINT64_array(enc, pSignalValues, NumSync);
     } else {
         npt_encode_array_count(enc, 0);

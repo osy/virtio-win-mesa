@@ -95,14 +95,14 @@ npt_encode_ID3D12CommandQueue_UpdateTileMappings(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pResource));
     npt_encode_UINT(enc, &NumResourceRegions);
     if (pResourceRegionStartCoordinates) {
-        npt_encode_array_count(enc, NumResourceRegions);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceRegionStartCoordinates, (uint64_t)(NumResourceRegions)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumResourceRegions); _i++)
             npt_encode_D3D12_TILED_RESOURCE_COORDINATE(enc, &pResourceRegionStartCoordinates[_i]);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pResourceRegionSizes) {
-        npt_encode_array_count(enc, NumResourceRegions);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceRegionSizes, (uint64_t)(NumResourceRegions)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumResourceRegions); _i++)
             npt_encode_D3D12_TILE_REGION_SIZE(enc, &pResourceRegionSizes[_i]);
     } else {
@@ -111,19 +111,19 @@ npt_encode_ID3D12CommandQueue_UpdateTileMappings(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pHeap));
     npt_encode_UINT(enc, &NumRanges);
     if (pRangeFlags) {
-        npt_encode_array_count(enc, NumRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRangeFlags, (uint64_t)(NumRanges)));
         npt_encode_D3D12_TILE_RANGE_FLAGS_array(enc, pRangeFlags, NumRanges);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pHeapRangeStartOffsets) {
-        npt_encode_array_count(enc, NumRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pHeapRangeStartOffsets, (uint64_t)(NumRanges)));
         npt_encode_UINT_array(enc, pHeapRangeStartOffsets, NumRanges);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pRangeTileCounts) {
-        npt_encode_array_count(enc, NumRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pRangeTileCounts, (uint64_t)(NumRanges)));
         npt_encode_UINT_array(enc, pRangeTileCounts, NumRanges);
     } else {
         npt_encode_array_count(enc, 0);
@@ -400,8 +400,8 @@ npt_sizeof_ID3D12CommandQueue_ExecuteCommandLists(const UINT NumCommandLists,ID3
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumCommandLists, max_mode);
-    cmd_size += npt_sizeof_array_count(NumCommandLists);
-    cmd_size += sizeof(uint64_t) * NumCommandLists;
+    cmd_size += npt_sizeof_array_count((ppCommandLists ? NumCommandLists : 0));
+    cmd_size += sizeof(uint64_t) * (ppCommandLists ? NumCommandLists : 0);
     return cmd_size;
 }
 

@@ -2461,28 +2461,28 @@ npt_encode_ID3D12Device_CopyDescriptors(struct npt_cs_encoder *enc,
     npt_cs_encoder_write(enc, sizeof(_hdr), &_hdr, sizeof(_hdr));
     npt_encode_UINT(enc, &NumDestDescriptorRanges);
     if (pDestDescriptorRangeStarts) {
-        npt_encode_array_count(enc, NumDestDescriptorRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pDestDescriptorRangeStarts, (uint64_t)(NumDestDescriptorRanges)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumDestDescriptorRanges); _i++)
             npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, &pDestDescriptorRangeStarts[_i]);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pDestDescriptorRangeSizes) {
-        npt_encode_array_count(enc, NumDestDescriptorRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pDestDescriptorRangeSizes, (uint64_t)(NumDestDescriptorRanges)));
         npt_encode_UINT_array(enc, pDestDescriptorRangeSizes, NumDestDescriptorRanges);
     } else {
         npt_encode_array_count(enc, 0);
     }
     npt_encode_UINT(enc, &NumSrcDescriptorRanges);
     if (pSrcDescriptorRangeStarts) {
-        npt_encode_array_count(enc, NumSrcDescriptorRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSrcDescriptorRangeStarts, (uint64_t)(NumSrcDescriptorRanges)));
         for (uint32_t _i = 0; _i < (uint32_t)(NumSrcDescriptorRanges); _i++)
             npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(enc, &pSrcDescriptorRangeStarts[_i]);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pSrcDescriptorRangeSizes) {
-        npt_encode_array_count(enc, NumSrcDescriptorRanges);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pSrcDescriptorRangeSizes, (uint64_t)(NumSrcDescriptorRanges)));
         npt_encode_UINT_array(enc, pSrcDescriptorRangeSizes, NumSrcDescriptorRanges);
     } else {
         npt_encode_array_count(enc, 0);
@@ -2753,7 +2753,7 @@ npt_encode_ID3D12Device_GetResourceAllocationInfo(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &visibleMask);
     npt_encode_UINT(enc, &numResourceDescs);
     if (pResourceDescs) {
-        npt_encode_array_count(enc, numResourceDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceDescs, (uint64_t)(numResourceDescs)));
         for (uint32_t _i = 0; _i < (uint32_t)(numResourceDescs); _i++)
             npt_encode_D3D12_RESOURCE_DESC(enc, &pResourceDescs[_i]);
     } else {
@@ -4311,8 +4311,8 @@ npt_sizeof_ID3D12Device_MakeResident(const UINT NumObjects,ID3D12Pageable ** ppO
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumObjects, max_mode);
-    cmd_size += npt_sizeof_array_count(NumObjects);
-    cmd_size += sizeof(uint64_t) * NumObjects;
+    cmd_size += npt_sizeof_array_count((ppObjects ? NumObjects : 0));
+    cmd_size += sizeof(uint64_t) * (ppObjects ? NumObjects : 0);
     return cmd_size;
 }
 
@@ -4459,8 +4459,8 @@ npt_sizeof_ID3D12Device_Evict(const UINT NumObjects,ID3D12Pageable ** ppObjects)
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumObjects, max_mode);
-    cmd_size += npt_sizeof_array_count(NumObjects);
-    cmd_size += sizeof(uint64_t) * NumObjects;
+    cmd_size += npt_sizeof_array_count((ppObjects ? NumObjects : 0));
+    cmd_size += sizeof(uint64_t) * (ppObjects ? NumObjects : 0);
     return cmd_size;
 }
 
@@ -6131,8 +6131,8 @@ npt_sizeof_ID3D12Device1_SetEventOnMultipleFenceCompletion(ID3D12Fence ** ppFenc
     const int max_mode = 0;
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
-    cmd_size += npt_sizeof_array_count(NumFences);
-    cmd_size += sizeof(uint64_t) * NumFences;
+    cmd_size += npt_sizeof_array_count((ppFences ? NumFences : 0));
+    cmd_size += sizeof(uint64_t) * (ppFences ? NumFences : 0);
     cmd_size += npt_sizeof_array_count(pFenceValues ? NumFences : 0);
     if (pFenceValues)
         cmd_size += npt_sizeof_UINT64_array(pFenceValues, NumFences);
@@ -6169,7 +6169,7 @@ npt_encode_ID3D12Device1_SetEventOnMultipleFenceCompletion(struct npt_cs_encoder
         npt_encode_array_count(enc, 0);
     }
     if (pFenceValues) {
-        npt_encode_array_count(enc, NumFences);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pFenceValues, (uint64_t)(NumFences)));
         npt_encode_UINT64_array(enc, pFenceValues, NumFences);
     } else {
         npt_encode_array_count(enc, 0);
@@ -6309,8 +6309,8 @@ npt_sizeof_ID3D12Device1_SetResidencyPriority(const UINT NumObjects,ID3D12Pageab
     (void)max_mode;  /* unused when the command has no struct/union inputs */
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_UINT(&NumObjects, max_mode);
-    cmd_size += npt_sizeof_array_count(NumObjects);
-    cmd_size += sizeof(uint64_t) * NumObjects;
+    cmd_size += npt_sizeof_array_count((ppObjects ? NumObjects : 0));
+    cmd_size += sizeof(uint64_t) * (ppObjects ? NumObjects : 0);
     cmd_size += npt_sizeof_array_count(pPriorities ? NumObjects : 0);
     if (pPriorities)
         cmd_size += npt_sizeof_D3D12_RESIDENCY_PRIORITY_array(pPriorities, NumObjects);
@@ -6343,7 +6343,7 @@ npt_encode_ID3D12Device1_SetResidencyPriority(struct npt_cs_encoder *enc,
         npt_encode_array_count(enc, 0);
     }
     if (pPriorities) {
-        npt_encode_array_count(enc, NumObjects);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pPriorities, (uint64_t)(NumObjects)));
         npt_encode_D3D12_RESIDENCY_PRIORITY_array(enc, pPriorities, NumObjects);
     } else {
         npt_encode_array_count(enc, 0);
@@ -6978,8 +6978,8 @@ npt_sizeof_ID3D12Device3_EnqueueMakeResident(const D3D12_RESIDENCY_FLAGS Flags,c
     size_t cmd_size = sizeof(struct npt_command_header);
     cmd_size += npt_sizeof_D3D12_RESIDENCY_FLAGS(&Flags, max_mode);
     cmd_size += npt_sizeof_UINT(&NumObjects, max_mode);
-    cmd_size += npt_sizeof_array_count(NumObjects);
-    cmd_size += sizeof(uint64_t) * NumObjects;
+    cmd_size += npt_sizeof_array_count((ppObjects ? NumObjects : 0));
+    cmd_size += sizeof(uint64_t) * (ppObjects ? NumObjects : 0);
     cmd_size += sizeof(uint64_t);
     cmd_size += npt_sizeof_UINT64(&FenceValueToSignal, max_mode);
     return cmd_size;
@@ -8116,7 +8116,7 @@ npt_encode_ID3D12Device4_GetResourceAllocationInfo1(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &visibleMask);
     npt_encode_UINT(enc, &numResourceDescs);
     if (pResourceDescs) {
-        npt_encode_array_count(enc, numResourceDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceDescs, (uint64_t)(numResourceDescs)));
         for (uint32_t _i = 0; _i < (uint32_t)(numResourceDescs); _i++)
             npt_encode_D3D12_RESOURCE_DESC(enc, &pResourceDescs[_i]);
     } else {
@@ -10070,7 +10070,7 @@ npt_encode_ID3D12Device8_GetResourceAllocationInfo2(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &visibleMask);
     npt_encode_UINT(enc, &numResourceDescs);
     if (pResourceDescs) {
-        npt_encode_array_count(enc, numResourceDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceDescs, (uint64_t)(numResourceDescs)));
         for (uint32_t _i = 0; _i < (uint32_t)(numResourceDescs); _i++)
             npt_encode_D3D12_RESOURCE_DESC1(enc, &pResourceDescs[_i]);
     } else {
@@ -11537,7 +11537,7 @@ npt_encode_ID3D12Device10_CreateCommittedResource3(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pProtectedSession));
     npt_encode_UINT32(enc, &NumCastableFormats);
     if (pCastableFormats) {
-        npt_encode_array_count(enc, NumCastableFormats);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pCastableFormats, (uint64_t)(NumCastableFormats)));
         npt_encode_DXGI_FORMAT_array(enc, pCastableFormats, NumCastableFormats);
     } else {
         npt_encode_array_count(enc, 0);
@@ -11768,7 +11768,7 @@ npt_encode_ID3D12Device10_CreatePlacedResource2(struct npt_cs_encoder *enc,
         npt_encode_D3D12_CLEAR_VALUE(enc, pOptimizedClearValue);
     npt_encode_UINT32(enc, &NumCastableFormats);
     if (pCastableFormats) {
-        npt_encode_array_count(enc, NumCastableFormats);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pCastableFormats, (uint64_t)(NumCastableFormats)));
         npt_encode_DXGI_FORMAT_array(enc, pCastableFormats, NumCastableFormats);
     } else {
         npt_encode_array_count(enc, 0);
@@ -11991,7 +11991,7 @@ npt_encode_ID3D12Device10_CreateReservedResource2(struct npt_cs_encoder *enc,
     npt_encode_com_handle(enc, npt_object_get_id(pProtectedSession));
     npt_encode_UINT32(enc, &NumCastableFormats);
     if (pCastableFormats) {
-        npt_encode_array_count(enc, NumCastableFormats);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pCastableFormats, (uint64_t)(NumCastableFormats)));
         npt_encode_DXGI_FORMAT_array(enc, pCastableFormats, NumCastableFormats);
     } else {
         npt_encode_array_count(enc, 0);
@@ -12305,14 +12305,14 @@ npt_encode_ID3D12Device12_GetResourceAllocationInfo3(struct npt_cs_encoder *enc,
     npt_encode_UINT(enc, &visibleMask);
     npt_encode_UINT(enc, &numResourceDescs);
     if (pResourceDescs) {
-        npt_encode_array_count(enc, numResourceDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pResourceDescs, (uint64_t)(numResourceDescs)));
         for (uint32_t _i = 0; _i < (uint32_t)(numResourceDescs); _i++)
             npt_encode_D3D12_RESOURCE_DESC1(enc, &pResourceDescs[_i]);
     } else {
         npt_encode_array_count(enc, 0);
     }
     if (pNumCastableFormats) {
-        npt_encode_array_count(enc, numResourceDescs);
+        npt_encode_array_count(enc, npt_counted_pointer_wire_count(pNumCastableFormats, (uint64_t)(numResourceDescs)));
         npt_encode_UINT32_array(enc, pNumCastableFormats, numResourceDescs);
     } else {
         npt_encode_array_count(enc, 0);
