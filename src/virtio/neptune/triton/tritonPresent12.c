@@ -441,9 +441,12 @@ t12PtAccount(double sig, double arm, double wait, BOOL already, BOOL gated,
  * packet gate that key on it stay GPU-true for the copy too -- the
  * compositor must never sample a mid-copy companion.
  *
- * The DDI's own AddedGpuWork/hCommandList mechanism cannot be used for
- * this: the runtime executes that list only after pfnPresent returns,
- * which is after the arm -- the copy would land outside the gate.
+ * A flip present cannot use the DDI's own AddedGpuWork/hCommandList
+ * mechanism for this: the runtime executes that list only after
+ * pfnPresent returns, which is after the arm -- the copy would land
+ * outside the gate.  A blt present does use it (t12Present); its kernel
+ * packet is ordered by the queue gate the list's ExecuteCommandLists
+ * submits instead.
  *
  * Both resources sit in COMMON (PRESENT == COMMON) and the copy relies on
  * implicit state promotion; present-copy-test in d3dmetal-native verifies
@@ -591,17 +594,33 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
      * the kernel present: a downlevel presenter (D3D9On12, D3D11On12)
      * records the frame's last writes there, so a copy issued now would
      * read the previous frame. */
+    const BOOL blt = pArgs->Flags.Blt ? TRUE : FALSE;
     if (src && src->pCompanion && src->pResource) {
-        if (pArgs->Flags.Blt && l && l->pList && !l->AwaitingReset) {
+        if (blt && l && l->pList && !l->AwaitingReset) {
             ID3D12GraphicsCommandList_CopyResource(l->pList, src->pCompanion,
                                                    src->pResource);
             pOut->AddedGpuWork = TRUE;
         } else if (q->pQueue) {
             t12PresentCompanionCopy(q, src);
+            /* A blt present's copy went to the host queue directly, past
+             * the gate ExecuteCommandLists would have submitted behind it;
+             * submit that gate here so the kernel present waits for it. */
+            if (blt)
+                triton12QueueGate(q);
         }
     }
 
-    /* Arm the render->flip token for this frame, then wait for it.
+    /* A blt present is not gated here.  Its kernel packet never consumes
+     * the thread token the arm stamps (the KMD parks only flip packets on
+     * it), so arming would leave a stale stamp on this thread for a later
+     * flip to consume, and the frame's last writes sit in the open list
+     * the runtime executes between this DDI and the kernel present, after
+     * any arm issued now.  Its order comes from the queue gate instead:
+     * that ExecuteCommandLists submits a gate packet parked until the GPU
+     * has retired the list, and the KMD runs one DMA packet at a time, so
+     * the blt packet's host copy cannot start before the frame is done.
+     *
+     * Arm the render->flip token for this frame, then wait for it.
      *
      * ARM.  Without this the KMD's TakeThreadToken() finds no stamp for the
      * flip that follows, gates it on token 0 -- which always reads retired --
@@ -632,7 +651,7 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
      * carries a multi-ms floor, which polling the value on 1 ms slices
      * undercuts.  The wait is bounded so a lost completion degrades to a
      * late frame rather than a hung present. */
-    if (q->pQueue && q->pDrainFence && q->hPresentArmEvent) {
+    if (!blt && q->pQueue && q->pDrainFence && q->hPresentArmEvent) {
         const UINT64 v =
             (UINT64)InterlockedIncrement64((volatile LONG64 *)&q->DrainValue);
         const double t0 = TRITON_PT_NOW();

@@ -264,8 +264,8 @@ t12DestroyCommandQueue(D3D12DDI_HDEVICE hDevice, D3D12DDI_HCOMMANDQUEUE hQueue)
  * fires, so dxgkrnl's fence packets (and CPU waiters/GetCompletedValue)
  * only observe values the GPU truly reached.
  */
-static void
-t12QueueGate(PTRITON12_QUEUE q)
+void
+triton12QueueGate(PTRITON12_QUEUE q)
 {
     if (!q->pDrainFence || !q->hKMContext || !q->pDev ||
         !q->pDev->KTCallbacks.pfnSubmitCommandCb) {
@@ -459,7 +459,7 @@ t12ExecuteCommandLists(D3D12DDI_HCOMMANDQUEUE hQueue, UINT Count,
     TR_LOG_HOT("12.ExecuteCommandLists: %u list(s)", n);
     if (n) {
         ID3D12CommandQueue_ExecuteCommandLists(q->pQueue, n, lists);
-        t12QueueGate(q);
+        triton12QueueGate(q);
     }
     if (lists != stackLists)
         free(lists);
