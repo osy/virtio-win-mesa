@@ -114,19 +114,91 @@ VIEW_CREATE_OVERRIDE(id3d11device3, CreateUnorderedAccessView1,
                      ID3D11UnorderedAccessView1, D3D11_UNORDERED_ACCESS_VIEW_DESC1)
 
 
-/* View::GetResource override: wrap the returned host pointer with
- * the derived IID recorded at Create*View time. */
+/*
+ * Wrap a resource returned by View::GetResource with its concrete D3D11
+ * resource interface.
+ *
+ * Create*View records the resource's concrete IID in the view's aux, and
+ * a cache miss then constructs the wrapper with that vtbl directly.  Two
+ * cases need the host: a view the guest did not create (one returned by
+ * OMGetRenderTargets after the app released its own wrapper) has no
+ * record; and the wrapper cache is keyed by host object alone, so it can
+ * hand back a wrapper built with the base vtbl while a concrete alias of
+ * it is still alive.  Both ask the host which concrete interface the
+ * object implements (QueryInterface, memoized per wrapper) and remember
+ * the answer on the view, so later calls on the same view take the fast
+ * path.
+ */
+static ID3D11Resource *
+view_wrap_resource(void *self, ID3D11Resource *raw)
+{
+   if (!raw)
+      return NULL;
+
+   struct npt_device *dev = npt_com_self_device(self);
+   struct npt_d3d11_view_aux *aux = ((struct npt_com_base *)self)->aux;
+   const GUID *recorded = aux ? aux->resource_iid : NULL;
+
+   ID3D11Resource *base = (ID3D11Resource *)npt_com_get_or_wrap(
+      dev, recorded ? recorded : &NPT_IID_ID3D11Resource,
+      (uint64_t)(uintptr_t)raw, (struct npt_com_base *)self);
+   if (!base)
+      return NULL;
+
+   const GUID *known = view_iid_for_resource_wrapper(base);
+   if (known != &NPT_IID_ID3D11Resource) {
+      if (aux)
+         aux->resource_iid = known;
+      return base;
+   }
+
+   /* The wrapper carries the base vtbl.  A recorded verdict of
+    * ID3D11Resource itself means an earlier probe found no concrete
+    * interface (a resource kind this driver does not model), which is
+    * still legal to hand out as ID3D11Resource. */
+   if (recorded == &NPT_IID_ID3D11Resource)
+      return base;
+
+   /* D3D11 resources are one of four concrete families; a recorded IID
+    * is the only candidate, otherwise probe them, most common first. */
+   static const GUID *const families[] = {
+      &NPT_IID_ID3D11Texture2D,
+      &NPT_IID_ID3D11Buffer,
+      &NPT_IID_ID3D11Texture3D,
+      &NPT_IID_ID3D11Texture1D,
+   };
+   const GUID *const *candidates = recorded ? &recorded : families;
+   const size_t count =
+      recorded ? 1 : sizeof(families) / sizeof(families[0]);
+
+   for (size_t i = 0; i < count; i++) {
+      void *derived = NULL;
+      HRESULT hr = npt_com_query_interface_host(base, candidates[i], &derived);
+      if (hr == NPT_S_OK && derived) {
+         if (aux)
+            aux->resource_iid = candidates[i];
+         /* GetResource supplied the ref `base` holds; the QI supplied
+          * the one returned to the caller. */
+         npt_com_default_release(base);
+         return (ID3D11Resource *)derived;
+      }
+   }
+
+   if (aux)
+      aux->resource_iid = &NPT_IID_ID3D11Resource;
+   return base;
+}
+
 static void NPT_STDMETHODCALLTYPE
 view_GetResource_override(void *self, ID3D11Resource **ppResource)
 {
    ID3D11Resource *raw = NULL;
    ID3D11Resource **redirect = ppResource ? &raw : NULL;
 
-   /* Single-ring contexts can use the async submit; the wrapper
-    * built below by npt_com_get_or_wrap goes through the same ring
-    * so ordering with subsequent uses is FIFO-safe.  Multi-ring
-    * needs the sync round-trip because the wrapper may be used on
-    * a different ring than the View itself. */
+   /* Single-ring contexts can use the async submit; the wrapper built
+    * below goes through the same ring, so ordering with subsequent uses
+    * is FIFO-safe.  Multi-ring needs the sync round trip because the
+    * wrapper may be used on a different ring than the View itself. */
    if (npt_com_self_device(self)->multi_ring_enabled) {
       npt_call_ID3D11View_GetResource(
          npt_com_self_ring(self), npt_com_self_id(self), redirect);
@@ -137,20 +209,9 @@ view_GetResource_override(void *self, ID3D11Resource **ppResource)
 
    if (!ppResource)
       return;
-   if (!raw) {
-      *ppResource = NULL;
-      return;
-   }
 
-   struct npt_d3d11_view_aux *aux = ((struct npt_com_base *)self)->aux;
-   const GUID *iid = (aux && aux->resource_iid) ? aux->resource_iid
-                                                : &NPT_IID_ID3D11Resource;
-   *ppResource = (ID3D11Resource *)npt_com_get_or_wrap(
-      npt_com_self_device(self), iid,
-      (uint64_t)(uintptr_t)raw,
-      (struct npt_com_base *)self);
+   *ppResource = view_wrap_resource(self, raw);
 }
-
 
 /* All view tiers share one aux (allocated by the runtime via
  * npt_com_register_family).  Listing every concrete tier here is
