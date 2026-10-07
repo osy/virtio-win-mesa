@@ -18,6 +18,9 @@
 #include "triton12_tables.h"
 #include "npt_env.h"
 
+BOOL
+npt_d3d12_host_takes_row_major_texture(void *device_wrapper);
+
 HRESULT
 npt_d3d12_create_device_internal(IUnknown *pAdapter,
                                  D3D_FEATURE_LEVEL MinimumFeatureLevel,
@@ -204,6 +207,10 @@ triton12HostCapsInit(PINIT_ONCE once, PVOID param, PVOID *ctx)
     ID3D12Device *dev = NULL;
     tritonHostCaps12Snapshot(s, &dev);
     pAdapter->pCapsDev = dev;
+    pAdapter->CpuVisibleTextures =
+        dev && npt_d3d12_host_takes_row_major_texture(dev);
+    TR_LOG("caps[d3d12]: DEFAULT-heap textures %s",
+           pAdapter->CpuVisibleTextures ? "CPU-visible (ROW_MAJOR)" : "opaque");
     pAdapter->pHostCaps12 = s;
     return TRUE;
 }
@@ -217,6 +224,25 @@ triton12HostCaps(PTRITON12_ADAPTER pAdapter)
     InitOnceExecuteOnce(&pAdapter->HostCapsOnce, triton12HostCapsInit,
                         pAdapter, NULL);
     return pAdapter->pHostCaps12 ? pAdapter->pHostCaps12 : &kNone;
+}
+
+/* Whether the runtime may hand out CPU-visible DEFAULT heaps (a UMA
+ * adapter): the host says UMA, or its textures can be given a CPU address. */
+static BOOL
+t12AdapterIsUma(PTRITON12_ADAPTER pAdapter)
+{
+    const struct triton_host_caps12 *hc = triton12HostCaps(pAdapter);
+    return ((hc->have & TRITON_HC12_ARCH1) != 0 && hc->arch1.UMA) ||
+           pAdapter->CpuVisibleTextures;
+}
+
+BOOL
+triton12CpuVisibleTextures(PTRITON12_ADAPTER pAdapter)
+{
+    if (!pAdapter)
+        return FALSE;
+    triton12HostCaps(pAdapter);
+    return pAdapter->CpuVisibleTextures;
 }
 
 #define HC12(bit) ((hc->have & TRITON_HC12_##bit) != 0)
@@ -354,17 +380,23 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         break;
     }
     case D3D12DDICAPS_TYPE_MEMORY_ARCHITECTURE: {
-        /* Virtual GPU over host system memory: the KMD's segment model
-         * is UMA whatever the host backend calls itself.  Not
-         * CacheCoherent: GpuMmu is bookkeeping-only and blob CPU access
-         * rides the KMD-owned BAR mapping. */
+        /* UMA where the runtime may hand out CPU-visible DEFAULT heaps:
+         * the host says UMA, or it gives textures a CPU address
+         * (D3DMetal answers discrete on Apple's unified memory, and its
+         * apps rely on CPU-visible DEFAULT heaps).  A discrete host whose
+         * textures have no CPU address stays discrete.  IOCoherent is
+         * unconditional: the runtime fails device creation
+         * (DRIVER_INTERNAL_ERROR) when it is clear.  Not CacheCoherent:
+         * GpuMmu is bookkeeping-only and blob CPU access rides the
+         * KMD-owned BAR mapping. */
         D3D12DDI_MEMORY_ARCHITECTURE_CAPS *pCaps =
             (D3D12DDI_MEMORY_ARCHITECTURE_CAPS *)pArgs->pData;
         CAP12_FIXED("MEMORY_ARCHITECTURE.UMA", pCaps->UMA, ARCH1,
-                    hc->arch1.UMA, TRUE,
-                    "KMD segment model: guest blobs live in host system memory");
+                    hc->arch1.UMA, t12AdapterIsUma(pAdapter),
+                    "UMA, or a host that gives textures a CPU address");
         CAP12_FIXED("MEMORY_ARCHITECTURE.IOCoherent", pCaps->IOCoherent,
-                    ARCH1, hc->arch1.UMA, TRUE, "same as UMA");
+                    ARCH1, hc->arch1.UMA, TRUE,
+                    "D3D12 requires it; device creation fails without");
         CAP12_FIXED("MEMORY_ARCHITECTURE.CacheCoherent", pCaps->CacheCoherent,
                     ARCH1, hc->arch1.CacheCoherentUMA, FALSE,
                     "BAR-mapped blob access has no GPU cache coherency contract");

@@ -11,6 +11,7 @@
 #include "npt_device.h"
 #include "npt_env.h"
 
+#include "neptune-protocol/npt_protocol_guest_id3d12device.h"
 #include "neptune-protocol/npt_protocol_guest_toplevel.h"
 #include "neptune-protocol/npt_protocol_defs.h"
 
@@ -24,6 +25,58 @@
 #define NPT_SERIALIZE_INITIAL_CAPACITY (16u * 1024u)
 #define NPT_SERIALIZE_ERROR_CAPACITY   (4u * 1024u)
 #define NPT_E_NOT_SUFFICIENT_BUFFER    ((HRESULT)0x8007007AL)
+
+/* Whether the host backend creates a ROW_MAJOR texture on a CPU-visible
+ * heap.  D3D12 allows that layout only on a cross-adapter heap, and it is
+ * the one texture layout with a CPU address: a host that takes it anyway
+ * (D3DMetal) can give the runtime CPU access to DEFAULT-heap textures,
+ * one that refuses it (vkd3d-proton, E_NOTIMPL) cannot.  A host
+ * create is asynchronous and reports nothing back, so this one asks with
+ * a reply and releases what it made; Triton calls it once per adapter. */
+BOOL
+npt_d3d12_host_takes_row_major_texture(void *device_wrapper);
+
+BOOL
+npt_d3d12_host_takes_row_major_texture(void *device_wrapper)
+{
+   struct npt_com_base *com = device_wrapper;
+   if (!com)
+      return FALSE;
+
+   D3D12_HEAP_PROPERTIES props;
+   memset(&props, 0, sizeof(props));
+   props.Type = D3D12_HEAP_TYPE_CUSTOM;
+   props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+   props.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+   D3D12_RESOURCE_DESC desc;
+   memset(&desc, 0, sizeof(desc));
+   desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+   desc.Width = 1;
+   desc.Height = 1;
+   desc.DepthOrArraySize = 1;
+   desc.MipLevels = 1;
+   desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+   desc.SampleDesc.Count = 1;
+   desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+   void *raw = NULL;
+   HRESULT hr = npt_call_ID3D12Device_CreateCommittedResource(
+      npt_com_self_ring(com), npt_com_self_id(com), &props,
+      D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+      &NPT_IID_ID3D12Resource, &raw);
+   const BOOL takes = NPT_SUCCEEDED(hr) && raw != NULL;
+   if (raw) {
+      void *wrapper = npt_com_get_or_wrap_or_release(
+         npt_com_self_device(com), &NPT_IID_ID3D12Resource,
+         (uint64_t)(uintptr_t)raw, com);
+      if (wrapper)
+         npt_com_default_release(wrapper);
+   }
+   npt_log("D3D12: host %s a ROW_MAJOR texture on a CPU-visible heap "
+           "(0x%08x)", takes ? "takes" : "refuses", (unsigned)hr);
+   return takes;
+}
 
 /* Shared factory: the standalone d3d12.dll export and Triton's
  * OpenAdapter12 DDI (tritonDDI12.c) both create the inner Neptune

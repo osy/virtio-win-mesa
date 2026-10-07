@@ -156,24 +156,28 @@ t12RowMajorCapable(const D3D12DDIARG_CREATERESOURCE_0003 *pRes)
                             D3D12DDI_RESOURCE_FLAG_0003_DEPTH_STENCIL));
 }
 
-/* D3D12 requires a texture on a CPU-accessible heap to be ROW_MAJOR: only a
- * linear layout has a meaningful CPU address.  The DDI does not say so -- the
- * runtime passes D3D12DDI_TL_UNDEFINED and expects the driver to know -- and
- * t12ResourceDesc maps UNDEFINED to D3D12_TEXTURE_LAYOUT_UNKNOWN, which builds
- * a host resource with an opaque swizzle and no mappable pointer.  pfnMapHeap
- * then reaches ID3D12Resource::Map, which cannot invent a pointer to a
- * non-ROW_MAJOR texture.  The backend does not validate the layout/heap
- * combination, so the create succeeds and only the map fails.
+/* On a UMA host the runtime hands out CPU-visible heaps for DEFAULT
+ * textures and reaches their texels through the layout this driver reports,
+ * so a CPU-visible texture needs a linear layout: only ROW_MAJOR has a CPU
+ * address.  The DDI does not say so -- the runtime passes
+ * D3D12DDI_TL_UNDEFINED and expects the driver to know -- and t12ResourceDesc
+ * maps UNDEFINED to D3D12_TEXTURE_LAYOUT_UNKNOWN, which builds a host
+ * resource with an opaque swizzle and no mappable pointer.  When the host
+ * gives a texture no CPU address (its backend refuses ROW_MAJOR textures;
+ * triton12CpuVisibleTextures) it stays opaque and
+ * t12CheckResourceAllocationInfo reports it so.
  *
  * A texture PLACED on a CPU-visible app heap is governed by the same rule;
  * that path is left alone because it would need the heap's properties fetched
  * over the wire per create. */
 static void
-t12ForceRowMajorOnCpuHeap(const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
+t12ForceRowMajorOnCpuHeap(BOOL cpuVisibleTextures,
+                          const D3D12DDIARG_CREATERESOURCE_0003 *pRes,
                           const D3D12_HEAP_PROPERTIES *pProps,
                           D3D12_RESOURCE_DESC *pDesc)
 {
-    if (pDesc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
+    if (!cpuVisibleTextures ||
+        pDesc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
         !t12RowMajorCapable(pRes))
         return;
     /* t12HeapProps always builds a CUSTOM heap, mapping the DDI's
@@ -256,7 +260,8 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
         D3D12_RESOURCE_DESC desc;
         t12HeapProps(pHeapDesc, &props);
         t12ResourceDesc(pResDesc, &desc);
-        t12ForceRowMajorOnCpuHeap(pResDesc, &props, &desc);
+        t12ForceRowMajorOnCpuHeap(triton12CpuVisibleTextures(p->pAdapter),
+                                  pResDesc, &props, &desc);
         /* The recorded desc must state the layout actually used: the
          * allocation-info and subresource-info DDIs answer from it, and the
          * runtime refuses CPU access to a resource it believes is swizzled. */
@@ -834,18 +839,20 @@ t12CheckResourceAllocationInfo(D3D12DDI_HDEVICE hDevice,
     if (pRes->ResourceType == D3D12DDI_RT_BUFFER)
         pOut->Layout = D3D12DDI_TL_ROW_MAJOR;
     else if (pRes->Layout == D3D12DDI_TL_UNDEFINED)
-        /* ROW_MAJOR for a CPU-mappable shape, an opaque 64KB swizzle for
-         * everything else.  The runtime takes this answer as the concrete
-         * layout and refuses CPU access to a resource it believes is
-         * swizzled -- Map fails E_OUTOFMEMORY inside the runtime, without
-         * ever reaching this driver, which breaks upload by Map +
-         * WriteToSubresource, the documented UMA path.  D3D12 requires
-         * ROW_MAJOR for a texture on a CPU-accessible heap, and that is
-         * what t12ForceRowMajorOnCpuHeap builds, so the two agree.  The
-         * GPU-side layout of a DEFAULT-heap texture is unaffected: it is
-         * chosen at create time and its strides are reported truthfully by
-         * t12CheckSubresourceInfo. */
-        pOut->Layout = t12RowMajorCapable(pRes)
+        /* Where textures can be CPU-visible, ROW_MAJOR for a CPU-mappable
+         * shape and an opaque 64KB swizzle for everything else.  The
+         * runtime takes this answer as the concrete layout and refuses CPU
+         * access to a resource it believes is swizzled -- Map fails
+         * E_OUTOFMEMORY inside the runtime, without ever reaching this
+         * driver, which breaks upload by Map + WriteToSubresource, the
+         * documented UMA path.  It is what t12ForceRowMajorOnCpuHeap
+         * builds, so the two agree.  Where the host gives a texture no CPU
+         * address every texture is opaque, and the refusal is the right
+         * answer.  The GPU-side layout of a DEFAULT-heap texture is
+         * unaffected: it is chosen at create time and its strides are
+         * reported truthfully by t12CheckSubresourceInfo. */
+        pOut->Layout = triton12CpuVisibleTextures(p->pAdapter) &&
+                               t12RowMajorCapable(pRes)
                            ? D3D12DDI_TL_ROW_MAJOR
                            : D3D12DDI_TL_64KB_TILE_UNDEFINED_SWIZZLE;
     else

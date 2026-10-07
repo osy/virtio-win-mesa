@@ -44,6 +44,13 @@ typedef struct TRITON12_ADAPTER
      * adopts it instead of creating the same device again; CloseAdapter
      * releases it otherwise. */
     ID3D12Device           *pCapsDev;
+    /* Whether a DEFAULT-heap texture can be CPU-visible: the host backend
+     * takes the ROW_MAJOR layout, the only one with a CPU address
+     * (npt_d3d12_host_takes_row_major_texture).  Probed with the caps
+     * snapshot, before GetCaps answers UMA: D3DMetal reports a discrete
+     * adapter but takes the layout on Apple's unified memory, and the
+     * caps report UMA where either holds. */
+    BOOL                    CpuVisibleTextures;
 } TRITON12_ADAPTER, *PTRITON12_ADAPTER;
 
 /* Command queues per device tracked for cross-queue ordering.  The cap only
@@ -123,6 +130,10 @@ triton12Device(D3D12DDI_HDEVICE hDevice)
 {
     return (PTRITON12_DEVICE)hDevice.pDrvPrivate;
 }
+
+/* Whether DEFAULT-heap textures are built ROW_MAJOR for CPU access (see
+ * TRITON12_ADAPTER). */
+BOOL triton12CpuVisibleTextures(PTRITON12_ADAPTER pAdapter);
 
 typedef struct TRITON12_DESCRIPTOR_HEAP
 {
