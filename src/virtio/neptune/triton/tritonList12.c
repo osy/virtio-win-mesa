@@ -59,7 +59,7 @@ t12CreateCommandAllocator(D3D12DDI_HDEVICE hDevice,
     HRESULT hr = ID3D12Device_CreateCommandAllocator(
         p->pDev, t12ListApiType(pArgs->Type, pArgs->QueueFlags),
         &IID_ID3D12CommandAllocator, (void **)&a->pAlloc);
-    TR_LOG("12.CreateCommandAllocator: type=%d qflags=0x%x -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateCommandAllocator: type=%d qflags=0x%x -> 0x%08lx",
            (int)pArgs->Type, (unsigned)pArgs->QueueFlags, (unsigned long)hr);
     return hr;
 }
@@ -150,7 +150,7 @@ t12PoolAllocator(PTRITON12_DEVICE p, PTRITON12_POOL pool,
         HRESULT hr = ID3D12Device_CreateCommandAllocator(
             p->pDev, type, &IID_ID3D12CommandAllocator,
             (void **)&pool->pAlloc[i]);
-        TR_LOG("12.CommandPool: allocator for type %d -> 0x%08lx", (int)type,
+        TR_LOG_HR(hr, "12.CommandPool: allocator for type %d -> 0x%08lx", (int)type,
                (unsigned long)hr);
         if (FAILED(hr))
             pool->pAlloc[i] = NULL;
@@ -225,7 +225,7 @@ t12CreateCommandList(D3D12DDI_HDEVICE hDevice,
     HRESULT hr = ID3D12Device_CreateCommandList(
         p->pDev, 0, t12ListApiType(pArgs->Type, pArgs->QueueFlags), a->pAlloc,
         NULL, &IID_ID3D12GraphicsCommandList, (void **)&l->pList);
-    TR_LOG("12.CreateCommandList: type=%d qflags=0x%x -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateCommandList: type=%d qflags=0x%x -> 0x%08lx",
            (int)pArgs->Type, (unsigned)pArgs->QueueFlags, (unsigned long)hr);
     if (FAILED(hr))
         return hr;
@@ -297,7 +297,7 @@ t12CreateCommandList0040(D3D12DDI_HDEVICE hDevice,
         ID3D12GraphicsCommandList_Close(l->pList);
     LeaveCriticalSection(&p->QueueLock);
 
-    TR_LOG("12.CreateCommandList(0040): type=%d qflags=0x%x id=%llu -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateCommandList(0040): type=%d qflags=0x%x id=%llu -> 0x%08lx",
            (int)pArgs->Type, (unsigned)pArgs->QueueFlags,
            (unsigned long long)pArgs->ID, (unsigned long)hr);
     if (FAILED(hr))
@@ -561,7 +561,7 @@ t12CreateCommandSignature(D3D12DDI_HDEVICE hDevice,
     ID3D12RootSignature *rs = triton12RootSig(pArgs->hRootSignature);
     HRESULT hr = ID3D12Device_CreateCommandSignature(
         p->pDev, &d, rs, &IID_ID3D12CommandSignature, (void **)&s->pSig);
-    TR_LOG("12.CreateCommandSignature: stride=%u nargs=%u rs=%p -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateCommandSignature: stride=%u nargs=%u rs=%p -> 0x%08lx",
            pArgs->ByteStride, pArgs->NumArgumentDescs, (void *)rs,
            (unsigned long)hr);
     return hr;
@@ -766,7 +766,7 @@ t12OMSetRenderTargets(D3D12DDI_HCOMMANDLIST hList, UINT Num,
     D3D12_CPU_DESCRIPTOR_HANDLE rts[8];
     D3D12_CPU_DESCRIPTOR_HANDLE dsv;
     UINT n = (Num > 8) ? 8 : Num;
-    TR_LOG("12.OMSetRenderTargets: num=%u single=%d dsv=%d", Num, (int)SingleHandle,
+    TR_LOG_HOT("12.OMSetRenderTargets: num=%u single=%d dsv=%d", Num, (int)SingleHandle,
            (int)(pDSV != NULL));
     /* SingleHandle: the API reads only rts[0] as a range start. */
     for (UINT i = 0; i < n && pRTs; i++)
@@ -1303,7 +1303,7 @@ t12CreateQueryHeap(D3D12DDI_HDEVICE hDevice,
     desc.NodeMask = 0;
     HRESULT hr = ID3D12Device_CreateQueryHeap(
         p->pDev, &desc, &IID_ID3D12QueryHeap, (void **)&q->pHeap);
-    TR_LOG("12.CreateQueryHeap: type=%d n=%u -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateQueryHeap: type=%d n=%u -> 0x%08lx",
            (int)pArgs->Type, pArgs->Count, (unsigned long)hr);
     return hr;
 }
@@ -1363,7 +1363,7 @@ t12SetSamplePositions(D3D12DDI_HCOMMANDLIST hList, UINT NumSamplesPerPixel,
     ID3D12GraphicsCommandList1 *l1 = NULL;
     if (!l || !l->pList)
         return;
-    TR_LOG("12.SetSamplePositions: samples=%u pixels=%u first=(%d,%d)",
+    TR_LOG_HOT("12.SetSamplePositions: samples=%u pixels=%u first=(%d,%d)",
            NumSamplesPerPixel, NumPixels,
            (NumSamplesPerPixel && NumPixels && pPositions) ? pPositions[0].X : 0,
            (NumSamplesPerPixel && NumPixels && pPositions) ? pPositions[0].Y : 0);
@@ -1390,7 +1390,7 @@ t12ResourceResolveSubresourceRegion(D3D12DDI_HCOMMANDLIST hList,
     ID3D12GraphicsCommandList1 *l1 = NULL;
     if (!l || !l->pList || !d || !d->pResource || !src || !src->pResource)
         return;
-    TR_LOG("12.ResolveSubresourceRegion: dst=%p sub=%u (%u,%u) src=%p sub=%u fmt=%d mode=%d",
+    TR_LOG_HOT("12.ResolveSubresourceRegion: dst=%p sub=%u (%u,%u) src=%p sub=%u fmt=%d mode=%d",
            (void *)d, DstSub, DstX, DstY, (void *)src, SrcSub, (int)Format, (int)Mode);
     if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(
             l->pList, &IID_ID3D12GraphicsCommandList1, (void **)&l1))) {

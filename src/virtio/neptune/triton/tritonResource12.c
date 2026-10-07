@@ -218,7 +218,7 @@ t12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
         r->pCompanion = NULL;
         return FALSE;
     }
-    TR_LOG("12.CreateCompanion: %llux%u fmt=%d alloc=0x%x",
+    TR_LOG_HOT("12.CreateCompanion: %llux%u fmt=%d alloc=0x%x",
            (unsigned long long)desc->Width, desc->Height, (int)desc->Format,
            r->hKMAllocation);
     return TRUE;
@@ -353,7 +353,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                     h->pResource = r->pResource;
                     h->Desc = hd;
                     r->pPlaceHeap = h->pHeap;
-                    TR_LOG("12.CreateHeapAndResource(heap+buf): heap=%p size=%llu "
+                    TR_LOG_HOT("12.CreateHeapAndResource(heap+buf): heap=%p size=%llu "
                            "heapFlags=0x%x state=0x%x -> 0x%08lx", (void *)h,
                            (unsigned long long)hd.SizeInBytes,
                            (unsigned)pHeapDesc->Flags,
@@ -373,7 +373,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
             p->pDev, &props, hf, &desc,
             (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
             pClear, &IID_ID3D12Resource, (void **)&r->pResource);
-        TR_LOG("12.CreateHeapAndResource(committed): type=%d w=%llu fmt=%d "
+        TR_LOG_HR(hr, "12.CreateHeapAndResource(committed): type=%d w=%llu fmt=%d "
                "state=0x%x heapFlags=0x%x heapBytes=0x%llx heapAlign=0x%llx "
                "resFlags=0x%x primary=%d shared=%d -> 0x%08lx",
                (int)pResDesc->ResourceType,
@@ -431,7 +431,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
             p->pDev, &desc, &IID_ID3D12Heap, (void **)&h->pHeap);
         if (SUCCEEDED(hr))
             h->Desc = desc;
-        TR_LOG("12.CreateHeapAndResource(heap): heap=%p size=%llu flags=0x%x -> 0x%08lx",
+        TR_LOG_HR(hr, "12.CreateHeapAndResource(heap): heap=%p size=%llu flags=0x%x -> 0x%08lx",
                (void *)h, (unsigned long long)pHeapDesc->ByteSize,
                (unsigned)pHeapDesc->Flags, (unsigned long)hr);
         return hr;
@@ -481,7 +481,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                 pClear, &IID_ID3D12Resource, (void **)&r->pResource);
             if (SUCCEEDED(hr) && r->pResource) {
                 r->TiledHost = TRUE;
-                TR_LOG("12.CreateHeapAndResource(reserved): res=%p type=%d "
+                TR_LOG_HOT("12.CreateHeapAndResource(reserved): res=%p type=%d "
                        "w=%llu h=%u fmt=%d mips=%u arr=%u state=0x%x -> 0x%08lx",
                        (void *)r, (int)pResDesc->ResourceType,
                        (unsigned long long)pResDesc->Width,
@@ -512,7 +512,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                 p->pDev, &props, D3D12_HEAP_FLAG_NONE, &desc,
                 (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
                 pClear, &IID_ID3D12Resource, (void **)&r->pResource);
-            TR_LOG("12.CreateHeapAndResource(reserved->committed): res=%p type=%d "
+            TR_LOG_HR(hr, "12.CreateHeapAndResource(reserved->committed): res=%p type=%d "
                    "w=%llu h=%u fmt=%d mips=%u state=0x%x -> 0x%08lx",
                    (void *)r, (int)pResDesc->ResourceType,
                    (unsigned long long)pResDesc->Width,
@@ -527,7 +527,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                 p->pDev, base->pPlaceHeap, off, &desc,
                 (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
                 pClear, &IID_ID3D12Resource, (void **)&r->pResource);
-            TR_LOG("12.CreateHeapAndResource(placed): type=%d w=%llu fmt=%d "
+            TR_LOG_HR(hr, "12.CreateHeapAndResource(placed): type=%d w=%llu fmt=%d "
                    "off=%llu state=0x%x -> 0x%08lx",
                    (int)pResDesc->ResourceType,
                    (unsigned long long)pResDesc->Width,
@@ -1004,7 +1004,7 @@ t12CreateFence(D3D12DDI_HDEVICE hDevice, D3D12DDI_HFENCE hFence,
     HRESULT hr = ID3D12Device_CreateFence(
         p->pDev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence,
         (void **)&f->pFence);
-    TR_LOG("12.CreateFence: count=%u -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateFence: count=%u -> 0x%08lx",
            pArgs->FenceCount, (unsigned long)hr);
     return hr;
 }

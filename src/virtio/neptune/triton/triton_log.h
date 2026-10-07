@@ -5,6 +5,8 @@
  * Logging and DDI-entry macros.
  *
  *   TR_LOG(fmt, ...)  - OutputDebugStringA debug print.
+ *   TR_LOG_HOT        - per-call trace, compiled out unless TRITON_HOT_LOG.
+ *   TR_LOG_HR(hr, ..) - logs on failure; on success only as TR_LOG_HOT.
  *   TR_STUB(name)     - logs "Triton: STUB <name>" once per thunk.
  */
 
@@ -41,6 +43,17 @@ static inline void triton_log_raw(const char *line)
 #else
 #define TR_LOG_HOT(fmt, ...) do { } while (0)
 #endif
+
+/* Object-create trace: a failure always logs, a success only under
+ * TRITON_HOT_LOG.  A title creates thousands of resources, shaders and
+ * pipelines while loading, and one ODS line per create stalls every
+ * loading thread behind a DBWIN reader for minutes. */
+#define TR_LOG_HR(hr, fmt, ...) do {                                  \
+        if (FAILED(hr))                                               \
+            TR_LOG(fmt, ##__VA_ARGS__);                               \
+        else                                                          \
+            TR_LOG_HOT(fmt, ##__VA_ARGS__);                           \
+    } while (0)
 
 #define TR_STUB(name) do {                                            \
         static LONG _seen = 0;                                        \

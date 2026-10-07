@@ -52,7 +52,7 @@ t12CreateDescriptorHeap(D3D12DDI_HDEVICE hDevice,
 
     HRESULT hr = ID3D12Device_CreateDescriptorHeap(
         p->pDev, &desc, &IID_ID3D12DescriptorHeap, (void **)&h->pHeap);
-    TR_LOG("12.CreateDescriptorHeap: type=%d n=%u ddiflags=0x%x -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateDescriptorHeap: type=%d n=%u ddiflags=0x%x -> 0x%08lx",
            (int)pArgs->Type, pArgs->NumDescriptors, (unsigned)pArgs->Flags,
            (unsigned long)hr);
     return hr;

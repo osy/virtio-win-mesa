@@ -85,7 +85,7 @@ t12CreateCommandQueueWithPriority(D3D12DDI_HDEVICE hDevice,
     desc.Priority = priority;
     HRESULT hr = ID3D12Device_CreateCommandQueue(
         p->pDev, &desc, &IID_ID3D12CommandQueue, (void **)&q->pQueue);
-    TR_LOG("12.CreateCommandQueue: flags=0x%x priority=%d -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateCommandQueue: flags=0x%x priority=%d -> 0x%08lx",
            (unsigned)pArgs->QueueFlags, (int)priority, (unsigned long)hr);
     if (FAILED(hr))
         return hr;

@@ -223,7 +223,7 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
 {
     PTRITON12_ADAPTER pAdapter = (PTRITON12_ADAPTER)hAdapter.pDrvPrivate;
     const UINT32 hostCaps = pAdapter ? pAdapter->HostCaps : 0;
-    TR_LOG("12.GetCaps: Type=%d DataSize=%u pInfo=%p",
+    TR_LOG_HOT("12.GetCaps: Type=%d DataSize=%u pInfo=%p",
            (int)pArgs->Type, pArgs->DataSize, pArgs->pInfo);
     if (!pArgs->pData || !pArgs->DataSize)
         return S_OK;
@@ -1511,7 +1511,7 @@ triton12QueryNodeMap(D3D12DDI_HDEVICE hDevice, UINT NumPhysicalAdapters,
                      UINT *pMap)
 {
     (void)hDevice;
-    TR_LOG("12.QueryNodeMap: n=%u", NumPhysicalAdapters);
+    TR_LOG_HOT("12.QueryNodeMap: n=%u", NumPhysicalAdapters);
     if (!pMap)
         return;
     /* Single physical adapter: identity map. */
@@ -1528,7 +1528,7 @@ triton12GetSupportedExtendedFeatures(D3D12DDI_HDEVICE hDevice,
 {
     (void)hDevice;
     (void)pFeatures;
-    TR_LOG("12.GetSupportedExtendedFeatures: n=%u", puFeatures ? *puFeatures : 0);
+    TR_LOG_HOT("12.GetSupportedExtendedFeatures: n=%u", puFeatures ? *puFeatures : 0);
     if (!puFeatures)
         return E_INVALIDARG;
     *puFeatures = 0; /* no extended features */
@@ -1580,7 +1580,7 @@ triton12GetOptionalDDITables(D3D12DDI_HADAPTER hAdapter,
                              D3D12DDI_TABLE_REQUEST *pTables)
 {
     (void)hAdapter;
-    TR_LOG("12.GetOptionalDDITables: puEntries=%p(%u) pTables=%p",
+    TR_LOG_HOT("12.GetOptionalDDITables: puEntries=%p(%u) pTables=%p",
            (void *)puEntries, puEntries ? *puEntries : 0, (void *)pTables);
     if (!puEntries)
         return E_INVALIDARG;
@@ -1612,7 +1612,7 @@ triton12FillDDITable(D3D12DDI_HADAPTER hAdapter,
     /* Log every table request (type + size names the runtime's expected
      * struct revision), fill with logging stubs, then overwrite the
      * implemented slots below. */
-    TR_LOG("12.FillDDITable: type=%d size=%zu num=%u pTable=%p",
+    TR_LOG_HOT("12.FillDDITable: type=%d size=%zu num=%u pTable=%p",
            (int)tableType, tableSize, tableNum, pTable);
     if (pTable && tableSize) {
         /* Stub every slot first, then overwrite the implemented ones, so

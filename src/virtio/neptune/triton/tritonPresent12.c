@@ -136,7 +136,7 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
         return FALSE;
     }
     r->hKMAllocation = ai.hAllocation;
-    TR_LOG("12.shared: exporter blob_id=0x%llx alloc=0x%x %llux%u primary=%d",
+    TR_LOG_HOT("12.shared: exporter blob_id=0x%llx alloc=0x%x %llux%u primary=%d",
            (unsigned long long)o->blob_id, ai.hAllocation,
            (unsigned long long)r->Desc.Width, r->Desc.Height, primary);
     return TRUE;
@@ -247,7 +247,7 @@ t12CheckResourceAllocationHandle(D3D12DDI_HDEVICE hDevice,
      * presenting it. */
     if (r->ResidencyOnlyAlloc)
         return 0;
-    TR_LOG("12.CheckResourceAllocationHandle: r=%p -> 0x%x", (void *)r,
+    TR_LOG_HOT("12.CheckResourceAllocationHandle: r=%p -> 0x%x", (void *)r,
            r->hKMAllocation);
     return r->hKMAllocation;
 }

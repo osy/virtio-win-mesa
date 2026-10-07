@@ -99,7 +99,7 @@ t12CreateShaderCommon(const D3D12DDIARG_CREATE_SHADER_0010 *pArgs,
         return;
 
     const UINT *tok = pArgs->pShaderCode;
-    TR_LOG("12.CreateShader(%s): tok0=0x%08x tok1=0x%08x tok2=0x%08x "
+    TR_LOG_HOT("12.CreateShader(%s): tok0=0x%08x tok1=0x%08x tok2=0x%08x "
            "tok3=0x%08x", tag, tok[0], tok[1], tok[2], tok[3]);
 
     if (tok[0] == 0x43425844u /* 'DXBC' container magic */) {
@@ -121,7 +121,7 @@ t12CreateShaderCommon(const D3D12DDIARG_CREATE_SHADER_0010 *pArgs,
         s->pDxbc = copy;
         s->cbDxbc = cb;
         s->IsDxil = t12ContainerHasPart(copy, cb, 0x4C495844u /* 'DXIL' */);
-        TR_LOG("12.CreateShader(%s): container %u bytes verbatim (dxil=%d)",
+        TR_LOG_HOT("12.CreateShader(%s): container %u bytes verbatim (dxil=%d)",
                tag, cb, (int)s->IsDxil);
         return;
     }
@@ -156,7 +156,7 @@ t12CreateShaderCommon(const D3D12DDIARG_CREATE_SHADER_0010 *pArgs,
         s->pDxbc = c;
         s->cbDxbc = cb;
         s->IsDxil = TRUE;
-        TR_LOG("12.CreateShader(%s): wrapped bare DXIL part (%zu) into "
+        TR_LOG_HOT("12.CreateShader(%s): wrapped bare DXIL part (%zu) into "
                "%zu-byte container", tag, (size_t)cbPart, (size_t)cb);
         return;
     }
@@ -449,7 +449,7 @@ t12CreateRootSignature11(PTRITON12_DEVICE p,
         if (blob) ID3D10Blob_Release(blob);
         if (err)  ID3D10Blob_Release(err);
     }
-    TR_LOG("12.CreateRootSignature11: params=%u samplers=%u flags=0x%x -> "
+    TR_LOG_HR(hr, "12.CreateRootSignature11: params=%u samplers=%u flags=0x%x -> "
            "0x%08lx", src->NumParameters, src->NumStaticSamplers,
            (unsigned)src->Flags, (unsigned long)hr);
 
@@ -589,7 +589,7 @@ t12CreateRootSignature(D3D12DDI_HDEVICE hDevice,
         if (blob) ID3D10Blob_Release(blob);
         if (err)  ID3D10Blob_Release(err);
     }
-    TR_LOG("12.CreateRootSignature: params=%u samplers=%u flags=0x%x -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreateRootSignature: params=%u samplers=%u flags=0x%x -> 0x%08lx",
            src->NumParameters, src->NumStaticSamplers, (unsigned)src->Flags,
            (unsigned long)hr);
 
@@ -768,7 +768,7 @@ t12CreateMeshPipelineState(PTRITON12_DEVICE p,
     hr = ID3D12Device2_CreatePipelineState(dev2, &sd, &IID_ID3D12PipelineState,
                                            (void **)&pso->pPSO);
     ID3D12Device2_Release(dev2);
-    TR_LOG("12.CreatePipelineState(mesh): as=%d rts=%u stream=%zu -> 0x%08lx",
+    TR_LOG_HR(hr, "12.CreatePipelineState(mesh): as=%d rts=%u stream=%zu -> 0x%08lx",
            (int)(as.pShaderBytecode != NULL), gd->NumRenderTargets,
            (size_t)off, (unsigned long)hr);
     return hr;
@@ -800,7 +800,7 @@ t12CreatePipelineStateImpl(D3D12DDI_HDEVICE hDevice,
         cd.CS.BytecodeLength  = cs->cbDxbc;
         hr = ID3D12Device_CreateComputePipelineState(
             p->pDev, &cd, &IID_ID3D12PipelineState, (void **)&pso->pPSO);
-        TR_LOG("12.CreatePipelineState(compute) -> 0x%08lx", (unsigned long)hr);
+        TR_LOG_HR(hr, "12.CreatePipelineState(compute) -> 0x%08lx", (unsigned long)hr);
         return hr;
     }
 
@@ -935,7 +935,7 @@ t12CreatePipelineStateImpl(D3D12DDI_HDEVICE hDevice,
 
     hr = ID3D12Device_CreateGraphicsPipelineState(
         p->pDev, &gd, &IID_ID3D12PipelineState, (void **)&pso->pPSO);
-    TR_LOG("12.CreatePipelineState(graphics): rts=%u rtv0=%d dsv=%d samples=%u "
+    TR_LOG_HR(hr, "12.CreatePipelineState(graphics): rts=%u rtv0=%d dsv=%d samples=%u "
            "forced=%u -> 0x%08lx",
            pArgs->NumRenderTargets, (int)gd.RTVFormats[0], (int)gd.DSVFormat,
            gd.SampleDesc.Count, gd.RasterizerState.ForcedSampleCount,
