@@ -60,6 +60,103 @@ npt_d3d11_map_to_access_flags(D3D11_MAP map_type)
 
 
 /*
+ * The owner's DISCARD on a buffer with host-shared storage
+ * (npt_resource.h): the slot-0 round trip, whose reply names the shmem
+ * the host renamed onto.  The app writes it in place, and the UNMAP this
+ * pairs with copies nothing.  A Map the host served from its own memory
+ * (every shmem still in flight) uses slot 0 and the host copy as before,
+ * and offers the host one more shmem, up to the cap.
+ */
+static HRESULT
+ctx_Map_buffer_shared_discard(void *self, struct npt_d3d11_buffer *b,
+                              UINT Subresource, UINT MapFlags,
+                              D3D11_MAPPED_SUBRESOURCE *pMappedResource)
+{
+   struct npt_ring *ring = npt_com_self_ring(self);
+   const uint64_t context_id = ((struct npt_com_base *)self)->base.id;
+   const uint64_t buffer_id = ((struct npt_com_base *)b)->base.id;
+
+   uint32_t row_pitch = 0, depth_pitch = 0;
+   uint32_t cookie = NPT_EXTERNAL_COOKIE_NONE;
+   HRESULT hr = npt_dispatch_resource_map(
+      ring, context_id, buffer_id, Subresource,
+      npt_d3d11_map_to_access_flags(D3D11_MAP_WRITE_DISCARD), MapFlags,
+      npt_d3d11_buffer_get_map_shmem_res_id(b),
+      npt_d3d11_buffer_get_byte_width(b),
+      /*mip_height=*/0, /*mip_depth=*/0,
+      npt_d3d11_buffer_slot_offset(b, 0),
+      &row_pitch, &depth_pitch, &cookie);
+   if (NPT_FAILED(hr))
+      return hr;
+
+   void *ptr = npt_d3d11_buffer_external_slot_ptr(b, cookie);
+   if (ptr) {
+      npt_d3d11_buffer_set_external_current(b, cookie);
+   } else {
+      npt_d3d11_buffer_set_external_current(b, NPT_EXTERNAL_COOKIE_NONE);
+      ptr = npt_d3d11_buffer_slot_ptr(b, 0);
+      npt_d3d11_buffer_add_external_slot(b, ring);
+   }
+
+   npt_d3d11_buffer_set_current_slot(b, 0);
+   pMappedResource->pData = ptr;
+   pMappedResource->RowPitch = row_pitch;
+   pMappedResource->DepthPitch = depth_pitch;
+   npt_d3d11_buffer_set_last_map_access_flags(b, 0);
+   npt_d3d11_buffer_set_is_mapped(b, true);
+   return NPT_S_OK;
+}
+
+/*
+ * Host-shared storage routing for DISCARD / NO_OVERWRITE (npt_resource.h).
+ * Returns true with *phr set when the Map was served here; false sends it
+ * down the map ring.
+ */
+static bool
+ctx_Map_buffer_shared(void *self, struct npt_d3d11_buffer *b,
+                      UINT Subresource, D3D11_MAP MapType, UINT MapFlags,
+                      D3D11_MAPPED_SUBRESOURCE *pMappedResource, HRESULT *phr)
+{
+   if (!npt_d3d11_buffer_external_eligible(b))
+      return false;
+
+   const uint64_t context_id = ((struct npt_com_base *)self)->base.id;
+   uint64_t owner = npt_d3d11_buffer_external_owner(b);
+   if (!owner) {
+      /* This NO_OVERWRITE itself still takes the map ring: the host's
+       * current contents are not in a shmem yet. */
+      if (MapType == D3D11_MAP_WRITE_NO_OVERWRITE &&
+          npt_d3d11_buffer_claim_external_owner(b, context_id))
+         npt_d3d11_buffer_add_external_slot(b, npt_com_self_ring(self));
+      return false;
+   }
+   if (owner != context_id) {
+      /* Its Map renames the host buffer behind the owner's back. */
+      npt_d3d11_buffer_set_external_current(b, NPT_EXTERNAL_COOKIE_NONE);
+      return false;
+   }
+
+   if (MapType == D3D11_MAP_WRITE_DISCARD) {
+      *phr = ctx_Map_buffer_shared_discard(self, b, Subresource, MapFlags,
+                                           pMappedResource);
+      return true;
+   }
+
+   void *ptr = npt_d3d11_buffer_external_slot_ptr(
+      b, npt_d3d11_buffer_external_current(b));
+   if (!ptr)
+      return false;
+   const uint32_t byte_width = npt_d3d11_buffer_get_byte_width(b);
+   pMappedResource->pData = ptr;
+   pMappedResource->RowPitch = byte_width;
+   pMappedResource->DepthPitch = byte_width;
+   npt_d3d11_buffer_set_mapped_in_place(b, true);
+   npt_d3d11_buffer_set_is_mapped(b, true);
+   *phr = NPT_S_OK;
+   return true;
+}
+
+/*
  * WRITE_DISCARD / WRITE_NO_OVERWRITE take the rename-ring fast path
  * (no round-trip; Unmap replays Map+memcpy+Unmap on the host).
  * Other Map types take the sync MAP_RESOURCE path on slot 0.
@@ -74,6 +171,10 @@ ctx_Map_buffer(void *self, struct npt_d3d11_buffer *b, UINT Subresource,
 
    if (MapType == D3D11_MAP_WRITE_DISCARD ||
        MapType == D3D11_MAP_WRITE_NO_OVERWRITE) {
+      HRESULT hr;
+      if (ctx_Map_buffer_shared(self, b, Subresource, MapType, MapFlags,
+                                pMappedResource, &hr))
+         return hr;
       const uint32_t flags = npt_d3d11_map_to_access_flags(MapType);
       if (MapType == D3D11_MAP_WRITE_DISCARD)
          npt_d3d11_buffer_rotate_slot(b);
@@ -99,7 +200,7 @@ ctx_Map_buffer(void *self, struct npt_d3d11_buffer *b, UINT Subresource,
       /*pessimistic_size=*/npt_d3d11_buffer_get_byte_width(b),
       /*mip_height=*/0, /*mip_depth=*/0,
       /*shmem_offset=*/npt_d3d11_buffer_slot_offset(b, 0),
-      &row_pitch, &depth_pitch);
+      &row_pitch, &depth_pitch, NULL);
    if (NPT_FAILED(hr))
       return hr;
 
@@ -177,7 +278,7 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
       /*byte_size=*/per_slot,
       mip_rows, mip_d,
       /*shmem_offset=*/npt_d3d11_texture_slot_offset(t, 0),
-      &row_pitch, &depth_pitch);
+      &row_pitch, &depth_pitch, NULL);
    if (NPT_FAILED(hr))
       return hr;
 
@@ -212,6 +313,12 @@ ctx_Map_texture(void *self, struct npt_d3d11_texture *t, UINT Subresource,
 static void
 ctx_Unmap_buffer(void *self, struct npt_d3d11_buffer *b, UINT Subresource)
 {
+   if (npt_d3d11_buffer_mapped_in_place(b)) {
+      npt_d3d11_buffer_set_mapped_in_place(b, false);
+      npt_d3d11_buffer_set_is_mapped(b, false);
+      return;
+   }
+
    struct npt_ring *ring = npt_com_self_ring(self);
    const uint32_t slot = npt_d3d11_buffer_get_current_slot(b);
    const uint32_t access_flags =

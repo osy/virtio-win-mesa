@@ -70,8 +70,11 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
                           uint32_t shmem_res_id, uint64_t byte_size,
                           uint32_t mip_rows, uint32_t mip_depth,
                           uint32_t shmem_offset,
-                          uint32_t *out_row_pitch, uint32_t *out_depth_pitch)
+                          uint32_t *out_row_pitch, uint32_t *out_depth_pitch,
+                          uint32_t *out_external_cookie)
 {
+   if (out_external_cookie)
+      *out_external_cookie = NPT_EXTERNAL_COOKIE_NONE;
    struct npt_cmd_map_resource cmd;
    memset(&cmd, 0, sizeof(cmd));
    cmd.header.cmd_type =
@@ -110,7 +113,54 @@ npt_dispatch_resource_map(struct npt_ring *ring, uint64_t context_id,
       if (NPT_SUCCEEDED(hr)) {
          if (out_row_pitch)   *out_row_pitch   = reply->row_pitch;
          if (out_depth_pitch) *out_depth_pitch = reply->depth_pitch;
+         if (out_external_cookie)
+            *out_external_cookie = reply->external_cookie;
       }
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+
+   return hr;
+}
+
+HRESULT
+npt_dispatch_bind_d3d11_buffer_shmem(struct npt_ring *ring,
+                                     uint64_t buffer_id,
+                                     uint32_t shmem_res_id, uint32_t cookie,
+                                     uint64_t byte_size)
+{
+   if (!ring || !buffer_id || !shmem_res_id || !byte_size)
+      return NPT_E_INVALIDARG;
+
+   struct npt_cmd_bind_d3d11_buffer_shmem cmd;
+   memset(&cmd, 0, sizeof(cmd));
+   cmd.header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_RESOURCE,
+                             NPT_TRANSPORT_RESOURCE_BIND_D3D11_BUFFER_SHMEM);
+   cmd.header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd.header.cmd_size = sizeof(cmd);
+   cmd.header.object_id = buffer_id;
+   cmd.shmem_res_id = shmem_res_id;
+   cmd.cookie = cookie;
+   cmd.byte_size = byte_size;
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, &cmd, sizeof(cmd),
+      sizeof(struct npt_cmd_bind_d3d11_buffer_shmem_reply));
+   if (enc)
+      enc->cur = (uint8_t *)&cmd + sizeof(cmd);
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_bind_d3d11_buffer_shmem_reply)) {
+      const struct npt_cmd_bind_d3d11_buffer_shmem_reply *reply =
+         (const struct npt_cmd_bind_d3d11_buffer_shmem_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
    }
    if (dec)
       npt_ring_free_command_reply(ring, &submit);

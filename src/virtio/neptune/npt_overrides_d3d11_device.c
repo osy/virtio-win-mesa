@@ -71,6 +71,22 @@ dev_aux(void *self)
    return ((struct npt_com_base *)self)->aux;
 }
 
+/* A DYNAMIC buffer the host can rename onto guest shmems
+ * (npt_d3d11_buffer_set_external_eligible).  Small ones stay on the map
+ * ring: what sharing saves is the host copy of the whole buffer at each
+ * NO_OVERWRITE Unmap, which only matters for a large one. */
+static bool
+dev_buffer_external_eligible(const struct npt_device *dev,
+                             const D3D11_BUFFER_DESC *desc)
+{
+   return (dev->renderer->info.caps_flags &
+           NPT_CAPSET_CAP_D3D11_EXTERNAL_BUFFERS) &&
+          desc && desc->Usage == D3D11_USAGE_DYNAMIC &&
+          (desc->CPUAccessFlags & D3D11_CPU_ACCESS_WRITE) &&
+          !(desc->CPUAccessFlags & D3D11_CPU_ACCESS_READ) &&
+          desc->ByteWidth >= NPT_D3D11_EXTERNAL_BUFFER_MIN_BYTES;
+}
+
 static HRESULT NPT_STDMETHODCALLTYPE
 dev_CreateBuffer_override(void *self,
                           const D3D11_BUFFER_DESC *pDesc,
@@ -113,6 +129,8 @@ dev_CreateBuffer_override(void *self,
                                         (struct npt_com_base *)self);
       if (b && pDesc)
          npt_d3d11_buffer_set_desc(b, pDesc);
+      if (b && ppBuffer && dev_buffer_external_eligible(dev, pDesc))
+         npt_d3d11_buffer_set_external_eligible(b);
       if (ppBuffer) {
          *ppBuffer = (ID3D11Buffer *)b;
       } else if (b) {

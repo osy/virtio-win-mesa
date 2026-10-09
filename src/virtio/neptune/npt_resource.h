@@ -125,6 +125,45 @@ bool npt_d3d11_buffer_fill_desc(struct npt_d3d11_buffer *b,
 uint32_t npt_d3d11_buffer_get_byte_width(struct npt_d3d11_buffer *b);
 
 bool npt_d3d11_buffer_ensure_map_shmem(struct npt_d3d11_buffer *b);
+
+/* Host-shared storage (NPT_CAPSET_CAP_D3D11_EXTERNAL_BUFFERS).  The map
+ * ring's NO_OVERWRITE Map is free, but its Unmap has the host copy the
+ * whole buffer, since D3D11 never says which bytes were written; an app
+ * appending small chunks to a large ring buffer pays that copy on every
+ * append.  So an eligible buffer that sees a NO_OVERWRITE Map switches:
+ * the context that issued it becomes the owner, the host gets guest
+ * shmems (cookies) to rename onto, the owner's DISCARD becomes a sync Map
+ * whose reply names the shmem it landed on, and the owner's NO_OVERWRITE
+ * writes that shmem in place with no host traffic at all.  A buffer that
+ * only ever DISCARDs keeps the map ring, whose DISCARD needs no reply.
+ * Every other case -- a DISCARD the host served from its own memory, any
+ * Map from another context -- leaves the buffer on the map ring until the
+ * owner's next shared DISCARD. */
+#define NPT_D3D11_EXTERNAL_BUFFER_MIN_BYTES (1u << 20)
+#define NPT_D3D11_EXTERNAL_SLOT_MAX 8u
+void npt_d3d11_buffer_set_external_eligible(struct npt_d3d11_buffer *b);
+bool npt_d3d11_buffer_external_eligible(const struct npt_d3d11_buffer *b);
+/* Owner context id; 0 while the buffer is on the map ring only. */
+uint64_t npt_d3d11_buffer_external_owner(const struct npt_d3d11_buffer *b);
+/* Make context_id the owner if there is none; true if it is the owner. */
+bool npt_d3d11_buffer_claim_external_owner(struct npt_d3d11_buffer *b,
+                                           uint64_t context_id);
+/* Cookie of the shmem holding the owner's current contents, or
+ * NPT_EXTERNAL_COOKIE_NONE when they are on the map ring. */
+uint32_t npt_d3d11_buffer_external_current(const struct npt_d3d11_buffer *b);
+void npt_d3d11_buffer_set_external_current(struct npt_d3d11_buffer *b,
+                                           uint32_t cookie);
+/* One more shmem for the host to rename onto; false at the cap or on
+ * any failure, after which the buffer keeps whatever it has. */
+bool npt_d3d11_buffer_add_external_slot(struct npt_d3d11_buffer *b,
+                                        struct npt_ring *ring);
+void *npt_d3d11_buffer_external_slot_ptr(const struct npt_d3d11_buffer *b,
+                                         uint32_t cookie);
+/* The open Map is a NO_OVERWRITE on the current shmem: its Unmap sends
+ * nothing, since the host never saw the Map. */
+void npt_d3d11_buffer_set_mapped_in_place(struct npt_d3d11_buffer *b,
+                                          bool in_place);
+bool npt_d3d11_buffer_mapped_in_place(const struct npt_d3d11_buffer *b);
 /* Slot 0's res_id (sync MAP_RESOURCE always lands on slot 0). */
 uint32_t npt_d3d11_buffer_get_map_shmem_res_id(struct npt_d3d11_buffer *b);
 /* Per-slot res_id for async Unmap on the rename ring. */
@@ -310,6 +349,16 @@ struct npt_d3d11_buffer_aux {
    D3D11_BUFFER_DESC desc;
    bool has_desc;
    struct npt_d3d_map_ring map_ring;
+   /* Host-shared rename storage, indexed by cookie.  Slots are added and
+    * looked up from any context's thread with no lock: a cookie is
+    * reserved atomically, and its slot is stored before the bind that
+    * lets the host hand it out (cleared if the bind fails). */
+   struct npt_renderer_shmem *external_slots[NPT_D3D11_EXTERNAL_SLOT_MAX];
+   uint32_t external_reserved;
+   bool external_eligible;
+   uint64_t external_owner;
+   uint32_t external_current;
+   bool mapped_in_place;
 };
 
 void npt_d3d11_buffer_aux_init(struct npt_com_base *com,

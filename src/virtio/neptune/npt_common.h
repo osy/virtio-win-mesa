@@ -156,6 +156,10 @@ struct npt_capset {
 /* Host D3D12 backend consumes DXIL containers (SM 6.x) directly.
  * Set for D3DMetal, clear for DXMT (DXBC-only shader front end). */
 #define NPT_CAPSET_CAP_DXIL                      (1u << 6)
+/* The host D3D11 backend takes a guest shmem as the storage of a DYNAMIC
+ * buffer (RESOURCE_BIND_D3D11_BUFFER_SHMEM): a Map of such a buffer
+ * writes the bytes the GPU reads, with no host copy. */
+#define NPT_CAPSET_CAP_D3D11_EXTERNAL_BUFFERS    (1u << 7)
 
 #ifdef __WINE__
 void npt_log_impl(const char *fmt, ...);

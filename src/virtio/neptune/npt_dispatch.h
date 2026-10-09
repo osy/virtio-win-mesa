@@ -56,7 +56,14 @@ HRESULT npt_dispatch_resource_map(struct npt_ring *ring,
                                   uint32_t mip_depth,
                                   uint32_t shmem_offset,
                                   uint32_t *out_row_pitch,
-                                  uint32_t *out_depth_pitch);
+                                  uint32_t *out_depth_pitch,
+                                  uint32_t *out_external_cookie);
+
+HRESULT npt_dispatch_bind_d3d11_buffer_shmem(struct npt_ring *ring,
+                                             uint64_t buffer_id,
+                                             uint32_t shmem_res_id,
+                                             uint32_t cookie,
+                                             uint64_t byte_size);
 
 bool npt_dispatch_resource_unmap(struct npt_ring *ring,
                                  uint64_t context_id,
