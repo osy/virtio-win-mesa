@@ -111,13 +111,13 @@ uint32_t
 npt_shared_texture_virgl_format(uint32_t dxgi_format)
 {
    switch (dxgi_format) {
-   case DXGI_FORMAT_B8G8R8A8_UNORM: return 1;  /* VIRGL_FORMAT_B8G8R8A8_UNORM */
-   case DXGI_FORMAT_B8G8R8X8_UNORM: return 2;  /* VIRGL_FORMAT_B8G8R8X8_UNORM */
-   case DXGI_FORMAT_R8G8B8A8_UNORM: return 67; /* VIRGL_FORMAT_R8G8B8A8_UNORM */
+   case DXGI_FORMAT_B8G8R8A8_UNORM: return VIRGL_FORMAT_B8G8R8A8_UNORM;
+   case DXGI_FORMAT_B8G8R8X8_UNORM: return VIRGL_FORMAT_B8G8R8X8_UNORM;
+   case DXGI_FORMAT_R8G8B8A8_UNORM: return VIRGL_FORMAT_R8G8B8A8_UNORM;
    default:
       npt_log("shared texture: unmapped DXGI format %u, assuming BGRA8",
               dxgi_format);
-      return 1;
+      return VIRGL_FORMAT_B8G8R8A8_UNORM;
    }
 }
 
