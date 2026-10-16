@@ -71,6 +71,9 @@ typedef struct TRITON12_DEVICE
      * vtbl layer).  Populated by tritonCreateDevice12 via
      * npt_d3d12_create_device_internal. */
     ID3D12Device                *pDev;
+    /* pDev's ID3D12Device5, resolved at device create when DXR is
+     * reported; NULL otherwise. */
+    ID3D12Device5               *pDev5;
     /* Host TiledResourcesTier (D3D12_OPTIONS on the inner device),
      * probed once at device create.  >= 1 means the host backs reserved
      * resources sparsely and honours UpdateTileMappings, so
@@ -327,7 +330,7 @@ typedef struct TRITON12_LIST
      * recording entries do not QueryInterface per call.  IfaceTried marks
      * an index as resolved, NULL included.  A list records on one thread
      * at a time, so no lock. */
-    void                        *pIface[3];
+    void                        *pIface[4];
     UINT                         IfaceTried;
     PTRITON12_DEVICE             pDev;
     /* Recording-thread stamp, kept only under
@@ -504,5 +507,8 @@ t12TileShape(DXGI_FORMAT fmt, TRITON12_TILE_SHAPE *out)
     out->TexelH = out->ElemH * blockEdge;
     out->RowBytes = out->ElemW * elemBytes;
 }
+
+/* DXR is reported (NPT_DEBUG=d3d12_claim_raytracing). */
+BOOL triton12DxrEnabled(void);
 
 #endif /* TRITON12_H */

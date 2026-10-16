@@ -58,6 +58,12 @@ enum npt_debug {
     * queues.  Recovers the async-compute overlap at the cost of the
     * ordering an app's unobservable Wait() would have given it. */
    NPT_DEBUG_NO_D3D12_XQUEUE_ORDER   = 1ull << 7,
+
+   /* Report the host's D3D12 raytracing tier (DXR 1.0/1.1).  Opt-in:
+    * acceleration-structure buffers are recognized by a heuristic, since
+    * the DDI revision Triton implements does not mark them.  Needs a host
+    * that knows NPT_TRANSPORT_COM_GET_SHADER_IDENTIFIER. */
+   NPT_DEBUG_D3D12_CLAIM_RAYTRACING  = 1ull << 8,
 };
 
 struct npt_env {
