@@ -66,6 +66,12 @@ enum npt_debug {
     * Opt-in for engines whose atomic64 use is the min/max subset (UE5
     * Nanite / virtual shadow maps). */
    NPT_DEBUG_D3D12_CLAIM_ATOMIC64    = 1ull << 8,
+
+   /* Report the host's D3D12 raytracing tier (DXR 1.0/1.1).  Opt-in:
+    * acceleration-structure buffers are recognized by a heuristic, since
+    * the DDI revision Triton implements does not mark them.  Needs a host
+    * that knows NPT_TRANSPORT_COM_GET_SHADER_IDENTIFIER. */
+   NPT_DEBUG_D3D12_CLAIM_RAYTRACING  = 1ull << 9,
 };
 
 struct npt_env {

@@ -349,9 +349,9 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                  (D3D12_HEAP_FLAGS)0x40000000u;
         }
 
-        /* ByteSize is not trustworthy in either direction: the runtime's
-         * implicit-heap creates leave it ~0, and real API CreateHeap does
-         * not reliably carry the size either.  Passing it through builds
+        /* ByteSize is not trustworthy as a heap size: the runtime's
+         * implicit-heap creates report Width rounded up to 64 KiB or ~0,
+         * and real API CreateHeap does not reliably carry the size either.  Passing it through builds
          * a UINT64_MAX host heap and kills the render worker.  The
          * covering buffer's Width is the one reliable size, since API
          * CreateHeap always arrives as a BUFFER of exactly the heap
@@ -360,7 +360,31 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
          * a committed buffer this way is just a dedicated heap, which
          * is what committed means. */
         const UINT64 hbytes = (desc.Width + 0xFFFFull) & ~0xFFFFull;
-        const BOOL heapLike = desc.Width && desc.Width <= (64ull << 30);
+        /* Acceleration-structure buffers must be real committed resources:
+         * D3DMetal looks acceleration structures up by the committed
+         * resource's GPU VA and a placed buffer's VA does not resolve.
+         * At DDI 0082 the runtime strips RAYTRACING_ACCELERATION_STRUCTURE
+         * from InitialResourceState (the AS resource flag only exists from
+         * 0088), so with DXR enabled a COMMON, UAV, DEFAULT buffer on an
+         * implicit heap is treated as a potential AS.  An implicit heap
+         * reports ByteSize = Width rounded up to 64 KiB, while an app heap's
+         * covering buffer is the whole heap, so explicit heaps and their
+         * placed resources are unaffected.  Not recognized: an AS whose
+         * Width is a 64 KiB multiple, and an AS placed in an app heap. */
+        const UINT64 w64 = (pResDesc->Width + 0xFFFFull) & ~0xFFFFull;
+        const BOOL implicitHeap = (pResDesc->Width & 0xFFFFull) != 0 &&
+                                  pHeapDesc->ByteSize == w64;
+        const BOOL asGuess = triton12DxrEnabled() &&
+            pResDesc->ResourceType == D3D12DDI_RT_BUFFER && implicitHeap &&
+            pResDesc->InitialResourceState == 0 &&
+            (pResDesc->Flags & D3D12DDI_RESOURCE_FLAG_0022_UNORDERED_ACCESS) &&
+            props.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE &&
+            !shared;
+        const BOOL isAS =
+            (pResDesc->InitialResourceState & D3D12DDI_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) ||
+            (pResDesc->Flags & D3D12DDI_RESOURCE_FLAG_0088_RAYTRACING_ACCELERATION_STRUCTURE) ||
+            asGuess;
+        const BOOL heapLike = desc.Width && desc.Width <= (64ull << 30) && !isAS;
         if (pResDesc->ResourceType == D3D12DDI_RT_BUFFER && !shared &&
             heapLike && r && h) {
             /* BUFFER + heap desc: this is how API CreateHeap arrives --
@@ -410,9 +434,17 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
                    (unsigned long)hhr);
         }
 
+        /* An AS must be a DEFAULT-heap buffer created in
+         * RAYTRACING_ACCELERATION_STRUCTURE for the host to register it. */
+        D3D12_HEAP_PROPERTIES asProps;
+        memset(&asProps, 0, sizeof(asProps));
+        asProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+        asProps.CreationNodeMask = props.CreationNodeMask;
+        asProps.VisibleNodeMask = props.VisibleNodeMask;
         HRESULT hr = ID3D12Device_CreateCommittedResource(
-            p->pDev, &props, hf, &desc,
-            (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
+            p->pDev, isAS ? &asProps : &props, hf, &desc,
+            isAS ? D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
+                 : (D3D12_RESOURCE_STATES)pResDesc->InitialResourceState,
             pClear, &IID_ID3D12Resource, (void **)&r->pResource);
         TR_LOG_HR(hr, "12.CreateHeapAndResource(committed): type=%d w=%llu fmt=%d "
                "state=0x%x heapFlags=0x%x heapBytes=0x%llx heapAlign=0x%llx "

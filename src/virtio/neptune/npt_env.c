@@ -28,6 +28,7 @@ static const struct debug_control npt_debug_options[] = {
    { "d3d12_list_migration",     NPT_DEBUG_D3D12_LIST_MIGRATION },
    { "no_d3d12_xqueue_order",    NPT_DEBUG_NO_D3D12_XQUEUE_ORDER },
    { "d3d12_claim_atomic64",     NPT_DEBUG_D3D12_CLAIM_ATOMIC64 },
+   { "d3d12_claim_raytracing",   NPT_DEBUG_D3D12_CLAIM_RAYTRACING },
    { NULL, 0 },
 };
 

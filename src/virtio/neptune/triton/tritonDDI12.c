@@ -79,6 +79,10 @@ triton12CreateDevice(D3D12DDI_HADAPTER hAdapter,
         TR_LOG("12.CreateDevice: inner Neptune ID3D12Device up (%p)", (void *)dev);
     }
     p->pDev = dev;
+    p->pDev5 = NULL;
+    if (triton12DxrEnabled() &&
+        FAILED(ID3D12Device_QueryInterface(dev, &IID_ID3D12Device5, (void **)&p->pDev5)))
+        p->pDev5 = NULL;
 
     /* Host tiled-resource support, which picks the reserved-resource
      * path in tritonResource12.c: a nonzero tier means the host honours
@@ -124,6 +128,10 @@ triton12DestroyDevice(D3D12DDI_HDEVICE hDevice)
         }
     }
     if (p->pDev) {
+        if (p->pDev5) {
+            ID3D12Device5_Release(p->pDev5);
+            p->pDev5 = NULL;
+        }
         ID3D12Device_Release(p->pDev);
         p->pDev = NULL;
     }
@@ -257,6 +265,13 @@ triton12CpuVisibleTextures(PTRITON12_ADAPTER pAdapter)
     TRITON_CAP_FIXED("d3d12", name, lv, HC12(bit), hv, v, why)
 #define CAP12_TODO(name, lv, bit, hv, v, why) \
     TRITON_CAP_TODO("d3d12", name, lv, HC12(bit), hv, v, why)
+
+BOOL
+triton12DxrEnabled(void)
+{
+    npt_env_init();
+    return NPT_DEBUG(D3D12_CLAIM_RAYTRACING);
+}
 
 static HRESULT APIENTRY
 triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
@@ -589,9 +604,17 @@ triton12GetCaps(D3D12DDI_HADAPTER hAdapter, const D3D12DDIARG_GETCAPS *pArgs)
         if (OPT12_AT(0054)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0054 *o =
                 (D3D12DDI_D3D12_OPTIONS_DATA_0054 *)pArgs->pData;
-            CAP12_TODO("OPTIONS.RaytracingTier", o->RaytracingTier, OPTIONS5,
-                       hc->options5.RaytracingTier, 0,
-                       "state objects, acceleration structures and DispatchRays DDI not implemented");
+            if (triton12DxrEnabled()) {
+                UINT hostTier = (UINT)hc->options5.RaytracingTier;
+                CAP12_FIXED("OPTIONS.RaytracingTier", o->RaytracingTier, OPTIONS5,
+                            hc->options5.RaytracingTier,
+                            (D3D12DDI_RAYTRACING_TIER)(hostTier >= 11 ? 11 : hostTier),
+                            "NPT_DEBUG=d3d12_claim_raytracing");
+            } else {
+                CAP12_TODO("OPTIONS.RaytracingTier", o->RaytracingTier, OPTIONS5,
+                           hc->options5.RaytracingTier, 0,
+                           "opt-in: NPT_DEBUG=d3d12_claim_raytracing");
+            }
         }
         if (OPT12_AT(0062)) {
             D3D12DDI_D3D12_OPTIONS_DATA_0062 *o =

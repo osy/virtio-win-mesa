@@ -730,8 +730,10 @@ dev12_CheckFeatureSupport_override(void *self,
       HRESULT hr = npt_call_ID3D12Device_CheckFeatureSupport(
          npt_device_method_ring(dev), npt_com_self_id(self),
          Feature, pFeatureSupportData, FeatureSupportDataSize);
-      /* ID3D12StateObjectProperties::GetShaderIdentifier is unsupported on
-       * the wire, so no shader table can be built: DXR is not usable. */
+      /* The API path has no ID3D12StateObjectProperties::GetShaderIdentifier,
+       * so no shader table can be built: DXR is not usable.  Triton fetches
+       * identifiers itself and reads the real tier through
+       * npt_d3d12_host_raytracing_tier. */
       if (NPT_SUCCEEDED(hr) && Feature == D3D12_FEATURE_D3D12_OPTIONS5 &&
           FeatureSupportDataSize >= sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS5))
          ((D3D12_FEATURE_DATA_D3D12_OPTIONS5 *)pFeatureSupportData)
@@ -739,6 +741,21 @@ dev12_CheckFeatureSupport_override(void *self,
       return hr;
    }
    }
+}
+
+/* The host's D3D12_OPTIONS5.RaytracingTier, which CheckFeatureSupport
+ * masks.  Called by Triton, which cannot include the npt headers. */
+UINT
+npt_d3d12_host_raytracing_tier(void *device)
+{
+   D3D12_FEATURE_DATA_D3D12_OPTIONS5 o5;
+   memset(&o5, 0, sizeof(o5));
+   struct npt_device *dev = npt_com_self_device(device);
+   if (NPT_FAILED(npt_call_ID3D12Device_CheckFeatureSupport(
+          npt_device_method_ring(dev), npt_com_self_id(device),
+          D3D12_FEATURE_D3D12_OPTIONS5, &o5, sizeof(o5))))
+      return 0;
+   return (UINT)o5.RaytracingTier;
 }
 
 /* ==========================================================================
