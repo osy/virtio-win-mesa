@@ -15236,13 +15236,20 @@ npt_sizeof_D3D12_CPU_DESCRIPTOR_HANDLE(const D3D12_CPU_DESCRIPTOR_HANDLE *val, i
 static inline void
 npt_encode_D3D12_CPU_DESCRIPTOR_HANDLE(struct npt_cs_encoder *enc, const D3D12_CPU_DESCRIPTOR_HANDLE *val)
 {
-    npt_encode_SIZE_T(enc, &val->ptr);
+    {
+        const uint64_t _wire = npt_guest_host_address_to_wire((uint64_t)(uintptr_t)val->ptr);
+        npt_encode_uint64_t(enc, &_wire);
+    }
 }
 
 static inline void
 npt_decode_D3D12_CPU_DESCRIPTOR_HANDLE(struct npt_cs_decoder *dec, D3D12_CPU_DESCRIPTOR_HANDLE *val)
 {
-    npt_decode_SIZE_T(dec, &val->ptr);
+    {
+        uint64_t _wire = 0;
+        npt_decode_uint64_t(dec, &_wire);
+        val->ptr = (SIZE_T)(uintptr_t)npt_guest_host_address_from_wire(_wire);
+    }
 }
 
 /* D3D12_GPU_DESCRIPTOR_HANDLE (struct) */

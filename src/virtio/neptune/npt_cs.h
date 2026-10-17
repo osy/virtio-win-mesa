@@ -281,4 +281,43 @@ npt_win32_handle_from_id(npt_object_id id)
    return (void *)(uintptr_t)id;
 }
 
+/*
+ * Host addresses: neptune-protocol host_address fields (D3D12 CPU
+ * descriptor handles).  A 64-bit guest holds them as they are; a 32-bit
+ * guest maps each host range into a window it can hold
+ * (npt_host_address.c).  npt_host_address_window_hint sizes the window
+ * the calling thread's next new host address opens; release closes the
+ * window starting at a guest value.
+ */
+#if UINTPTR_MAX > UINT32_MAX
+static inline uint64_t
+npt_guest_host_address_to_wire(uint64_t guest)
+{
+   return guest;
+}
+
+static inline uint64_t
+npt_guest_host_address_from_wire(uint64_t wire)
+{
+   return wire;
+}
+
+static inline void
+npt_host_address_window_hint(uint64_t size)
+{
+   (void)size;
+}
+
+static inline void
+npt_host_address_release(uint64_t guest)
+{
+   (void)guest;
+}
+#else
+uint64_t npt_guest_host_address_to_wire(uint64_t guest);
+uint64_t npt_guest_host_address_from_wire(uint64_t wire);
+void npt_host_address_window_hint(uint64_t size);
+void npt_host_address_release(uint64_t guest);
+#endif
+
 #endif /* NPT_CS_H */

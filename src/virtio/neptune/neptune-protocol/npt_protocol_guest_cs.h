@@ -54,6 +54,16 @@
  *       inline from the generated command encoders for every output
  *       COM handle parameter.  Starts at 1 (0 stays reserved for null /
  *       invalid).
+ *
+ *   -- Host addresses --
+ *   uint64_t npt_guest_host_address_to_wire(uint64_t guest)
+ *   uint64_t npt_guest_host_address_from_wire(uint64_t wire)
+ *       A host_address field (a D3D12 CPU descriptor handle) holds an
+ *       address in the host process, which does not fit a 32-bit guest's
+ *       SIZE_T.  from_wire maps a host address the guest receives to the
+ *       value it holds; to_wire maps that value, or one derived from it by
+ *       the API's offset arithmetic, back to the host address.  0 maps to
+ *       0.  A 64-bit guest can implement both as the identity.
  */
 
 uint64_t npt_com_allocate_next_id(void);

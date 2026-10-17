@@ -9,6 +9,7 @@ npt_common_src = files(
   'npt_dispatch.c',
   'npt_env.c',
   'npt_event.c',
+  'npt_host_address.c',
   'npt_profile.c',
   'npt_ring.c',
   'npt_tls.c',

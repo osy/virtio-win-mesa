@@ -463,6 +463,8 @@ npt_d3d12_descriptorheap_aux_destroy(void *aux_raw)
    struct npt_d3d12_descriptorheap_aux *aux = aux_raw;
    if (aux->tracked)
       desc_heaps_unregister(aux->cpu_start.ptr);
+   if (atomic_load_explicit(&aux->cpu_valid, memory_order_acquire))
+      npt_host_address_release(aux->cpu_start.ptr);
    free(aux);
 }
 
@@ -503,19 +505,23 @@ descriptorheap12_GetCPUDescriptorHandleForHeapStart_override(
       *_ret_out = aux->cpu_start;
       return _ret_out;
    }
+   const UINT inc =
+      aux->num_descriptors && ((struct npt_com_base *)self)->base.parent
+         ? dev12_GetDescriptorHandleIncrementSize_override(
+              ((struct npt_com_base *)self)->base.parent, aux->type)
+         : 0;
+   /* The heap's extent, for the window a 32-bit guest maps the host
+    * start into while decoding the reply below. */
+   npt_host_address_window_hint((uint64_t)inc * aux->num_descriptors);
    npt_id3d12descriptorheap_default_GetCPUDescriptorHandleForHeapStart(
       self, _ret_out);
+   npt_host_address_window_hint(0);
    /* Racing first calls store the same host answer. */
    aux->cpu_start = *_ret_out;
-   if (aux->num_descriptors && !aux->tracked &&
-       ((struct npt_com_base *)self)->base.parent) {
-      const UINT inc = dev12_GetDescriptorHandleIncrementSize_override(
-         ((struct npt_com_base *)self)->base.parent, aux->type);
-      if (inc) {
-         desc_heaps_register(aux->cpu_start.ptr, inc, aux->num_descriptors,
-                             !aux->shader_visible);
-         aux->tracked = true;
-      }
+   if (inc && !aux->tracked) {
+      desc_heaps_register(aux->cpu_start.ptr, inc, aux->num_descriptors,
+                          !aux->shader_visible);
+      aux->tracked = true;
    }
    atomic_store_explicit(&aux->cpu_valid, true, memory_order_release);
    return _ret_out;
