@@ -249,6 +249,8 @@ triton12CreateCompanion(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
         (D3D12_HEAP_FLAGS)0x40000000u;
     D3D12_RESOURCE_DESC cd = *desc;
     cd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    cd.SampleDesc.Count = 1;
+    cd.SampleDesc.Quality = 0;
     HRESULT hr = ID3D12Device_CreateCommittedResource(
         p->pDev, props, hf, &cd, D3D12_RESOURCE_STATE_COMMON, NULL,
         &IID_ID3D12Resource, (void **)&r->pCompanion);

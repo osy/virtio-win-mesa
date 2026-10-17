@@ -62,7 +62,8 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
     d.MipLevels      = r->Desc.MipLevels;
     d.ArraySize      = r->Desc.DepthOrArraySize;
     d.Format         = r->Desc.Format;
-    d.SampleCount    = r->Desc.SampleDesc.Count;
+    /* A companion is single-sample whatever the frame it carries. */
+    d.SampleCount    = pSurf == r->pResource ? r->Desc.SampleDesc.Count : 1;
     d.Is2D           = r->Desc.ResourceType == D3D12DDI_RT_TEXTURE2D;
     d.Usage          = D3D11_USAGE_DEFAULT;
     d.BindFlags      = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -302,6 +303,42 @@ t12PollDrain(PTRITON12_QUEUE q, UINT64 v, DWORD timeoutMs)
     return TRUE;
 }
 
+/* Fill src's companion from its frame.  A single-sample source is copied
+ * under implicit promotion (see t12PresentCompanionCopy).  A multisampled
+ * source is resolved: the companion is always single-sample, and the
+ * resolve states are not promotable, so both resources are transitioned
+ * explicitly and returned to PRESENT (COMMON), where the copy path also
+ * leaves the source. */
+static void
+t12RecordCompanionFill(ID3D12GraphicsCommandList *list,
+                       PTRITON12_RESOURCE src)
+{
+    if (src->Desc.SampleDesc.Count <= 1) {
+        ID3D12GraphicsCommandList_CopyResource(list, src->pCompanion,
+                                               src->pResource);
+        return;
+    }
+    D3D12_RESOURCE_BARRIER b[2];
+    memset(b, 0, sizeof(b));
+    b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[0].Transition.pResource = src->pResource;
+    b[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    b[1] = b[0];
+    b[1].Transition.pResource = src->pCompanion;
+    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 2, b);
+    ID3D12GraphicsCommandList_ResolveSubresource(
+        list, src->pCompanion, 0, src->pResource, 0,
+        (DXGI_FORMAT)src->Desc.Format);
+    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 2, b);
+}
+
 /* ---------- companion present copy ----------
  *
  * Companion-backed back buffers (tritonResource12.c) render into a NATIVE
@@ -391,8 +428,7 @@ t12PresentCompanionCopy(PTRITON12_QUEUE q, PTRITON12_RESOURCE src)
         npt_log("companion-copy list reset FAILED");
         return;
     }
-    ID3D12GraphicsCommandList_CopyResource(q->pCopyList, src->pCompanion,
-                                           src->pResource);
+    t12RecordCompanionFill(q->pCopyList, src);
     if (FAILED(ID3D12GraphicsCommandList_Close(q->pCopyList)))
         return;
     {
@@ -432,8 +468,10 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
      * for the kernel present to copy from.  D3D9On12 presents plain textures
      * (no RENDER_TARGET flag, e.g. its A2R10G10B10 back buffer), which the
      * create path gives no companion; build one here, once.  The companion
-     * takes the same shape rule as the create path's -- one plane, one
-     * sample -- and a ROW_MAJOR source is left alone: CopyResource needs
+     * takes the same shape rule as the create path's -- one plane -- and is
+     * single-sample: a multisampled source (a D3D9 MSAA back buffer) is
+     * resolved into it, so its format must support the resolve.  A
+     * ROW_MAJOR source is left alone: CopyResource needs
      * both resources the same size, which a linear source and an opaque
      * companion need not be.  A shape the rule rejects, or a create the
      * host refuses, is latched so it costs one attempt rather than a host
@@ -444,10 +482,20 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
         D3D12_RESOURCE_DESC desc;
         ID3D12Resource_GetDesc(src->pResource, &desc);
         HRESULT hr = E_INVALIDARG;
+        BOOL resolvable = desc.SampleDesc.Count <= 1;
+        if (!resolvable) {
+            D3D12_FEATURE_DATA_FORMAT_SUPPORT fs;
+            memset(&fs, 0, sizeof(fs));
+            fs.Format = desc.Format;
+            resolvable = SUCCEEDED(ID3D12Device_CheckFeatureSupport(
+                             q->pDev->pDev, D3D12_FEATURE_FORMAT_SUPPORT, &fs,
+                             sizeof(fs))) &&
+                         (fs.Support1 &
+                          D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE);
+        }
         if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
             desc.MipLevels <= 1 && desc.DepthOrArraySize <= 1 &&
-            desc.SampleDesc.Count <= 1 &&
-            desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR) {
+            resolvable && desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR) {
             D3D12_HEAP_PROPERTIES props;
             memset(&props, 0, sizeof(props));
             props.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -490,8 +538,7 @@ t12Present(D3D12DDI_HCOMMANDLIST hList, D3D12DDI_HCOMMANDQUEUE hQueue,
     const BOOL blt = pArgs->Flags.Blt ? TRUE : FALSE;
     if (src && src->pCompanion && src->pResource) {
         if (blt && l && l->pList && !l->AwaitingReset) {
-            ID3D12GraphicsCommandList_CopyResource(l->pList, src->pCompanion,
-                                                   src->pResource);
+            t12RecordCompanionFill(l->pList, src);
             pOut->AddedGpuWork = TRUE;
         } else if (q->pQueue) {
             t12PresentCompanionCopy(q, src);
