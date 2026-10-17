@@ -316,9 +316,10 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
          *
          * rtTex matches only what the share path can represent: the host
          * shares through IOSurface, which is one linear plane -- no volume,
-         * no array slices, no mip chain.  A resource outside that shape
-         * cannot be substituted (a view naming slice or level > 0 has
-         * nothing to address), and sharing it also stamps SHARED|
+         * no array slices, no mip chain, one sample.  A resource outside
+         * that shape cannot be substituted (a view naming slice or level
+         * > 0 has nothing to address, and the host refuses to share one),
+         * and sharing it also stamps SHARED|
          * ALLOW_DISPLAY and the host's EXPORT_LINEAR_DMABUF onto a resource
          * that wants optimal tiling.  Swapchain back buffers, the only thing
          * this term must catch, always have the simple shape, and
@@ -326,6 +327,7 @@ t12CreateHeapAndResourceCore(D3D12DDI_HDEVICE hDevice,
          * anything that needs one later. */
         const BOOL rtTex =
             t12IsSimpleTexture2D(pResDesc) &&
+            pResDesc->SampleDesc.Count <= 1 &&
             !!(pResDesc->Flags & D3D12DDI_RESOURCE_FLAG_0003_RENDER_TARGET);
         const BOOL shared = primary || rtTex;
         /* Companion mode: an rtTex resource is created NATIVE -- optimally
