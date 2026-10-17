@@ -13602,44 +13602,52 @@ npt_decode_DXGI_USAGE_array(struct npt_cs_decoder *dec,
     npt_decode_UINT_array(dec, (UINT *)val, count);
 }
 
-/* HANDLE (alias for uint64_t) */
+/* HANDLE (pointer-sized, wire form uint64_t) */
 
 static inline size_t
 npt_sizeof_HANDLE(const HANDLE *val, int max_mode)
 {
-    return npt_sizeof_uint64_t((const uint64_t *)val, max_mode);
+    /* Fixed wire size; val may be an unfilled out-param. */
+    (void)val;
+    return npt_sizeof_uint64_t(NULL, max_mode);
 }
 
 static inline void
 npt_encode_HANDLE(struct npt_cs_encoder *enc, const HANDLE *val)
 {
-    npt_encode_uint64_t(enc, (const uint64_t *)val);
+    const uint64_t wire = (uint64_t)(uintptr_t)*val;
+    npt_encode_uint64_t(enc, &wire);
 }
 
 static inline void
 npt_decode_HANDLE(struct npt_cs_decoder *dec, HANDLE *val)
 {
-    npt_decode_uint64_t(dec, (uint64_t *)val);
+    uint64_t wire = 0;
+    npt_decode_uint64_t(dec, &wire);
+    *val = (HANDLE)(uintptr_t)wire;
 }
 
 static inline size_t
 npt_sizeof_HANDLE_array(const HANDLE *val, uint32_t count)
 {
-    return npt_sizeof_uint64_t_array((const uint64_t *)val, count);
+    (void)val;
+    return npt_sizeof_uint64_t_array(NULL, count);
 }
 
 static inline void
 npt_encode_HANDLE_array(struct npt_cs_encoder *enc,
                              const HANDLE *val, uint32_t count)
 {
-    npt_encode_uint64_t_array(enc, (const uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_encode_HANDLE(enc, &val[i]);
 }
 
 static inline void
 npt_decode_HANDLE_array(struct npt_cs_decoder *dec,
                              HANDLE *val, uint32_t count)
 {
-    npt_decode_uint64_t_array(dec, (uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_decode_HANDLE(dec, &val[i]);
 }
 
 /* HMONITOR (alias for HANDLE) */
@@ -14122,44 +14130,52 @@ npt_decode_DWORD_array(struct npt_cs_decoder *dec,
     npt_decode_uint32_t_array(dec, (uint32_t *)val, count);
 }
 
-/* LONG_PTR (alias for int64_t) */
+/* LONG_PTR (pointer-sized, wire form int64_t) */
 
 static inline size_t
 npt_sizeof_LONG_PTR(const LONG_PTR *val, int max_mode)
 {
-    return npt_sizeof_int64_t((const int64_t *)val, max_mode);
+    /* Fixed wire size; val may be an unfilled out-param. */
+    (void)val;
+    return npt_sizeof_int64_t(NULL, max_mode);
 }
 
 static inline void
 npt_encode_LONG_PTR(struct npt_cs_encoder *enc, const LONG_PTR *val)
 {
-    npt_encode_int64_t(enc, (const int64_t *)val);
+    const int64_t wire = (int64_t)(intptr_t)*val;
+    npt_encode_int64_t(enc, &wire);
 }
 
 static inline void
 npt_decode_LONG_PTR(struct npt_cs_decoder *dec, LONG_PTR *val)
 {
-    npt_decode_int64_t(dec, (int64_t *)val);
+    int64_t wire = 0;
+    npt_decode_int64_t(dec, &wire);
+    *val = (LONG_PTR)(intptr_t)wire;
 }
 
 static inline size_t
 npt_sizeof_LONG_PTR_array(const LONG_PTR *val, uint32_t count)
 {
-    return npt_sizeof_int64_t_array((const int64_t *)val, count);
+    (void)val;
+    return npt_sizeof_int64_t_array(NULL, count);
 }
 
 static inline void
 npt_encode_LONG_PTR_array(struct npt_cs_encoder *enc,
                              const LONG_PTR *val, uint32_t count)
 {
-    npt_encode_int64_t_array(enc, (const int64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_encode_LONG_PTR(enc, &val[i]);
 }
 
 static inline void
 npt_decode_LONG_PTR_array(struct npt_cs_decoder *dec,
                              LONG_PTR *val, uint32_t count)
 {
-    npt_decode_int64_t_array(dec, (int64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_decode_LONG_PTR(dec, &val[i]);
 }
 
 /* UINT8 (alias for uint8_t) */
@@ -14882,44 +14898,52 @@ npt_decode_LARGE_INTEGER_array(struct npt_cs_decoder *dec,
     npt_decode_int64_t_array(dec, (int64_t *)val, count);
 }
 
-/* SIZE_T (alias for uint64_t) */
+/* SIZE_T (pointer-sized, wire form uint64_t) */
 
 static inline size_t
 npt_sizeof_SIZE_T(const SIZE_T *val, int max_mode)
 {
-    return npt_sizeof_uint64_t((const uint64_t *)val, max_mode);
+    /* Fixed wire size; val may be an unfilled out-param. */
+    (void)val;
+    return npt_sizeof_uint64_t(NULL, max_mode);
 }
 
 static inline void
 npt_encode_SIZE_T(struct npt_cs_encoder *enc, const SIZE_T *val)
 {
-    npt_encode_uint64_t(enc, (const uint64_t *)val);
+    const uint64_t wire = (uint64_t)(uintptr_t)*val;
+    npt_encode_uint64_t(enc, &wire);
 }
 
 static inline void
 npt_decode_SIZE_T(struct npt_cs_decoder *dec, SIZE_T *val)
 {
-    npt_decode_uint64_t(dec, (uint64_t *)val);
+    uint64_t wire = 0;
+    npt_decode_uint64_t(dec, &wire);
+    *val = (SIZE_T)(uintptr_t)wire;
 }
 
 static inline size_t
 npt_sizeof_SIZE_T_array(const SIZE_T *val, uint32_t count)
 {
-    return npt_sizeof_uint64_t_array((const uint64_t *)val, count);
+    (void)val;
+    return npt_sizeof_uint64_t_array(NULL, count);
 }
 
 static inline void
 npt_encode_SIZE_T_array(struct npt_cs_encoder *enc,
                              const SIZE_T *val, uint32_t count)
 {
-    npt_encode_uint64_t_array(enc, (const uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_encode_SIZE_T(enc, &val[i]);
 }
 
 static inline void
 npt_decode_SIZE_T_array(struct npt_cs_decoder *dec,
                              SIZE_T *val, uint32_t count)
 {
-    npt_decode_uint64_t_array(dec, (uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_decode_SIZE_T(dec, &val[i]);
 }
 
 /* UCHAR (alias for uint8_t) */
@@ -15082,84 +15106,100 @@ npt_decode_CLSID(struct npt_cs_decoder *dec, CLSID *val)
     npt_decode_GUID(dec, (GUID *)val);
 }
 
-/* HWND (alias for uint64_t) */
+/* HWND (pointer-sized, wire form uint64_t) */
 
 static inline size_t
 npt_sizeof_HWND(const HWND *val, int max_mode)
 {
-    return npt_sizeof_uint64_t((const uint64_t *)val, max_mode);
+    /* Fixed wire size; val may be an unfilled out-param. */
+    (void)val;
+    return npt_sizeof_uint64_t(NULL, max_mode);
 }
 
 static inline void
 npt_encode_HWND(struct npt_cs_encoder *enc, const HWND *val)
 {
-    npt_encode_uint64_t(enc, (const uint64_t *)val);
+    const uint64_t wire = (uint64_t)(uintptr_t)*val;
+    npt_encode_uint64_t(enc, &wire);
 }
 
 static inline void
 npt_decode_HWND(struct npt_cs_decoder *dec, HWND *val)
 {
-    npt_decode_uint64_t(dec, (uint64_t *)val);
+    uint64_t wire = 0;
+    npt_decode_uint64_t(dec, &wire);
+    *val = (HWND)(uintptr_t)wire;
 }
 
 static inline size_t
 npt_sizeof_HWND_array(const HWND *val, uint32_t count)
 {
-    return npt_sizeof_uint64_t_array((const uint64_t *)val, count);
+    (void)val;
+    return npt_sizeof_uint64_t_array(NULL, count);
 }
 
 static inline void
 npt_encode_HWND_array(struct npt_cs_encoder *enc,
                              const HWND *val, uint32_t count)
 {
-    npt_encode_uint64_t_array(enc, (const uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_encode_HWND(enc, &val[i]);
 }
 
 static inline void
 npt_decode_HWND_array(struct npt_cs_decoder *dec,
                              HWND *val, uint32_t count)
 {
-    npt_decode_uint64_t_array(dec, (uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_decode_HWND(dec, &val[i]);
 }
 
-/* HMODULE (alias for uint64_t) */
+/* HMODULE (pointer-sized, wire form uint64_t) */
 
 static inline size_t
 npt_sizeof_HMODULE(const HMODULE *val, int max_mode)
 {
-    return npt_sizeof_uint64_t((const uint64_t *)val, max_mode);
+    /* Fixed wire size; val may be an unfilled out-param. */
+    (void)val;
+    return npt_sizeof_uint64_t(NULL, max_mode);
 }
 
 static inline void
 npt_encode_HMODULE(struct npt_cs_encoder *enc, const HMODULE *val)
 {
-    npt_encode_uint64_t(enc, (const uint64_t *)val);
+    const uint64_t wire = (uint64_t)(uintptr_t)*val;
+    npt_encode_uint64_t(enc, &wire);
 }
 
 static inline void
 npt_decode_HMODULE(struct npt_cs_decoder *dec, HMODULE *val)
 {
-    npt_decode_uint64_t(dec, (uint64_t *)val);
+    uint64_t wire = 0;
+    npt_decode_uint64_t(dec, &wire);
+    *val = (HMODULE)(uintptr_t)wire;
 }
 
 static inline size_t
 npt_sizeof_HMODULE_array(const HMODULE *val, uint32_t count)
 {
-    return npt_sizeof_uint64_t_array((const uint64_t *)val, count);
+    (void)val;
+    return npt_sizeof_uint64_t_array(NULL, count);
 }
 
 static inline void
 npt_encode_HMODULE_array(struct npt_cs_encoder *enc,
                              const HMODULE *val, uint32_t count)
 {
-    npt_encode_uint64_t_array(enc, (const uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_encode_HMODULE(enc, &val[i]);
 }
 
 static inline void
 npt_decode_HMODULE_array(struct npt_cs_decoder *dec,
                              HMODULE *val, uint32_t count)
 {
-    npt_decode_uint64_t_array(dec, (uint64_t *)val, count);
+    for (uint32_t i = 0; i < count; i++)
+        npt_decode_HMODULE(dec, &val[i]);
 }
 
 
