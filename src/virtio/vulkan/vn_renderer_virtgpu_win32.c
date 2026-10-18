@@ -28,6 +28,10 @@ struct virtgpu_shmem {
       D3DKMT_HANDLE kmt;
       HANDLE h;
    };
+   /* Allocation lookup cookie and whether mmap_ptr is a KMD-owned window
+    * (RES_INFO UserVa) rather than a D3DKMTLock mapping. */
+   uint64_t cookie;
+   bool kmd_mapped;
 };
 
 struct virtgpu_bo {
@@ -42,6 +46,9 @@ struct virtgpu_bo {
       HANDLE h;
    } /* resource */;
    uint32_t blob_flags;
+   uint64_t cookie;
+   /* KMD-owned BAR window handed out by RES_INFO; NULL means map by lock. */
+   void *kmd_va;
 };
 
 struct virtgpu_sync {
@@ -122,6 +129,9 @@ struct virtgpu {
    } pci_bus_info;
 
    uint32_t max_timeline_count;
+
+   /* The KMD runs under GpuMmu: blob map/unmap take the BY_ID wire. */
+   bool wddm2;
 
    struct {
       uint32_t id;
@@ -819,97 +829,22 @@ virtgpu_ioctl_get_caps(struct virtgpu *gpu,
 }
 
 static NTSTATUS
-virtgpu_ioctl_init_map(struct virtgpu *gpu, D3DKMT_HANDLE handle)
-{
-   mtx_lock(&gpu->ctx.lock);
-
-   gpu->ctx.alloc_list[0].hAllocation = handle;
-   gpu->ctx.patch_list[0].AllocationIndex = 0;
-
-   VIOGPU_COMMAND_HDR *hdr = gpu->ctx.cmd_buf;
-   hdr->type = VIOGPU_CMD_MAP_BLOB;
-   hdr->size = sizeof(ULONG);
-   hdr->flags = 0;
-   hdr->ring_idx = 0;
-
-   ULONG *index = (void *)(hdr + 1);
-   *index = 0;
-   memset(index + 1, 0, sizeof(*hdr));
-
-   NTSTATUS status = virtgpu_ioctl_render(
-      gpu, 0, 2 * sizeof(*hdr) + sizeof(ULONG), 1, NULL, 0);
-   mtx_unlock(&gpu->ctx.lock);
-   if (!NT_SUCCESS(status)) {
-      return status;
-   }
-
-   HANDLE fence = CreateEventA(NULL, TRUE, FALSE, NULL);
-   // vn_log(gpu->instance, "created handle %p", fence);
-   status = virtgpu_ioctl_signal(gpu, fence);
-   if (!NT_SUCCESS(status)) {
-      return status;
-   }
-
-   // vn_log(gpu->instance, "waiting for handle %p", fence);
-   if (WaitForSingleObject(fence, INFINITE) != WAIT_OBJECT_0) {
-      return STATUS_ABANDONED_WAIT_0;
-   }
-
-   return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-virtgpu_ioctl_destroy_map(struct virtgpu *gpu, D3DKMT_HANDLE handle)
-{
-   mtx_lock(&gpu->ctx.lock);
-
-   gpu->ctx.alloc_list[0].hAllocation = handle;
-   gpu->ctx.patch_list[0].AllocationIndex = 0;
-
-   VIOGPU_COMMAND_HDR *hdr = gpu->ctx.cmd_buf;
-   hdr->type = VIOGPU_CMD_UNMAP_BLOB;
-   hdr->size = sizeof(ULONG);
-   hdr->flags = 0;
-   hdr->ring_idx = 0;
-
-   ULONG *index = (void *)(hdr + 1);
-   *index = 0;
-   memset(index + 1, 0, sizeof(*hdr));
-
-   NTSTATUS status = virtgpu_ioctl_render(
-      gpu, 0, 2 * sizeof(*hdr) + sizeof(ULONG), 1, NULL, 0);
-   mtx_unlock(&gpu->ctx.lock);
-   if (!NT_SUCCESS(status)) {
-      return status;
-   }
-
-   HANDLE fence = CreateEventA(NULL, TRUE, FALSE, NULL);
-   // vn_log(gpu->instance, "created handle %p", fence);
-   status = virtgpu_ioctl_signal(gpu, fence);
-   if (!NT_SUCCESS(status)) {
-      return status;
-   }
-
-   // vn_log(gpu->instance, "waiting for handle %p", fence);
-   if (WaitForSingleObject(fence, INFINITE) != WAIT_OBJECT_0) {
-      return STATUS_ABANDONED_WAIT_0;
-   }
-
-   return STATUS_SUCCESS;
-   // return virtgpu_ioctl_unlock(gpu, handle);
-}
-
-static NTSTATUS
 virtgpu_ioctl_wait(struct virtgpu *gpu)
 {
    HANDLE fence = CreateEventA(NULL, TRUE, FALSE, NULL);
+   if (!fence) {
+      return STATUS_NO_MEMORY;
+   }
    // vn_log(gpu->instance, "created handle %p", fence);
    NTSTATUS status = virtgpu_ioctl_signal(gpu, fence);
    if (!NT_SUCCESS(status)) {
+      CloseHandle(fence);
       return status;
    }
    // vn_log(gpu->instance, "waiting for handle %p", fence);
-   if (WaitForSingleObject(fence, INFINITE) != WAIT_OBJECT_0) {
+   DWORD wr = WaitForSingleObject(fence, INFINITE);
+   CloseHandle(fence);
+   if (wr != WAIT_OBJECT_0) {
       return STATUS_ABANDONED_WAIT_0;
    }
 
@@ -924,6 +859,69 @@ virtgpu_ioctl_wait(struct virtgpu *gpu)
       } \
    } while (0)
 
+/* Unique per live allocation.  It makes the KMD's open->allocation pairing
+ * authoritative: under GpuMmu handle-based resolution can land on another
+ * allocation and adopt its res_id.
+ *
+ * The cookie space is shared with the D3D drivers loaded into the same
+ * process (pid << 32 | counter for the Neptune transport, bit 31 set for
+ * Triton), so venus marks its cookies with bit 61; bits 62/63 stay clear
+ * for the KMD namespaces.  Without the mark the first venus blob of a
+ * process that already uses D3D resolves to the D3D driver's allocation. */
+static uint64_t
+virtgpu_mint_alloc_cookie(void)
+{
+   static volatile LONG counter;
+   return ((uint64_t)GetCurrentProcessId() << 32) | (1ull << 61) |
+          (uint32_t)InterlockedIncrement(&counter);
+}
+
+/* Map or unmap a blob's host backing.  Under GpuMmu the BY_ID wire carries
+ * the res_id and references no allocation; WDDM 1.3 keeps the allocation
+ * list, whose reference is what makes VidMm commit the backing. */
+static NTSTATUS
+virtgpu_ioctl_blob_map_op(struct virtgpu *gpu,
+                          D3DKMT_HANDLE handle,
+                          uint32_t res_id,
+                          bool map)
+{
+   mtx_lock(&gpu->ctx.lock);
+
+   VIOGPU_COMMAND_HDR *hdr = gpu->ctx.cmd_buf;
+   ULONG *payload = (void *)(hdr + 1);
+   unsigned alloc_count;
+   if (gpu->wddm2) {
+      hdr->type = map ? VIOGPU_CMD_MAP_BLOB_BY_ID : VIOGPU_CMD_UNMAP_BLOB_BY_ID;
+      *payload = res_id;
+      alloc_count = 0;
+   } else {
+      gpu->ctx.alloc_list[0].hAllocation = handle;
+      gpu->ctx.patch_list[0].AllocationIndex = 0;
+      hdr->type = map ? VIOGPU_CMD_MAP_BLOB : VIOGPU_CMD_UNMAP_BLOB;
+      *payload = 0;
+      alloc_count = 1;
+   }
+   hdr->size = sizeof(ULONG);
+   hdr->flags = 0;
+   hdr->ring_idx = 0;
+   memset(payload + 1, 0, sizeof(*hdr));
+
+   NTSTATUS status = virtgpu_ioctl_render(
+      gpu, 0, 2 * sizeof(*hdr) + sizeof(ULONG), alloc_count, NULL, 0);
+   mtx_unlock(&gpu->ctx.lock);
+   if (!NT_SUCCESS(status)) {
+      return status;
+   }
+
+   return virtgpu_ioctl_wait(gpu);
+}
+
+static NTSTATUS
+virtgpu_ioctl_resource_destroy_blob(struct virtgpu *gpu,
+                                    D3DKMT_HANDLE alloc_handle,
+                                    D3DKMT_HANDLE res_kmt,
+                                    HANDLE res_h);
+
 static NTSTATUS
 virtgpu_ioctl_resource_create_blob(struct virtgpu *gpu,
                                    uint32_t blob_mem,
@@ -934,18 +932,24 @@ virtgpu_ioctl_resource_create_blob(struct virtgpu *gpu,
                                    D3DKMT_HANDLE *alloc_handle,
                                    D3DKMT_HANDLE *res_kmt_local,
                                    D3DKMT_HANDLE *res_kmt_global,
-                                   HANDLE *res_h)
+                                   HANDLE *res_h,
+                                   uint64_t *out_cookie,
+                                   void **out_user_va)
 {
    blob_size = align64(blob_size, 4096);
+   *out_user_va = NULL;
 
-   VIOGPU_CREATE_ALLOCATION_EXCHANGE alloc_priv = {
-       .Type = VIOGPU_RESOURCE_TYPE_BLOB,
-       .OptionsBlob = {
-           .blob_mem = blob_mem,
-           .blob_flags = blob_flags,
-           .blob_id = blob_id,
-       },
-       .Size = blob_size,
+   VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX alloc_priv = {
+      .Base = {
+         .Type = VIOGPU_RESOURCE_TYPE_BLOB,
+         .OptionsBlob = {
+            .blob_mem = blob_mem,
+            .blob_flags = blob_flags,
+            .blob_id = blob_id,
+         },
+         .Size = blob_size,
+      },
+      .LookupCookie = virtgpu_mint_alloc_cookie(),
    };
 
    VIOGPU_CREATE_RESOURCE_EXCHANGE res_priv = { 0 };
@@ -1003,27 +1007,60 @@ virtgpu_ioctl_resource_create_blob(struct virtgpu *gpu,
    // TODO: is this required?
    VIRTGPU_SYNC_OR_RETURN_NTSTATUS(gpu);
 
+   *out_cookie = alloc_priv.LookupCookie;
+
+   /* For a mappable blob a GpuMmu KMD owns the shmem placement and returns
+    * the BAR window mapped into this process as UserVa -- D3DKMTLock would
+    * hand out system staging pages there, never the BAR.  The virtio ctrl
+    * queue is asynchronous, so the blob can still be pending right after
+    * the create: retry briefly rather than failing the whole caller. */
    VIOGPU_ESCAPE res_info = {
       .Type = VIOGPU_RES_INFO,
       .DataLength = sizeof(res_info.ResourceInfo),
       .ResourceInfo = {
          .ResHandle = *alloc_handle,
+         .LookupCookie = alloc_priv.LookupCookie,
       },
    };
 
-   NTSTATUS status = virtgpu_ioctl_escape(gpu, &res_info);
-   if (!NT_SUCCESS(status)) {
-      return status;
-   }
-
-   if (!res_info.ResourceInfo.IsBlob || !res_info.ResourceInfo.IsCreated) {
-      return STATUS_INVALID_PARAMETER;
+   NTSTATUS status;
+   for (int attempt = 0;; attempt++) {
+      status = virtgpu_ioctl_escape(gpu, &res_info);
+      if (!NT_SUCCESS(status)) {
+         goto fail_destroy;
+      }
+      if (res_info.ResourceInfo.IsBlob && res_info.ResourceInfo.IsCreated) {
+         break;
+      }
+      if (attempt >= 100) {
+         status = STATUS_INVALID_PARAMETER;
+         goto fail_destroy;
+      }
+      Sleep(1);
    }
 
    *res_id = res_info.ResourceInfo.Id;
 
-   return is_mappable ? virtgpu_ioctl_init_map(gpu, *alloc_handle)
-                      : STATUS_SUCCESS;
+   /* A KMD-owned window arrives already backed: RES_INFO maps the blob
+    * host-side and waits for the acknowledgement. */
+   if (res_info.ResourceInfo.UserVa) {
+      *out_user_va = (void *)(uintptr_t)res_info.ResourceInfo.UserVa;
+      return STATUS_SUCCESS;
+   }
+
+   if (is_mappable) {
+      status = virtgpu_ioctl_blob_map_op(gpu, *alloc_handle, *res_id, true);
+      if (!NT_SUCCESS(status)) {
+         goto fail_destroy;
+      }
+   }
+   return STATUS_SUCCESS;
+
+fail_destroy:
+   virtgpu_ioctl_resource_destroy_blob(gpu, *alloc_handle, *res_kmt_local,
+                                       *res_h);
+   *alloc_handle = 0;
+   return status;
 }
 
 static NTSTATUS
@@ -1123,6 +1160,34 @@ virtgpu_ioctl_unlock(struct virtgpu *gpu, D3DKMT_HANDLE handle)
       };
       return gpu->d3dkmt.cb.unlock(&unlock);
    }
+}
+
+/* Drop a blob's guest mapping and its host mapping.  A KMD-owned window
+ * goes back through the release-window escape, which unmaps synchronously
+ * in the KMD; if it will not take it (another process still maps it) fall
+ * back to the unmap packet. */
+static void
+virtgpu_blob_unmap(struct virtgpu *gpu,
+                   D3DKMT_HANDLE handle,
+                   uint32_t res_id,
+                   uint64_t cookie,
+                   bool kmd_mapped)
+{
+   if (kmd_mapped) {
+      VIOGPU_ESCAPE esc = {
+         .Type = VIOGPU_RES_RELEASE_WINDOW,
+         .DataLength = sizeof(esc.ResRelease),
+         .ResRelease = {
+            .ResHandle = handle,
+            .LookupCookie = cookie,
+         },
+      };
+      if (NT_SUCCESS(virtgpu_ioctl_escape(gpu, &esc)))
+         return;
+   } else {
+      virtgpu_ioctl_unlock(gpu, handle);
+   }
+   virtgpu_ioctl_blob_map_op(gpu, handle, res_id, false);
 }
 
 static inline void
@@ -1238,6 +1303,8 @@ virtgpu_init_params(struct virtgpu *gpu)
 
    /* Don't care for VIRTGPU_BLOB_MEM_GUEST_VRAM since this driver is mainly
     * developed for QEMU, but whoever needs it may feel free to implement this */
+   gpu->wddm2 = info.Flags.Wddm2 != 0;
+
    if (info.Flags.HasShmem) {
       gpu->bo_blob_mem = VIOGPU_BLOB_MEM_HOST3D;
    } else {
@@ -1668,9 +1735,11 @@ virtgpu_bo_create_from_device_memory(
    }
 
    D3DKMT_HANDLE alloc, kmt_local, kmt_global;
+   uint64_t cookie;
+   void *kmd_va;
    NTSTATUS status = virtgpu_ioctl_resource_create_blob(
       gpu, gpu->bo_blob_mem, blob_flags, size, mem_id, &res_id, &alloc,
-      &kmt_local, &kmt_global, &h);
+      &kmt_local, &kmt_global, &h, &cookie, &kmd_va);
    if (!NT_SUCCESS(status)) {
       vn_log(gpu->instance,
              "RESOURCE_CREATE_BLOB failed: type=%u, flags=%u, size=%zu, "
@@ -1692,6 +1761,7 @@ virtgpu_bo_create_from_device_memory(
          .DataLength = sizeof(res_info.ResourceInfo),
          .ResourceInfo = {
             .ResHandle = alloc,
+            .LookupCookie = cookie,
          },
       };
 
@@ -1725,6 +1795,8 @@ virtgpu_bo_create_from_device_memory(
       },
       .alloc = alloc,
       .blob_flags = blob_flags,
+      .cookie = cookie,
+      .kmd_va = kmd_va,
    };
 
    if (gpu->ddicb != NULL) {
@@ -1770,7 +1842,9 @@ virtgpu_bo_map(struct vn_renderer *renderer,
    const bool mappable = bo->blob_flags & VIOGPU_BLOB_FLAG_USE_MAPPABLE;
 
    /* not thread-safe but is fine */
-   if (!bo->base.mmap_ptr && mappable) {
+   if (!bo->base.mmap_ptr && mappable && bo->kmd_va) {
+      bo->base.mmap_ptr = bo->kmd_va;
+   } else if (!bo->base.mmap_ptr && mappable) {
       NTSTATUS status =
          virtgpu_ioctl_lock(gpu, bo->alloc, &bo->base.mmap_ptr);
       if (!NT_SUCCESS(status)) {
@@ -1817,10 +1891,11 @@ virtgpu_bo_destroy(struct vn_renderer *renderer, struct vn_renderer_bo *_bo)
       return false;
    }
 
-   if (bo->base.mmap_ptr) {
-      virtgpu_ioctl_unlock(gpu, bo->alloc);
-      virtgpu_ioctl_destroy_map(gpu, bo->alloc);
+   if (bo->kmd_va || bo->base.mmap_ptr) {
+      virtgpu_blob_unmap(gpu, bo->alloc, bo->base.res_id, bo->cookie,
+                         bo->kmd_va != NULL);
    }
+   bo->kmd_va = NULL;
 
    /* Set alloc and res to 0 to indicate that the bo is invalid. Must be set
     * before closing the handles. Otherwise the same handles can be reused
@@ -1981,8 +2056,8 @@ virtgpu_shmem_destroy_now(struct vn_renderer *renderer,
    struct virtgpu *gpu = (struct virtgpu *)renderer;
    struct virtgpu_shmem *shmem = (struct virtgpu_shmem *)_shmem;
 
-   virtgpu_ioctl_unlock(gpu, shmem->alloc);
-   virtgpu_ioctl_destroy_map(gpu, shmem->alloc);
+   virtgpu_blob_unmap(gpu, shmem->alloc, shmem->base.res_id, shmem->cookie,
+                      shmem->kmd_mapped);
    virtgpu_ioctl_resource_destroy_blob(gpu, shmem->alloc, shmem->kmt,
                                        shmem->h);
 }
@@ -2015,18 +2090,25 @@ virtgpu_shmem_create(struct vn_renderer *renderer, size_t size)
    HANDLE h = NULL; /* This is a device allocation */
    D3DKMT_HANDLE alloc, kmt;
 
+   uint64_t cookie;
+   void *ptr = NULL;
    NTSTATUS status = virtgpu_ioctl_resource_create_blob(
       gpu, gpu->shmem_blob_mem, VIOGPU_BLOB_FLAG_USE_MAPPABLE, size, 0,
-      &res_id, &alloc, &kmt, NULL, &h);
-   if (!NT_SUCCESS(status))
-      return NULL;
-
-   void *ptr = NULL;
-   status = virtgpu_ioctl_lock(gpu, alloc, &ptr);
+      &res_id, &alloc, &kmt, NULL, &h, &cookie, &ptr);
    if (!NT_SUCCESS(status)) {
-      virtgpu_ioctl_resource_destroy_blob(gpu, alloc, kmt, h);
-      vn_log(gpu->instance, "failed to map blob resource: 0x%lx", status);
+      vn_log(gpu->instance, "failed to create shmem blob: 0x%lx", status);
       return NULL;
+   }
+
+   const bool kmd_mapped = ptr != NULL;
+   if (!kmd_mapped) {
+      status = virtgpu_ioctl_lock(gpu, alloc, &ptr);
+      if (!NT_SUCCESS(status)) {
+         virtgpu_ioctl_blob_map_op(gpu, alloc, res_id, false);
+         virtgpu_ioctl_resource_destroy_blob(gpu, alloc, kmt, h);
+         vn_log(gpu->instance, "failed to map blob resource: 0x%lx", status);
+         return NULL;
+      }
    }
 
    struct virtgpu_shmem *shmem =
@@ -2039,6 +2121,8 @@ virtgpu_shmem_create(struct vn_renderer *renderer, size_t size)
          .mmap_ptr = ptr,
       },
       .alloc = alloc,
+      .cookie = cookie,
+      .kmd_mapped = kmd_mapped,
    };
 
    if (gpu->ddicb != NULL) {
