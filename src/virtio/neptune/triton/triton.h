@@ -94,6 +94,17 @@ typedef struct TRITON_DEVICE {
      * and feed the draw mistyped vertex data. */
     ID3D11VertexShader             *pBoundReconVS;
 
+    /* Blend state as the runtime last set it, and whether a render target or
+     * depth-stencil view is bound.  D3D11 ignores the sample mask while
+     * neither is (UAV-only rendering); D3DMetal applies it to coverage, so
+     * the mask sent to the host follows the binding (tritonApplyBlendState).
+     * pOmBlend is weak: the runtime keeps a bound state alive. */
+    ID3D11BlendState               *pOmBlend;
+    FLOAT                           omBlendFactor[4];
+    UINT                            omSampleMask;
+    BOOL                            omBlendSet;
+    BOOL                            omHasTargets;
+
     /* Monotonic per-device shader-instance counter. Each shader gets a
      * unique cookie at create; the input-layout cache keys on it so a
      * freed VS bytecode pointer reused at the same heap address cannot
@@ -452,6 +463,9 @@ void tritonResourceLinkView(PTRITON_RESOURCE r, TRITON_VIEWLINK *l,
                             TRITON_VIEW_KIND kind);
 void tritonViewUnlink(TRITON_VIEWLINK *l);
 HRESULT tritonResourceRecreateViews(PTRITON_DEVICE pD, PTRITON_RESOURCE r);
+
+/* Send the tracked blend state to the host (tritonState.c). */
+void tritonApplyBlendState(PTRITON_DEVICE pD);
 
 /* Fill r's present companion, if any (tritonResource.c). */
 void tritonResourceSyncPresentCompanion(PTRITON_DEVICE pD, PTRITON_RESOURCE r);

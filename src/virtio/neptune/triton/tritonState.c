@@ -66,7 +66,9 @@ tritonCreateBlendState(D3D10DDI_HDEVICE hDevice,
 void APIENTRY
 tritonDestroyBlendState(D3D10DDI_HDEVICE hDev, D3D10DDI_HBLENDSTATE hState)
 {
+    PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDev.pDrvPrivate);
     PTRITON_BLENDSTATE s = (PTRITON_BLENDSTATE)(hState.pDrvPrivate);
+    if (pD && s && pD->pOmBlend == (ID3D11BlendState *)s->pState) pD->pOmBlend = NULL;
     if (s && s->pState) { ID3D11BlendState1_Release(s->pState); s->pState = NULL; }
 }
 
@@ -114,8 +116,19 @@ tritonSetBlendState(D3D10DDI_HDEVICE hDevice,
     PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
     if (!pD) return;
     PTRITON_BLENDSTATE s = (PTRITON_BLENDSTATE)(hState.pDrvPrivate);
+    pD->pOmBlend = s ? (ID3D11BlendState *)s->pState : NULL;
+    memcpy(pD->omBlendFactor, BlendFactor, sizeof(pD->omBlendFactor));
+    pD->omSampleMask = SampleMask;
+    pD->omBlendSet = TRUE;
+    tritonApplyBlendState(pD);
+}
+
+void
+tritonApplyBlendState(PTRITON_DEVICE pD)
+{
     ID3D11DeviceContext1_OMSetBlendState(
-        pD->pCtx1, s ? (ID3D11BlendState *)s->pState : NULL, BlendFactor, SampleMask);
+        pD->pCtx1, pD->pOmBlend, pD->omBlendFactor,
+        pD->omHasTargets ? pD->omSampleMask : 0xFFFFFFFFu);
 }
 
 /* ---------- Depth-stencil ---------- */

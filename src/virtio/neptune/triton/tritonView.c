@@ -378,6 +378,15 @@ tritonSetRenderTargets(D3D10DDI_HDEVICE hDevice,
     ID3D11DeviceContext1_OMSetRenderTargetsAndUnorderedAccessViews(
         pD->pCtx1, NumRTVs, aRTV, pDSV,
         UAVStartSlot, NumUAVs, aUAV, NumUAVs ? pUAVInitialCounts : NULL);
+
+    BOOL hasTargets = pDSV != NULL;
+    for (UINT i = 0; i < NumRTVs && !hasTargets; ++i)
+        hasTargets = aRTV[i] != NULL;
+    if (hasTargets != pD->omHasTargets) {
+        pD->omHasTargets = hasTargets;
+        if (pD->omBlendSet && pD->omSampleMask != 0xFFFFFFFFu)
+            tritonApplyBlendState(pD);
+    }
 }
 
 /* ---------- ShaderResourceView ---------- */
