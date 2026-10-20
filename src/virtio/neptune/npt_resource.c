@@ -32,7 +32,15 @@
  * before aux_destroy, and the host blob view is independent of the
  * guest mmap, so destroying out of order is safe.  Lazy-init, detached
  * worker; process exit doesn't drain — the kernel reclaims leftover
- * GEM handles + munmaps. */
+ * GEM handles + munmaps.
+ *
+ * The worker lives as long as the process, so the module it runs in must
+ * too.  The D3D runtime unloads a UMD when its last adapter closes, and
+ * D3D9On12 does so between devices; the next load at the same base
+ * re-initialises g_shmem_reaper underneath the previous load's worker,
+ * which then waits on a lock that is no longer one and faults inside
+ * EnterCriticalSection.  So on Windows the module is pinned when the
+ * worker starts. */
 struct shmem_reap_entry {
    struct npt_renderer *renderer;
    struct npt_renderer_shmem *shmem;
@@ -98,6 +106,10 @@ shmem_reaper_init_impl(void)
    g_shmem_reaper.busy = false;
    list_inithead(&g_shmem_reaper.queue);
 #if defined(_WIN32)
+   HMODULE self;
+   GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                      GET_MODULE_HANDLE_EX_FLAG_PIN,
+                      (LPCWSTR)(void *)shmem_reaper_main, &self);
    HANDLE h = CreateThread(NULL, 0, shmem_reaper_main, NULL, 0, NULL);
    if (h) CloseHandle(h);
 #else
