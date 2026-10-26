@@ -134,6 +134,9 @@ struct npt_unix_virtgpu_get_caps_params {
 struct npt_unix_virtgpu_context_init_params {
    int fd;
    uint32_t capset_id;
+   /* VIRTGPU_CONTEXT_PARAM_DEBUG_NAME when non-empty (the kernel keeps
+    * 63 bytes). */
+   char debug_name[64];
    int result;
 };
 

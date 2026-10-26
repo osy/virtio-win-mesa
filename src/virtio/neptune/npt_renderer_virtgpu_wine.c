@@ -29,6 +29,7 @@
 #define VIRTGPU_PARAM_RESOURCE_BLOB    3
 #define VIRTGPU_PARAM_HOST_VISIBLE     4
 #define VIRTGPU_PARAM_CONTEXT_INIT     6
+#define VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME 8
 /* Linux flag values (not Windows) -- passed through to PRIME_HANDLE_TO_FD. */
 #ifndef DRM_CLOEXEC
 #define DRM_CLOEXEC 0x00080000
@@ -92,6 +93,11 @@ static int unixlib_virtgpu_context_init(int fd, uint32_t capset_id)
    struct npt_unix_virtgpu_context_init_params p = {
       .fd = fd, .capset_id = capset_id,
    };
+   /* Name the context after the program, as the Windows UMD does.  A
+    * kernel without the param would fail the whole init; there the kernel
+    * names it after the task, truncated to 15 bytes. */
+   if (unixlib_virtgpu_getparam(fd, VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME))
+      npt_renderer_exe_name(p.debug_name, sizeof(p.debug_name));
    npt_wine_unix_call(npt_unix_virtgpu_context_init, &p);
    return p.result;
 }

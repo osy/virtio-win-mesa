@@ -73,13 +73,15 @@ NTSTATUS npt_do_virtgpu_get_caps(void *args)
 NTSTATUS npt_do_virtgpu_context_init(void *args)
 {
    struct npt_unix_virtgpu_context_init_params *p = args;
-   struct drm_virtgpu_context_set_param params[3] = {
+   struct drm_virtgpu_context_set_param params[4] = {
       { .param = VIRTGPU_CONTEXT_PARAM_CAPSET_ID,       .value = p->capset_id },
       { .param = VIRTGPU_CONTEXT_PARAM_NUM_RINGS,       .value = NPT_UNIX_MAX_TIMELINES },
       { .param = VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK, .value = 0 },
+      { .param = VIRTGPU_CONTEXT_PARAM_DEBUG_NAME,      .value = (uintptr_t)p->debug_name },
    };
+   p->debug_name[sizeof(p->debug_name) - 1] = '\0';
    struct drm_virtgpu_context_init ci = {
-      .num_params = 3,
+      .num_params = p->debug_name[0] ? 4 : 3,
       .ctx_set_params = (uintptr_t)params,
    };
    p->result = drmIoctl(p->fd, DRM_IOCTL_VIRTGPU_CONTEXT_INIT, &ci);

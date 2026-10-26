@@ -1292,6 +1292,9 @@ npt_renderer_create_virtgpu(void)
          .DebugName = "neptune-win32",
       },
    };
+   char exe[sizeof(ctx_init.CtxInit.DebugName)] = {0};
+   if (npt_renderer_exe_name(exe, sizeof(exe)))
+      memcpy(ctx_init.CtxInit.DebugName, exe, sizeof(exe));
    NTSTATUS status = virtgpu_escape(gpu, &ctx_init);
    if (!NT_SUCCESS(status)) {
       npt_log("virtgpu: CTX_INIT failed 0x%lx", status);

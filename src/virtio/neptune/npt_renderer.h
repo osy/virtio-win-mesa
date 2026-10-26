@@ -279,6 +279,31 @@ npt_renderer_create_vtest(void);
 struct npt_renderer *
 npt_renderer_create_virtgpu(void);
 
+#ifdef _WIN32
+/* The running program's .exe file name in UTF-8, sent as the host context's
+ * debug name: the host's D3D backend picks its per-application profile
+ * from it.  False (and `out` empty) when it does not fit in `size`. */
+static inline bool
+npt_renderer_exe_name(char *out, size_t size)
+{
+   WCHAR path[1024];
+   DWORD n = GetModuleFileNameW(NULL, path, sizeof(path) / sizeof(path[0]));
+   out[0] = '\0';
+   if (!n || n >= sizeof(path) / sizeof(path[0]))
+      return false;
+   const WCHAR *base = path;
+   for (const WCHAR *p = path; *p; p++) {
+      if (*p == L'\\' || *p == L'/')
+         base = p + 1;
+   }
+   if (WideCharToMultiByte(CP_UTF8, 0, base, -1, out, (int)size, NULL, NULL) <= 0) {
+      out[0] = '\0';
+      return false;
+   }
+   return true;
+}
+#endif
+
 /* Adapter-scope capability probe (win32 virtgpu only).  The D3D11 UMD's
  * GetSupportedVersions runs before any device -- and therefore before the
  * transport -- exists, so the advertised DDI versions come from a
