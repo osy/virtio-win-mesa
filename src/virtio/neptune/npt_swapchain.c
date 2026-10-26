@@ -19,7 +19,9 @@
  *                   via the SHARED transport, bound to guest blobs
  *                   whose dmabufs feed the X11 WSI.
  *   Present         CopyResource(pool[i], backbuffer) + Flush on the
- *                   DC/SC ring, then wsi_present(i).  Pool reuse is
+ *                   DC/SC ring, then wsi_present(i).  A backbuffer
+ *                   format the pool cannot hold is drawn into it by a
+ *                   pre-recorded command list instead.  Pool reuse is
  *                   gated on X IDLE_NOTIFY release counts drained by
  *                   a per-swapchain thread.
  */
@@ -43,6 +45,7 @@
 #if defined(__WINE__)
 
 #include "npt_event.h"
+#include "npt_present_convert_dxbc.h"
 #include "npt_renderer_wine_common.h"
 #include "nptunix/npt_unixlib.h"
 
@@ -60,6 +63,10 @@
 #include "neptune-protocol/npt_protocol_client_idxgioutput.h"
 #include "neptune-protocol/npt_protocol_guest_id3d11devicecontext.h"
 #include "neptune-protocol/npt_protocol_guest_id3d11fence.h"
+
+/* Deferred context, VS, PS, backbuffer SRV, then an RTV and a command
+ * list per pool image. */
+#define NPT_SC_CONVERT_HELD (4 + 2 * NPT_SC_PRESENT_IMAGES)
 
 /* DXGI usage bits the protocol types header doesn't carry. */
 #define NPT_DXGI_USAGE_SHADER_INPUT      0x00000010u
@@ -82,6 +89,15 @@ struct npt_guest_swapchain {
 
    /* Pool rotation cursor; the pool itself lives in the common state. */
    uint32_t next_image;
+
+   /* Present conversion for backbuffer formats the pool cannot hold
+    * (gsc_pool_format): per pool image, a deferred-context command list
+    * that draws the backbuffer into it.  The held objects live and die
+    * with the pool; convert_list[] borrows from them. */
+   void *convert_held[NPT_SC_CONVERT_HELD];
+   uint64_t convert_held_id[NPT_SC_CONVERT_HELD];
+   uint32_t convert_held_count;
+   void *convert_list[NPT_SC_PRESENT_IMAGES];   /* ID3D11CommandList* */
 
    /* GPU-done fencing: an ID3D11Fence signaled on the DC after each
     * present copy; per-Present event tokens turn its completion into
@@ -118,13 +134,128 @@ gsc(void *self)
 /* present pool + WSI                                                  */
 /* ------------------------------------------------------------------ */
 
+/* The WSI shows the pool through depth-24 X pixmaps, so a backbuffer
+ * format whose bits are not 8-bit BGRA/RGBA gets a BGRA8 pool and is
+ * converted into it by a draw: CopyResource cannot change format. */
+static uint32_t
+gsc_pool_format(uint32_t format)
+{
+   switch (format) {
+   case DXGI_FORMAT_R10G10B10A2_UNORM:
+      return DXGI_FORMAT_B8G8R8A8_UNORM;
+   default:
+      return npt_shared_texture_host_format(format);
+   }
+}
+
+static bool
+gsc_needs_convert(uint32_t format)
+{
+   return gsc_pool_format(format) != npt_shared_texture_host_format(format);
+}
+
+static void
+gsc_convert_hold(struct npt_guest_swapchain *s, void *wrapper)
+{
+   const uint32_t n = s->convert_held_count++;
+   s->convert_held[n] = wrapper;
+   s->convert_held_id[n] = npt_com_self_id(wrapper);
+}
+
+static void
+gsc_release_convert(struct npt_guest_swapchain *s, struct npt_device *dev)
+{
+   while (s->convert_held_count) {
+      const uint32_t n = --s->convert_held_count;
+      npt_gsc_release_held(dev, &s->convert_held[n], &s->convert_held_id[n]);
+   }
+   memset(s->convert_list, 0, sizeof(s->convert_list));
+}
+
+/* Record, per pool image, a fullscreen triangle loading the backbuffer
+ * into that image.  Present executes it with RestoreContextState, which
+ * leaves the app's immediate-context state as it was. */
+static bool
+gsc_record_convert(struct npt_guest_swapchain *s)
+{
+   struct npt_guest_swapchain_common *c = &s->base;
+   const struct npt_id3d11device_client_vtbl *dv =
+      (const void *)((struct npt_com_base *)s->device)->lpVtbl;
+
+   ID3D11DeviceContext *ctx = NULL;
+   ID3D11VertexShader *vs = NULL;
+   ID3D11PixelShader *ps = NULL;
+   ID3D11ShaderResourceView *srv = NULL;
+   HRESULT hr = dv->CreateDeferredContext(s->device, 0, &ctx);
+   if (NPT_FAILED(hr) || !ctx)
+      goto fail;
+   gsc_convert_hold(s, ctx);
+
+   hr = dv->CreateVertexShader(s->device, npt_present_convert_vs,
+                               sizeof(npt_present_convert_vs), NULL, &vs);
+   if (NPT_FAILED(hr) || !vs)
+      goto fail;
+   gsc_convert_hold(s, vs);
+
+   hr = dv->CreatePixelShader(s->device, npt_present_convert_ps,
+                              sizeof(npt_present_convert_ps), NULL, &ps);
+   if (NPT_FAILED(hr) || !ps)
+      goto fail;
+   gsc_convert_hold(s, ps);
+
+   hr = dv->CreateShaderResourceView(s->device,
+                                     (ID3D11Resource *)s->backbuffer, NULL,
+                                     &srv);
+   if (NPT_FAILED(hr) || !srv)
+      goto fail;
+   gsc_convert_hold(s, srv);
+
+   const struct npt_id3d11devicecontext_client_vtbl *cv =
+      (const void *)((struct npt_com_base *)ctx)->lpVtbl;
+   const D3D11_VIEWPORT vp = {
+      0.0f, 0.0f, (float)c->desc.Width, (float)c->desc.Height, 0.0f, 1.0f,
+   };
+   for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++) {
+      ID3D11RenderTargetView *rtv = NULL;
+      hr = dv->CreateRenderTargetView(
+         s->device, (ID3D11Resource *)c->present_tex[i], NULL, &rtv);
+      if (NPT_FAILED(hr) || !rtv)
+         goto fail;
+      gsc_convert_hold(s, rtv);
+
+      cv->IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      cv->VSSetShader(ctx, vs, NULL, 0);
+      cv->PSSetShader(ctx, ps, NULL, 0);
+      cv->PSSetShaderResources(ctx, 0, 1, &srv);
+      cv->RSSetViewports(ctx, 1, &vp);
+      cv->OMSetRenderTargets(ctx, 1, &rtv, NULL);
+      cv->Draw(ctx, 3, 0);
+
+      ID3D11CommandList *list = NULL;
+      hr = cv->FinishCommandList(ctx, FALSE, &list);
+      if (NPT_FAILED(hr) || !list)
+         goto fail;
+      gsc_convert_hold(s, list);
+      s->convert_list[i] = list;
+   }
+   return true;
+
+fail:
+   npt_log("guest swapchain: present conversion fmt=%u setup failed hr=0x%x",
+           c->desc.Format, hr);
+   gsc_release_convert(s, c->com->base.device);
+   return false;
+}
+
 static void
 gsc_teardown_wsi(struct npt_guest_swapchain *s, bool shutting_down)
 {
    struct npt_guest_swapchain_common *c = &s->base;
    npt_gsc_wsi_quiesce(c, shutting_down);
-   if (!shutting_down)
+   if (!shutting_down) {
+      gsc_release_convert(s, c->com->base.device);
       npt_gsc_release_pool(c);
+   }
    s->next_image = 0;
 }
 
@@ -139,7 +270,7 @@ gsc_ensure_wsi(struct npt_guest_swapchain *s)
    if (!npt_gsc_wsi_backend_available(c))
       return;
 
-   const uint32_t fmt = npt_shared_texture_host_format(c->desc.Format);
+   const uint32_t fmt = gsc_pool_format(c->desc.Format);
    for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++) {
       void *tex = npt_shared_texture_create_exportable(
          s->device, c->desc.Width, c->desc.Height, fmt);
@@ -152,7 +283,14 @@ gsc_ensure_wsi(struct npt_guest_swapchain *s)
       c->present_tex_id[i] = npt_com_self_id(tex);
    }
 
-   npt_gsc_wsi_bringup(c, fmt);
+   if (gsc_needs_convert(c->desc.Format) && !gsc_record_convert(s)) {
+      npt_gsc_release_pool(c);
+      c->wsi_failed = true;
+      return;
+   }
+
+   if (!npt_gsc_wsi_bringup(c, fmt))
+      gsc_release_convert(s, c->com->base.device);
 }
 
 /* ------------------------------------------------------------------ */
@@ -255,10 +393,15 @@ gsc_present_common(void *self, UINT SyncInterval, UINT Flags)
    npt_gsc_reuse_gate(c, i);
 
    struct npt_ring *ring = npt_com_self_ring(s->dc);
-   npt_async_ID3D11DeviceContext_CopyResource(
-      ring, s->dc_id,
-      (ID3D11Resource *)c->present_tex[i],
-      (ID3D11Resource *)s->backbuffer);
+   if (s->convert_list[i]) {
+      npt_async_ID3D11DeviceContext_ExecuteCommandList(
+         ring, s->dc_id, (ID3D11CommandList *)s->convert_list[i], TRUE);
+   } else {
+      npt_async_ID3D11DeviceContext_CopyResource(
+         ring, s->dc_id,
+         (ID3D11Resource *)c->present_tex[i],
+         (ID3D11Resource *)s->backbuffer);
+   }
 
    /* GPU-done fence: signal the fence on the DC after the copy, then
     * arm a fresh event token on its completion value and turn that
@@ -376,7 +519,8 @@ gsc_create_backbuffer(struct npt_guest_swapchain *s)
    d.SampleDesc = c->desc.SampleDesc;
    d.Usage = D3D11_USAGE_DEFAULT;
    d.BindFlags = D3D11_BIND_RENDER_TARGET;
-   if (c->desc.BufferUsage & NPT_DXGI_USAGE_SHADER_INPUT)
+   if ((c->desc.BufferUsage & NPT_DXGI_USAGE_SHADER_INPUT) ||
+       gsc_needs_convert(c->desc.Format))
       d.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
    if (c->desc.BufferUsage & NPT_DXGI_USAGE_UNORDERED_ACCESS)
       d.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
