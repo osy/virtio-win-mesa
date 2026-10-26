@@ -89,7 +89,7 @@ struct npt_vtest {
     * sock_cs. */
    uint32_t host_blob_ids[NPT_WSI_MAX_IMAGES];
    uint32_t host_blob_count;
-   void (*wine_wsi_destroy)(struct npt_renderer *renderer);
+   void (*wine_wsi_destroy)(struct npt_renderer *renderer, uint64_t wsi);
 };
 
 static struct npt_renderer_shmem *
@@ -224,10 +224,10 @@ npt_vtest_submit_present_fence(struct npt_renderer *r, uint32_t ring_idx)
 }
 
 static void
-npt_vtest_wsi_destroy(struct npt_renderer *r)
+npt_vtest_wsi_destroy(struct npt_renderer *r, uint64_t wsi)
 {
    struct npt_vtest *v = (struct npt_vtest *)r;
-   v->wine_wsi_destroy(r);
+   v->wine_wsi_destroy(r, wsi);
    EnterCriticalSection(&v->sock_cs);
    for (uint32_t i = 0; i < v->host_blob_count; i++)
       npt_vtest_vcmd_resource_unref(&v->proto, v->host_blob_ids[i]);

@@ -88,9 +88,11 @@ struct npt_guest_swapchain_common {
    HANDLE frame_latency_sem;
 
    /* Present pool: exportable host textures bound to guest blobs whose
-    * dmabufs feed the X11 WSI. */
+    * dmabufs feed the X11 WSI.  wsi is this swapchain's renderer WSI
+    * instance, valid while wsi_initialized. */
    bool wsi_initialized;
    bool wsi_failed;
+   uint64_t wsi;
    void *present_tex[NPT_SC_PRESENT_IMAGES];
    uint64_t present_tex_id[NPT_SC_PRESENT_IMAGES];
    /* ++ at present, -- per X IDLE_NOTIFY (drain thread). */

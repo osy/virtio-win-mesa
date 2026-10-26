@@ -46,7 +46,8 @@ void npt_wine_unixlib_munmap(void *addr, size_t size)
 
 static int unixlib_wsi_init(uint32_t num_images, const int *fds,
                             const uint32_t *strides, uint32_t virgl_format,
-                            uint32_t width, uint32_t height, HWND hwnd)
+                            uint32_t width, uint32_t height, HWND hwnd,
+                            uint64_t *out_wsi)
 {
    if (num_images > NPT_WSI_MAX_IMAGES) {
       npt_log("unixlib_wsi_init: num_images %u exceeds cap %u",
@@ -81,13 +82,16 @@ static int unixlib_wsi_init(uint32_t num_images, const int *fds,
    p.width = width;
    p.height = height;
    npt_wine_unix_call(npt_unix_wsi_init, &p);
+   *out_wsi = p.wsi;
    return p.result;
 }
 
-static void unixlib_wsi_present(uint32_t image_index, int wait_fence_fd)
+static void unixlib_wsi_present(uint64_t wsi, uint32_t image_index,
+                                int wait_fence_fd)
 {
    struct npt_unix_wsi_present_params p;
    memset(&p, 0, sizeof(p));
+   p.wsi = wsi;
    p.image_index = image_index;
    p.wait_fence_fd = wait_fence_fd;
    npt_wine_unix_call(npt_unix_wsi_present, &p);
@@ -96,16 +100,18 @@ static void unixlib_wsi_present(uint32_t image_index, int wait_fence_fd)
       npt_wine_unixlib_close(wait_fence_fd);
 }
 
-static void unixlib_wsi_destroy(void)
+static void unixlib_wsi_destroy(uint64_t wsi)
 {
-   npt_wine_unix_call(npt_unix_wsi_destroy, NULL);
+   struct npt_unix_wsi_destroy_params p = { .wsi = wsi };
+   npt_wine_unix_call(npt_unix_wsi_destroy, &p);
 }
 
-static int unixlib_wsi_drain(uint32_t timeout_ms,
+static int unixlib_wsi_drain(uint64_t wsi, uint32_t timeout_ms,
                              uint32_t out_released_count[NPT_WSI_MAX_IMAGES])
 {
    struct npt_unix_wsi_drain_params p;
    memset(&p, 0, sizeof(p));
+   p.wsi = wsi;
    p.timeout_ms = timeout_ms;
    npt_wine_unix_call(npt_unix_wsi_drain, &p);
    if (out_released_count) {
@@ -119,35 +125,36 @@ static bool
 wine_wsi_init(struct npt_renderer *r, uint32_t num_images,
               const int *fds, const uint32_t *strides,
               uint32_t virgl_format, uint32_t width, uint32_t height,
-              uint64_t hwnd)
+              uint64_t hwnd, uint64_t *out_wsi)
 {
    (void)r;
    return unixlib_wsi_init(num_images, fds, strides, virgl_format,
-                           width, height, (HWND)(uintptr_t)hwnd) == 0;
+                           width, height, (HWND)(uintptr_t)hwnd,
+                           out_wsi) == 0;
 }
 
 static void
-wine_wsi_present(struct npt_renderer *r, uint32_t image_index,
+wine_wsi_present(struct npt_renderer *r, uint64_t wsi, uint32_t image_index,
                  int wait_fence_fd)
 {
    (void)r;
-   unixlib_wsi_present(image_index, wait_fence_fd);
+   unixlib_wsi_present(wsi, image_index, wait_fence_fd);
 }
 
 static void
-wine_wsi_destroy(struct npt_renderer *r)
+wine_wsi_destroy(struct npt_renderer *r, uint64_t wsi)
 {
    (void)r;
-   unixlib_wsi_destroy();
+   unixlib_wsi_destroy(wsi);
 }
 
 static int
-wine_wsi_drain(struct npt_renderer *r,
+wine_wsi_drain(struct npt_renderer *r, uint64_t wsi,
                uint32_t timeout_ms,
                uint32_t out_released_count[NPT_WSI_MAX_IMAGES])
 {
    (void)r;
-   return unixlib_wsi_drain(timeout_ms, out_released_count);
+   return unixlib_wsi_drain(wsi, timeout_ms, out_released_count);
 }
 
 void npt_wine_install_wsi_ops(struct npt_renderer_ops *ops)

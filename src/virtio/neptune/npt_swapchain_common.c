@@ -83,7 +83,8 @@ npt_gsc_drain_thread(LPVOID arg)
    struct npt_renderer *renderer = c->com->base.device->renderer;
    while (!atomic_load(&c->drain_exit)) {
       uint32_t released[NPT_WSI_MAX_IMAGES] = { 0 };
-      int rc = npt_renderer_wsi_drain(renderer, /*timeout_ms=*/100, released);
+      int rc = npt_renderer_wsi_drain(renderer, c->wsi, /*timeout_ms=*/100,
+                                      released);
       if (rc == -1) {
          Sleep(100);
          continue;
@@ -207,7 +208,7 @@ npt_gsc_wsi_thread(LPVOID arg)
       mtx_unlock(&c->wsi_mutex);
 
       /* Owned by entry now; the backend closes/consumes the fd. */
-      npt_renderer_wsi_present(renderer, entry.image_index,
+      npt_renderer_wsi_present(renderer, c->wsi, entry.image_index,
                                entry.wait_fence_fd);
       if (entry.token)
          npt_event_release_token(dev, entry.token);
@@ -350,7 +351,8 @@ npt_gsc_wsi_quiesce(struct npt_guest_swapchain_common *c, bool shutting_down)
    npt_gsc_drain_stop(c, shutting_down);
    npt_gsc_backpressure_flush(c);
    if (c->wsi_initialized && !shutting_down)
-      npt_renderer_wsi_destroy(c->com->base.device->renderer);
+      npt_renderer_wsi_destroy(c->com->base.device->renderer, c->wsi);
+   c->wsi = 0;
    c->wsi_initialized = false;
    c->wsi_failed = false;
    for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++)
@@ -406,7 +408,7 @@ npt_gsc_wsi_bringup(struct npt_guest_swapchain_common *c, uint32_t fmt)
    if (!npt_renderer_wsi_init(renderer, NPT_SC_PRESENT_IMAGES, fds, strides,
                               npt_shared_texture_virgl_format(fmt),
                               c->desc.Width, c->desc.Height,
-                              (uint64_t)(uintptr_t)c->hwnd)) {
+                              (uint64_t)(uintptr_t)c->hwnd, &c->wsi)) {
       npt_log("%s: WSI init failed (hwnd=%p %ux%u)", c->tag,
               (void *)c->hwnd, c->desc.Width, c->desc.Height);
       goto fail;
