@@ -174,6 +174,16 @@ npt_gsc_qi_held(void *wrapper, const IID *riid, void **out);
 bool
 npt_gsc_wsi_backend_available(struct npt_guest_swapchain_common *c);
 
+/* Pool format for a backbuffer format.  The WSI shows the pool through
+ * depth-24 X pixmaps, so a backbuffer whose bits are not 8-bit BGRA/RGBA
+ * gets a BGRA8 pool and is converted into it by a draw
+ * (npt_gsc_needs_convert): a copy cannot change format. */
+uint32_t
+npt_gsc_pool_format(uint32_t backbuffer_format);
+
+bool
+npt_gsc_needs_convert(uint32_t backbuffer_format);
+
 bool
 npt_gsc_wsi_bringup(struct npt_guest_swapchain_common *c, uint32_t fmt);
 

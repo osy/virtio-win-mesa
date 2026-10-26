@@ -91,7 +91,7 @@ struct npt_guest_swapchain {
    uint32_t next_image;
 
    /* Present conversion for backbuffer formats the pool cannot hold
-    * (gsc_pool_format): per pool image, a deferred-context command list
+    * (npt_gsc_pool_format): per pool image, a deferred-context command list
     * that draws the backbuffer into it.  The held objects live and die
     * with the pool; convert_list[] borrows from them. */
    void *convert_held[NPT_SC_CONVERT_HELD];
@@ -133,26 +133,6 @@ gsc(void *self)
 /* ------------------------------------------------------------------ */
 /* present pool + WSI                                                  */
 /* ------------------------------------------------------------------ */
-
-/* The WSI shows the pool through depth-24 X pixmaps, so a backbuffer
- * format whose bits are not 8-bit BGRA/RGBA gets a BGRA8 pool and is
- * converted into it by a draw: CopyResource cannot change format. */
-static uint32_t
-gsc_pool_format(uint32_t format)
-{
-   switch (format) {
-   case DXGI_FORMAT_R10G10B10A2_UNORM:
-      return DXGI_FORMAT_B8G8R8A8_UNORM;
-   default:
-      return npt_shared_texture_host_format(format);
-   }
-}
-
-static bool
-gsc_needs_convert(uint32_t format)
-{
-   return gsc_pool_format(format) != npt_shared_texture_host_format(format);
-}
 
 static void
 gsc_convert_hold(struct npt_guest_swapchain *s, void *wrapper)
@@ -270,7 +250,7 @@ gsc_ensure_wsi(struct npt_guest_swapchain *s)
    if (!npt_gsc_wsi_backend_available(c))
       return;
 
-   const uint32_t fmt = gsc_pool_format(c->desc.Format);
+   const uint32_t fmt = npt_gsc_pool_format(c->desc.Format);
    for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++) {
       void *tex = npt_shared_texture_create_exportable(
          s->device, c->desc.Width, c->desc.Height, fmt);
@@ -283,7 +263,7 @@ gsc_ensure_wsi(struct npt_guest_swapchain *s)
       c->present_tex_id[i] = npt_com_self_id(tex);
    }
 
-   if (gsc_needs_convert(c->desc.Format) && !gsc_record_convert(s)) {
+   if (npt_gsc_needs_convert(c->desc.Format) && !gsc_record_convert(s)) {
       npt_gsc_release_pool(c);
       c->wsi_failed = true;
       return;
@@ -520,7 +500,7 @@ gsc_create_backbuffer(struct npt_guest_swapchain *s)
    d.Usage = D3D11_USAGE_DEFAULT;
    d.BindFlags = D3D11_BIND_RENDER_TARGET;
    if ((c->desc.BufferUsage & NPT_DXGI_USAGE_SHADER_INPUT) ||
-       gsc_needs_convert(c->desc.Format))
+       npt_gsc_needs_convert(c->desc.Format))
       d.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
    if (c->desc.BufferUsage & NPT_DXGI_USAGE_UNORDERED_ACCESS)
       d.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;

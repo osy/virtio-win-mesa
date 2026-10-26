@@ -359,6 +359,24 @@ npt_gsc_wsi_quiesce(struct npt_guest_swapchain_common *c, bool shutting_down)
       atomic_store(&c->image_inflight[i], 0);
 }
 
+uint32_t
+npt_gsc_pool_format(uint32_t backbuffer_format)
+{
+   switch (backbuffer_format) {
+   case DXGI_FORMAT_R10G10B10A2_UNORM:
+      return DXGI_FORMAT_B8G8R8A8_UNORM;
+   default:
+      return npt_shared_texture_host_format(backbuffer_format);
+   }
+}
+
+bool
+npt_gsc_needs_convert(uint32_t backbuffer_format)
+{
+   return npt_gsc_pool_format(backbuffer_format) !=
+          npt_shared_texture_host_format(backbuffer_format);
+}
+
 bool
 npt_gsc_wsi_backend_available(struct npt_guest_swapchain_common *c)
 {

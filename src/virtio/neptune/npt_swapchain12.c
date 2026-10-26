@@ -24,7 +24,9 @@
  *                   dmabufs feed the X11 WSI.
  *   copy lists      BufferCount x pool pre-recorded CLOSED command
  *                   lists (barriers + CopyResource(pool[i], bb[j]) +
- *                   barriers), recorded once at WSI init and
+ *                   barriers; a backbuffer format the pool cannot
+ *                   hold is drawn into it instead, see
+ *                   npt_gsc_needs_convert), recorded once at WSI init and
  *                   re-executed every Present (closed lists are
  *                   re-executable; no allocator-reset dance).
  *   Present         ExecuteCommandLists(copy list) on the app's queue
@@ -56,6 +58,7 @@
 #if defined(__WINE__)
 
 #include "npt_event.h"
+#include "npt_present_convert_dxbc.h"
 #include "npt_renderer_wine_common.h"
 #include "nptunix/npt_unixlib.h"
 
@@ -64,6 +67,7 @@
 #include <windows.h>
 
 #include "neptune-protocol/npt_protocol_client_id3d12commandqueue.h"
+#include "neptune-protocol/npt_protocol_client_id3d12descriptorheap.h"
 #include "neptune-protocol/npt_protocol_client_id3d12device.h"
 #include "neptune-protocol/npt_protocol_client_id3d12fence.h"
 #include "neptune-protocol/npt_protocol_client_id3d12graphicscommandlist.h"
@@ -109,6 +113,18 @@ struct npt_guest_swapchain12 {
    uint64_t copy_allocator_id;
    void *copy_list[NPT_SC_MAX_SWAP_CHAIN_BUFFERS][NPT_SC_PRESENT_IMAGES];
    uint64_t copy_list_id[NPT_SC_MAX_SWAP_CHAIN_BUFFERS][NPT_SC_PRESENT_IMAGES];
+
+   /* Present conversion (npt_gsc_needs_convert): what the copy lists
+    * draw with instead of copying.  SRV heap: one per backbuffer; RTV
+    * heap: one per pool image.  Lives and dies with the copy lists. */
+   void *convert_rs;             /* ID3D12RootSignature* */
+   uint64_t convert_rs_id;
+   void *convert_pso;            /* ID3D12PipelineState* */
+   uint64_t convert_pso_id;
+   void *convert_srv_heap;       /* ID3D12DescriptorHeap*, shader-visible */
+   uint64_t convert_srv_heap_id;
+   void *convert_rtv_heap;       /* ID3D12DescriptorHeap* */
+   uint64_t convert_rtv_heap_id;
 };
 
 static inline struct npt_guest_swapchain12 *
@@ -263,6 +279,151 @@ gsc12_release_copy_lists(struct npt_guest_swapchain12 *s,
          npt_gsc_release_held(dev, &s->copy_list[j][i],
                               &s->copy_list_id[j][i]);
    npt_gsc_release_held(dev, &s->copy_allocator, &s->copy_allocator_id);
+   npt_gsc_release_held(dev, &s->convert_pso, &s->convert_pso_id);
+   npt_gsc_release_held(dev, &s->convert_rs, &s->convert_rs_id);
+   npt_gsc_release_held(dev, &s->convert_srv_heap, &s->convert_srv_heap_id);
+   npt_gsc_release_held(dev, &s->convert_rtv_heap, &s->convert_rtv_heap_id);
+}
+
+static void *
+gsc12_create_heap(struct npt_guest_swapchain12 *s,
+                  D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t count,
+                  D3D12_DESCRIPTOR_HEAP_FLAGS flags, uint64_t *id)
+{
+   D3D12_DESCRIPTOR_HEAP_DESC hd;
+   memset(&hd, 0, sizeof(hd));
+   hd.Type = type;
+   hd.NumDescriptors = count;
+   hd.Flags = flags;
+   void *heap = NULL;
+   HRESULT hr = gsc12_device_vtbl(s)->CreateDescriptorHeap(
+      s->device, &hd, &NPT_IID_ID3D12DescriptorHeap, &heap);
+   if (NPT_FAILED(hr) || !heap) {
+      npt_log("guest swapchain12: descriptor heap type %u x%u failed "
+              "hr=0x%x", type, count, hr);
+      return NULL;
+   }
+   *id = npt_com_self_id(heap);
+   return heap;
+}
+
+static D3D12_CPU_DESCRIPTOR_HANDLE
+gsc12_cpu_handle(struct npt_guest_swapchain12 *s, void *heap,
+                 D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t index)
+{
+   const struct npt_id3d12descriptorheap_client_vtbl *hv =
+      (const void *)((struct npt_com_base *)heap)->lpVtbl;
+   D3D12_CPU_DESCRIPTOR_HANDLE h;
+   hv->GetCPUDescriptorHandleForHeapStart(heap, &h);
+   h.ptr += (SIZE_T)index *
+            gsc12_device_vtbl(s)->GetDescriptorHandleIncrementSize(s->device,
+                                                                   type);
+   return h;
+}
+
+/* Root signature, PSO and views for drawing backbuffer j into pool image
+ * i: a fullscreen triangle whose pixel shader loads the texel under it
+ * (npt_present_convert_dxbc.h), so the pool's format does the
+ * conversion. */
+static bool
+gsc12_create_convert(struct npt_guest_swapchain12 *s, uint32_t pool_fmt)
+{
+   struct npt_guest_swapchain_common *c = &s->base;
+   const struct npt_id3d12device_client_vtbl *dv = gsc12_device_vtbl(s);
+
+   HRESULT hr = dv->CreateRootSignature(
+      s->device, 0, npt_present_convert_rs, sizeof(npt_present_convert_rs),
+      &NPT_IID_ID3D12RootSignature, &s->convert_rs);
+   if (NPT_FAILED(hr) || !s->convert_rs) {
+      npt_log("guest swapchain12: conversion root signature failed hr=0x%x",
+              hr);
+      s->convert_rs = NULL;
+      return false;
+   }
+   s->convert_rs_id = npt_com_self_id(s->convert_rs);
+
+   D3D12_GRAPHICS_PIPELINE_STATE_DESC pd;
+   memset(&pd, 0, sizeof(pd));
+   pd.pRootSignature = s->convert_rs;
+   pd.VS.pShaderBytecode = npt_present_convert_vs_5_0;
+   pd.VS.BytecodeLength = sizeof(npt_present_convert_vs_5_0);
+   pd.PS.pShaderBytecode = npt_present_convert_ps_5_0;
+   pd.PS.BytecodeLength = sizeof(npt_present_convert_ps_5_0);
+   pd.BlendState.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+   pd.SampleMask = UINT32_MAX;
+   pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+   pd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+   pd.RasterizerState.DepthClipEnable = TRUE;
+   pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+   pd.NumRenderTargets = 1;
+   pd.RTVFormats[0] = (DXGI_FORMAT)pool_fmt;
+   pd.SampleDesc.Count = 1;
+   hr = dv->CreateGraphicsPipelineState(s->device, &pd,
+                                        &NPT_IID_ID3D12PipelineState,
+                                        &s->convert_pso);
+   if (NPT_FAILED(hr) || !s->convert_pso) {
+      npt_log("guest swapchain12: conversion PSO fmt=%u failed hr=0x%x",
+              pool_fmt, hr);
+      s->convert_pso = NULL;
+      return false;
+   }
+   s->convert_pso_id = npt_com_self_id(s->convert_pso);
+
+   s->convert_srv_heap = gsc12_create_heap(
+      s, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c->desc.BufferCount,
+      D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, &s->convert_srv_heap_id);
+   s->convert_rtv_heap = gsc12_create_heap(
+      s, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, NPT_SC_PRESENT_IMAGES,
+      D3D12_DESCRIPTOR_HEAP_FLAG_NONE, &s->convert_rtv_heap_id);
+   if (!s->convert_srv_heap || !s->convert_rtv_heap)
+      return false;
+
+   for (uint32_t j = 0; j < c->desc.BufferCount; j++)
+      dv->CreateShaderResourceView(
+         s->device, (ID3D12Resource *)s->backbuffer[j], NULL,
+         gsc12_cpu_handle(s, s->convert_srv_heap,
+                          D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, j));
+   for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++)
+      dv->CreateRenderTargetView(
+         s->device, (ID3D12Resource *)c->present_tex[i], NULL,
+         gsc12_cpu_handle(s, s->convert_rtv_heap,
+                          D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i));
+   return true;
+}
+
+static void
+gsc12_record_convert(struct npt_guest_swapchain12 *s, void *list,
+                     uint32_t j, uint32_t i)
+{
+   struct npt_guest_swapchain_common *c = &s->base;
+   const struct npt_id3d12graphicscommandlist_client_vtbl *lv =
+      (const void *)((struct npt_com_base *)list)->lpVtbl;
+   const struct npt_id3d12descriptorheap_client_vtbl *hv =
+      (const void *)((struct npt_com_base *)s->convert_srv_heap)->lpVtbl;
+
+   D3D12_GPU_DESCRIPTOR_HANDLE srv;
+   hv->GetGPUDescriptorHandleForHeapStart(s->convert_srv_heap, &srv);
+   srv.ptr += (UINT64)j *
+              gsc12_device_vtbl(s)->GetDescriptorHandleIncrementSize(
+                 s->device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+   const D3D12_CPU_DESCRIPTOR_HANDLE rtv = gsc12_cpu_handle(
+      s, s->convert_rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i);
+   const D3D12_VIEWPORT vp = {
+      0.0f, 0.0f, (float)c->desc.Width, (float)c->desc.Height, 0.0f, 1.0f,
+   };
+   const D3D12_RECT scissor = { 0, 0, (LONG)c->desc.Width,
+                                (LONG)c->desc.Height };
+
+   lv->SetGraphicsRootSignature(list, (ID3D12RootSignature *)s->convert_rs);
+   lv->SetDescriptorHeaps(list, 1,
+                          (ID3D12DescriptorHeap **)&s->convert_srv_heap);
+   lv->SetGraphicsRootDescriptorTable(list, 0, srv);
+   lv->IASetPrimitiveTopology(list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+   lv->RSSetViewports(list, 1, &vp);
+   lv->RSSetScissorRects(list, 1, &scissor);
+   lv->OMSetRenderTargets(list, 1, &rtv, FALSE, NULL);
+   lv->DrawInstanced(list, 3, 1, 0, 0);
 }
 
 /* Record all BufferCount x pool copy lists, closed.  One allocator
@@ -274,6 +435,17 @@ gsc12_record_copy_lists(struct npt_guest_swapchain12 *s)
 {
    struct npt_guest_swapchain_common *c = &s->base;
    const struct npt_id3d12device_client_vtbl *dv = gsc12_device_vtbl(s);
+
+   const bool convert = npt_gsc_needs_convert(c->desc.Format);
+   if (convert &&
+       !gsc12_create_convert(s, npt_gsc_pool_format(c->desc.Format)))
+      return false;
+   const D3D12_RESOURCE_STATES src_state =
+      convert ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+              : D3D12_RESOURCE_STATE_COPY_SOURCE;
+   const D3D12_RESOURCE_STATES dst_state =
+      convert ? D3D12_RESOURCE_STATE_RENDER_TARGET
+              : D3D12_RESOURCE_STATE_COPY_DEST;
 
    void *alloc = NULL;
    HRESULT hr = dv->CreateCommandAllocator(
@@ -291,7 +463,8 @@ gsc12_record_copy_lists(struct npt_guest_swapchain12 *s)
          void *list = NULL;
          hr = dv->CreateCommandList(
             s->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            (ID3D12CommandAllocator *)alloc, NULL,
+            (ID3D12CommandAllocator *)alloc,
+            (ID3D12PipelineState *)s->convert_pso,
             &NPT_IID_ID3D12GraphicsCommandList, &list);
          if (NPT_FAILED(hr) || !list) {
             npt_log("guest swapchain12: copy list [%u][%u] failed hr=0x%x",
@@ -311,23 +484,26 @@ gsc12_record_copy_lists(struct npt_guest_swapchain12 *s)
          b[0].Transition.pResource = (ID3D12Resource *)s->backbuffer[j];
          b[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
          b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-         b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+         b[0].Transition.StateAfter = src_state;
          b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
          b[1].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
          b[1].Transition.pResource = (ID3D12Resource *)c->present_tex[i];
          b[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
          b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-         b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+         b[1].Transition.StateAfter = dst_state;
          lv->ResourceBarrier(list, 2, b);
 
-         lv->CopyResource(list, (ID3D12Resource *)c->present_tex[i],
-                          (ID3D12Resource *)s->backbuffer[j]);
+         if (convert)
+            gsc12_record_convert(s, list, j, i);
+         else
+            lv->CopyResource(list, (ID3D12Resource *)c->present_tex[i],
+                             (ID3D12Resource *)s->backbuffer[j]);
 
          /* Return both to their steady states so the list is
           * re-executable as-is. */
-         b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+         b[0].Transition.StateBefore = src_state;
          b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-         b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+         b[1].Transition.StateBefore = dst_state;
          b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
          lv->ResourceBarrier(list, 2, b);
 
@@ -365,7 +541,7 @@ gsc12_ensure_wsi(struct npt_guest_swapchain12 *s)
    if (!npt_gsc_wsi_backend_available(c))
       return;
 
-   const uint32_t fmt = npt_shared_texture_host_format(c->desc.Format);
+   const uint32_t fmt = npt_gsc_pool_format(c->desc.Format);
    for (uint32_t i = 0; i < NPT_SC_PRESENT_IMAGES; i++) {
       void *tex = gsc12_create_pool_texture(s, fmt);
       if (!tex) {
