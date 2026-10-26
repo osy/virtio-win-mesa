@@ -19,11 +19,12 @@
  *                   via the SHARED transport, bound to guest blobs
  *                   whose dmabufs feed the X11 WSI.
  *   Present         CopyResource(pool[i], backbuffer) + Flush on the
- *                   DC/SC ring, then wsi_present(i).  A backbuffer
- *                   format the pool cannot hold is drawn into it by a
- *                   pre-recorded command list instead.  Pool reuse is
- *                   gated on X IDLE_NOTIFY release counts drained by
- *                   a per-swapchain thread.
+ *                   DC/SC ring, then wsi_present(i).  A multisampled
+ *                   backbuffer is resolved first and copied from its
+ *                   resolve target; a format the pool cannot hold is
+ *                   drawn into it by a pre-recorded command list.
+ *                   Pool reuse is gated on X IDLE_NOTIFY release
+ *                   counts drained by a per-swapchain thread.
  */
 
 #include "npt_swapchain.h"
@@ -86,6 +87,10 @@ struct npt_guest_swapchain {
    uint64_t dc_id;
    void *backbuffer;             /* ID3D11Texture2D* */
    uint64_t backbuffer_id;
+   /* Single-sample twin of a multisampled backbuffer: the pool is
+    * single-sample, so presents resolve into it and copy from there. */
+   void *resolved;               /* ID3D11Texture2D* */
+   uint64_t resolved_id;
 
    /* Pool rotation cursor; the pool itself lives in the common state. */
    uint32_t next_image;
@@ -133,6 +138,13 @@ gsc(void *self)
 /* ------------------------------------------------------------------ */
 /* present pool + WSI                                                  */
 /* ------------------------------------------------------------------ */
+
+/* What presents copy or convert from. */
+static void *
+gsc_present_source(struct npt_guest_swapchain *s)
+{
+   return s->resolved ? s->resolved : s->backbuffer;
+}
 
 static void
 gsc_convert_hold(struct npt_guest_swapchain *s, void *wrapper)
@@ -184,8 +196,8 @@ gsc_record_convert(struct npt_guest_swapchain *s)
    gsc_convert_hold(s, ps);
 
    hr = dv->CreateShaderResourceView(s->device,
-                                     (ID3D11Resource *)s->backbuffer, NULL,
-                                     &srv);
+                                     (ID3D11Resource *)gsc_present_source(s),
+                                     NULL, &srv);
    if (NPT_FAILED(hr) || !srv)
       goto fail;
    gsc_convert_hold(s, srv);
@@ -373,6 +385,11 @@ gsc_present_common(void *self, UINT SyncInterval, UINT Flags)
    npt_gsc_reuse_gate(c, i);
 
    struct npt_ring *ring = npt_com_self_ring(s->dc);
+   if (s->resolved) {
+      npt_async_ID3D11DeviceContext_ResolveSubresource(
+         ring, s->dc_id, (ID3D11Resource *)s->resolved, 0,
+         (ID3D11Resource *)s->backbuffer, 0, (DXGI_FORMAT)c->desc.Format);
+   }
    if (s->convert_list[i]) {
       npt_async_ID3D11DeviceContext_ExecuteCommandList(
          ring, s->dc_id, (ID3D11CommandList *)s->convert_list[i], TRUE);
@@ -380,7 +397,7 @@ gsc_present_common(void *self, UINT SyncInterval, UINT Flags)
       npt_async_ID3D11DeviceContext_CopyResource(
          ring, s->dc_id,
          (ID3D11Resource *)c->present_tex[i],
-         (ID3D11Resource *)s->backbuffer);
+         (ID3D11Resource *)gsc_present_source(s));
    }
 
    /* GPU-done fence: signal the fence on the DC after the copy, then
@@ -499,8 +516,9 @@ gsc_create_backbuffer(struct npt_guest_swapchain *s)
    d.SampleDesc = c->desc.SampleDesc;
    d.Usage = D3D11_USAGE_DEFAULT;
    d.BindFlags = D3D11_BIND_RENDER_TARGET;
+   const bool msaa = d.SampleDesc.Count > 1;
    if ((c->desc.BufferUsage & NPT_DXGI_USAGE_SHADER_INPUT) ||
-       npt_gsc_needs_convert(c->desc.Format))
+       (npt_gsc_needs_convert(c->desc.Format) && !msaa))
       d.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
    if (c->desc.BufferUsage & NPT_DXGI_USAGE_UNORDERED_ACCESS)
       d.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
@@ -516,6 +534,23 @@ gsc_create_backbuffer(struct npt_guest_swapchain *s)
    }
    s->backbuffer = tex;
    s->backbuffer_id = npt_com_self_id(tex);
+
+   if (msaa) {
+      d.SampleDesc.Count = 1;
+      d.SampleDesc.Quality = 0;
+      d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+      tex = NULL;
+      hr = v->CreateTexture2D(s->device, &d, NULL, &tex);
+      if (NPT_FAILED(hr) || !tex) {
+         npt_log("guest swapchain: resolve target %ux%u fmt=%u failed "
+                 "hr=0x%x", d.Width, d.Height, d.Format, hr);
+         npt_gsc_release_held(c->com->base.device, &s->backbuffer,
+                              &s->backbuffer_id);
+         return NPT_FAILED(hr) ? hr : NPT_E_FAIL;
+      }
+      s->resolved = tex;
+      s->resolved_id = npt_com_self_id(tex);
+   }
    return NPT_S_OK;
 }
 
@@ -550,6 +585,7 @@ gsc_resize_common(void *self, UINT BufferCount, UINT Width, UINT Height,
 
    /* DXGI requires the app to have dropped its buffer refs; be
     * lenient (refcounting keeps a straggler alive) but recreate. */
+   npt_gsc_release_held(dev, &s->resolved, &s->resolved_id);
    npt_gsc_release_held(dev, &s->backbuffer, &s->backbuffer_id);
    HRESULT hr = gsc_create_backbuffer(s);
 
@@ -986,6 +1022,7 @@ gsc_aux_destroy(void *aux)
 
    npt_gsc_release_outputs(c);
 
+   npt_gsc_release_held(dev, &s->resolved, &s->resolved_id);
    npt_gsc_release_held(dev, &s->backbuffer, &s->backbuffer_id);
    npt_gsc_release_held(dev, &s->fence, &s->fence_id);
    npt_gsc_release_held(dev, &s->dc4, &s->dc4_id);
