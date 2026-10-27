@@ -58,14 +58,6 @@ enum npt_debug {
     * queues.  Recovers the async-compute overlap at the cost of the
     * ordering an app's unobservable Wait() would have given it. */
    NPT_DEBUG_NO_D3D12_XQUEUE_ORDER   = 1ull << 7,
-
-   /* Report the host's 64-bit atomic caps (OPTIONS9/11) even though the
-    * host executes only InterlockedMin/Max on typed and raw buffers:
-    * Add/And/Or/Xor/Exchange/CompareExchange drop the whole dispatch and
-    * group-shared 64-bit atomics read back 0 (d3d12-atomic64-test).
-    * Opt-in for engines whose atomic64 use is the min/max subset (UE5
-    * Nanite / virtual shadow maps). */
-   NPT_DEBUG_D3D12_CLAIM_ATOMIC64    = 1ull << 8,
 };
 
 struct npt_env {
