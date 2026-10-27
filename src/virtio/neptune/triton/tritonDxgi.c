@@ -562,6 +562,21 @@ tritonPresentSubmitCb(PTRITON_DEVICE pD, DXGIDDICB_PRESENT *cb)
    return hr;
 }
 
+/* The D3D11 runtime queues the Destroy* DDI of every object the app
+ * releases until the driver calls pfnPerformAmortizedProcessingCb, as a
+ * driver does when it submits a command buffer; Triton submits at
+ * present.  Without the call the queue drains only at an app Flush or the
+ * runtime's own backlog limit, and RotateResourceIdentities recreates
+ * every released view of a back buffer on each flip.  The callback
+ * re-enters the Destroy* DDIs on this thread, so no Triton lock may be
+ * held. */
+static void
+tritonPresentAmortize(PTRITON_DEVICE pD)
+{
+   if (pD->pUMCallbacks && pD->pUMCallbacks->pfnPerformAmortizedProcessingCb)
+      pD->pUMCallbacks->pfnPerformAmortizedProcessingCb(pD->hRTCoreLayer);
+}
+
 static HRESULT APIENTRY
 tritonDxgiPresent(DXGI_DDI_ARG_PRESENT *pArgs)
 {
@@ -1329,6 +1344,7 @@ tritonDxgiPresent1(DXGI_DDI_ARG_PRESENT1 *pArgs)
    cb.pDXGIContext   = pArgs->pDXGIContext;
    cb.hContext       = pD->hKMContext;
    HRESULT hr = tritonPresentSubmitCb(pD, &cb);
+   tritonPresentAmortize(pD);
    InterlockedDecrement(&pD->presentInFlight);
    return hr;
 }
