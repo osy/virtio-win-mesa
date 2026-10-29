@@ -373,6 +373,11 @@ static const char HLSL_PS_COVERAGE[] =
     "float4 main(float4 p : SV_Position, out uint cov : SV_Coverage)"
     "    : SV_Target { cov = (uint)p.x; return p; }";
 
+static const char HLSL_PS_COVERAGE_IN[] =
+    "float4 main(float4 p : SV_Position, uint cov : SV_Coverage) : SV_Target {"
+    "  double2 d = double2(p.xy) * double2(2.0l, 0.5l) + double2(1.0l, 3.0l);"
+    "  return float4((float)d.x, (float)d.y, (float)countbits(cov), cov & 1); }";
+
 static const char HLSL_PS_INT_TARGET[] =
     "uint4 main(float4 p : SV_Position) : SV_Target1 { return (uint4)p; }";
 
@@ -661,6 +666,138 @@ static void testWidenFlag(void)
     free(b.p);
 }
 
+/* Operand census of a container's code chunk over the instructions the
+ * coverage rewriter walks: vCoverage reads, one-component 32-bit immediates
+ * equal to `value`, and four-component 64-bit immediates. */
+static void countOperands(const void *dxbc, UINT value,
+                          UINT *pCov, UINT *pImm, UINT *pImm64)
+{
+    *pCov = *pImm = *pImm64 = 0;
+    const DXBCHeader *hdr =
+        dxbcCheckContainer(dxbc, ((const DXBCHeader *)dxbc)->cbTotal);
+    uint32_t off = 0, cb = 0;
+    CHECK(hdr && dxbcFindCodeBlob(hdr, &off, &cb), "code chunk");
+    if (!hdr || !cb) return;
+    const UINT *tok = (const UINT *)((const BYTE *)dxbc + off);
+    TritonTokIter it;
+    if (!tritonTokIterInit(&it, tok, cb)) { CHECK(0, "token stream"); return; }
+    UINT opcode, cTok;
+    const UINT *ins;
+    while (tritonTokIterNext(&it, &opcode, &ins, &cTok)) {
+        if (dxbcOpcodeIsDecl(opcode)) continue;
+        const UINT *end = ins + cTok;
+        UINT k = dxbcTokenChainLen(ins, end);
+        CHECK(k != 0, "opcode chain (opcode 0x%x)", opcode);
+        while (k && k < cTok) {
+            const UINT len = dxbcOperandLen(ins + k, end, 0);
+            CHECK(len != 0, "operand length (opcode 0x%x)", opcode);
+            if (!len) break;
+            const UINT type = (ins[k] >> 12) & 0xffu;
+            if (type == SM5_OPTYPE_INPUT_COVERAGE_MASK)
+                ++*pCov;
+            else if (type == SM4_OPTYPE_IMMEDIATE32 && (ins[k] & 3u) == 1u &&
+                     ins[k + len - 1] == value)
+                ++*pImm;
+            else if (type == SM4_OPTYPE_IMMEDIATE64 && (ins[k] & 3u) == 2u)
+                ++*pImm64;
+            k += len;
+        }
+    }
+    CHECK(it.p == it.end, "walked the whole program");
+}
+
+typedef HRESULT (WINAPI *PFN_D3DDisassemble)(const void*, SIZE_T, UINT,
+                                              const char*, void**);
+static PFN_D3DDisassemble s_D3DDisassemble;
+
+/* Occurrences of `needle` in the fxc disassembly of a container, or -1 when
+ * the disassembler rejects it. */
+static int disasmCount(const void *dxbc, SIZE_T cb, const char *needle)
+{
+    typedef struct { void **vtbl; } Obj;
+    void *blob = NULL;
+    if (FAILED(s_D3DDisassemble(dxbc, cb, 0, NULL, &blob)) || !blob)
+        return -1;
+    Obj *b = (Obj *)blob;
+    const char *text = (const char *)((void *(*)(void*))b->vtbl[3])(blob);
+    int n = 0;
+    for (const char *s = strstr(text, needle); s; s = strstr(s + 1, needle))
+        ++n;
+    ((ULONG (*)(void*))b->vtbl[2])(blob);
+    return n;
+}
+
+/* The vCoverage substitution for target-independent rasterization. */
+static void testInputCoverage(void)
+{
+    Blob in, out;
+    if (!compileHlsl(HLSL_PS_COVERAGE_IN, "main", "ps_5_0", &in)) {
+        CHECK(0, "compile coverage-input ps");
+        return;
+    }
+    if (!compileHlsl(HLSL_PS_COVERAGE, "main", "ps_5_0", &out)) {
+        CHECK(0, "compile coverage-output ps");
+        free(in.p);
+        return;
+    }
+    UINT cbIn = 0, cbOut = 0;
+    const UINT *tokIn  = (const UINT *)findChunk(in.p,  DXBC_BLOB_TYPE_SHEX, &cbIn);
+    const UINT *tokOut = (const UINT *)findChunk(out.p, DXBC_BLOB_TYPE_SHEX, &cbOut);
+    CHECK(tokIn && tritonDxbcReadsInputCoverage(tokIn, cbIn),
+          "SV_Coverage input declared");
+    CHECK(tokOut && !tritonDxbcReadsInputCoverage(tokOut, cbOut),
+          "SV_Coverage output is not a read");
+
+    const UINT sentinel = 0x5A5A5A5Au;
+    SIZE_T cb = 0;
+    void *built = rebuild(&in, &cb, 0, 0, 20);
+    if (built) {
+        UINT cov, imm, imm64;
+        countOperands(built, sentinel, &cov, &imm, &imm64);
+        CHECK(cov >= 1, "vCoverage reads in the source (%u)", cov);
+        CHECK(imm == 0, "no sentinel immediates in the source (%u)", imm);
+        CHECK(imm64 >= 1, "double immediates in the source (%u)", imm64);
+
+        SIZE_T cbFix = 0;
+        void *fixed = tritonDxbcFixInputCoverage(built, cb, sentinel, &cbFix);
+        CHECK(fixed != NULL, "fixed-coverage copy");
+        if (fixed) {
+            validateContainer(fixed, cbFix);
+            CHECK(cbFix == cb + cov * sizeof(UINT),
+                  "copy grew by one DWORD per read (%zu vs %zu)", cbFix, cb);
+            UINT cov2, imm2, imm64b;
+            countOperands(fixed, sentinel, &cov2, &imm2, &imm64b);
+            CHECK(cov2 == 0, "no vCoverage read left (%u)", cov2);
+            CHECK(imm2 == cov, "one immediate per read (%u vs %u)", imm2, cov);
+            CHECK(imm64b == imm64, "double immediates kept (%u vs %u)",
+                  imm64b, imm64);
+            CHECK(s_D3DDisassemble != NULL, "D3DDisassemble available");
+            if (s_D3DDisassemble) {
+                CHECK(disasmCount(built, cb, "vCoverage") == 1 + (int)cov,
+                      "fxc disassembly of the source");
+                CHECK(disasmCount(fixed, cbFix, "vCoverage") == 1,
+                      "fxc disassembles the copy with only the declaration");
+            }
+            SIZE_T cbAgain = 0;
+            CHECK(tritonDxbcFixInputCoverage(fixed, cbFix, 0xFu, &cbAgain) == NULL,
+                  "nothing left to replace in the copy");
+            HeapFree(GetProcessHeap(), 0, fixed);
+        }
+        HeapFree(GetProcessHeap(), 0, built);
+    }
+
+    SIZE_T cbOutBuilt = 0;
+    void *builtOut = rebuild(&out, &cbOutBuilt, 0, 0, 20);
+    if (builtOut) {
+        SIZE_T cbNone = 0;
+        CHECK(tritonDxbcFixInputCoverage(builtOut, cbOutBuilt, 0xFu, &cbNone) == NULL,
+              "SV_Coverage output: no copy");
+        HeapFree(GetProcessHeap(), 0, builtOut);
+    }
+    free(in.p);
+    free(out.p);
+}
+
 int main(void)
 {
     HMODULE hCompiler = LoadLibraryA("d3dcompiler_47.dll");
@@ -673,11 +810,13 @@ int main(void)
         printf("D3DCompile not found\n");
         return 2;
     }
+    s_D3DDisassemble = (PFN_D3DDisassemble)GetProcAddress(hCompiler, "D3DDisassemble");
 
     testHashes();
     testRebuilds();
     testMinPrecAndReconcile();
     testWidenFlag();
+    testInputCoverage();
 
     printf("%d checks, %d failures\n", g_checks, g_fails);
     return g_fails ? 1 : 0;

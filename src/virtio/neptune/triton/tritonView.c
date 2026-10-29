@@ -387,6 +387,7 @@ tritonSetRenderTargets(D3D10DDI_HDEVICE hDevice,
         if (pD->omBlendSet && pD->omSampleMask != 0xFFFFFFFFu)
             tritonApplyBlendState(pD);
     }
+    tritonUpdateTirPixelShader(pD);
 }
 
 /* ---------- ShaderResourceView ---------- */

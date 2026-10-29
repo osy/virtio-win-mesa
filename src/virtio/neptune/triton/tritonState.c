@@ -221,6 +221,7 @@ tritonCreateRasterizerCommon(PTRITON_DEVICE pD, PTRITON_RASTERIZERSTATE s,
 {
     if (!pD || !s) return;
     s->pState = NULL;
+    s->ForcedSampleCount = a->ForcedSampleCount;
 
     D3D11_RASTERIZER_DESC2 d = {};
     d.FillMode              = (D3D11_FILL_MODE)a->FillMode;
@@ -335,6 +336,8 @@ tritonSetRasterizerState(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRASTERIZERSTATE hSt
     PTRITON_RASTERIZERSTATE s = (PTRITON_RASTERIZERSTATE)(hState.pDrvPrivate);
     ID3D11DeviceContext1_RSSetState(
         pD->pCtx1, s ? (ID3D11RasterizerState *)s->pState : NULL);
+    pD->rsForcedSampleCount = s ? s->ForcedSampleCount : 0;
+    tritonUpdateTirPixelShader(pD);
 }
 
 /* ---------- Sampler ---------- */

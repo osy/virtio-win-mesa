@@ -100,11 +100,13 @@ static void tritonUnpackSigs(const void *pRaw, BOOL fTess, TritonStageSigs *out)
     }
 }
 
-/* Only a VS (input-layout resolution, stream-output-only GS source) and a
- * DS (stream-output-only GS source) read their DXBC after create. */
+/* Only a VS (input-layout resolution, stream-output-only GS source), a DS
+ * (stream-output-only GS source) and a PS reading vCoverage (its
+ * target-independent-rasterization copy) read their DXBC after create. */
 static void tritonShaderDropUnusedBytecode(PTRITON_SHADER s)
 {
-    if (s->kind == TRITON_SHADER_VS || s->kind == TRITON_SHADER_DS)
+    if (s->kind == TRITON_SHADER_VS || s->kind == TRITON_SHADER_DS ||
+        s->fReadsCoverage)
         return;
     if (s->pBytecode)
         HeapFree(GetProcessHeap(), 0, s->pBytecode);
@@ -130,6 +132,9 @@ static void tritonCreateShaderCommon(D3D10DDI_HDEVICE hDevice, TRITON_SHADER_KIN
     s->pSoDecl        = NULL;
     s->cSoDecl        = 0;
     s->pSoOnlyGS      = NULL;
+    s->fReadsCoverage = FALSE;
+    memset(s->apTirPS, 0, sizeof(s->apTirPS));
+    s->TirTried       = 0;
 
     const SIZE_T cbTokens = tritonShaderTokenBytes(pShaderCode);
     /* Compute shaders have no input/output signature; HS/DS carry an
@@ -173,6 +178,7 @@ static void tritonCreateShaderCommon(D3D10DDI_HDEVICE hDevice, TRITON_SHADER_KIN
         tritonSetCreateError(pD, hr);
         return;
     }
+    s->fReadsCoverage = tritonDxbcReadsInputCoverage(pShaderCode, cbTokens);
     tritonShaderDropUnusedBytecode(s);
 }
 
@@ -226,6 +232,9 @@ tritonDestroyShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     if (pD && pD->pCurrentVS == s) pD->pCurrentVS = NULL;
     if (pD && pD->pCurrentGS == s) pD->pCurrentGS = NULL;
     if (pD && pD->pCurrentDS == s) pD->pCurrentDS = NULL;
+    if (pD && pD->pCurrentPS == s) { pD->pCurrentPS = NULL; pD->pSentPS = NULL; }
+    for (UINT i = 0; i < 4; ++i)
+        if (s->apTirPS[i]) { ID3D11PixelShader_Release(s->apTirPS[i]); s->apTirPS[i] = NULL; }
     if (s->u.pDeviceChild) { ID3D11DeviceChild_Release(s->u.pDeviceChild); s->u.pDeviceChild = NULL; }
     if (s->pSoOnlyGS)      { ID3D11GeometryShader_Release(s->pSoOnlyGS);  s->pSoOnlyGS = NULL; }
     if (s->pSoDecl)        { HeapFree(GetProcessHeap(), 0, s->pSoDecl);    s->pSoDecl = NULL; }
@@ -251,14 +260,89 @@ tritonVsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
     tritonBindSoOnlyGS(pD);
 }
 
+/* Target-independent rasterization: a ForcedSampleCount N > 1 with render
+ * targets bound (single-sample, by the D3D11.1 rules) gives the pixel shader
+ * an N-bit vCoverage, but the host rasterizes such a draw at one sample, so
+ * under that state a PS reading vCoverage is replaced by a copy reading the
+ * full N-bit mask (tritonDxbcFixInputCoverage).
+ * Without render targets it is UAV-only rendering, which keeps the PS. */
+static BOOL tritonTirActive(const PTRITON_DEVICE pD)
+{
+    return pD->rsForcedSampleCount > 1 && pD->omHasTargets &&
+           pD->pCurrentPS && pD->pCurrentPS->fReadsCoverage;
+}
+
+/* The fixed-coverage copy of s for the bound ForcedSampleCount, made on the
+ * first request for that count; NULL when it could not be made, or for a
+ * count D3D11 does not allow. */
+static ID3D11PixelShader *tritonTirPixelShader(PTRITON_DEVICE pD, PTRITON_SHADER s)
+{
+    const UINT n = pD->rsForcedSampleCount;
+    if (n < 2 || n > 16 || (n & (n - 1)))
+        return NULL;
+    UINT slot = 0;
+    while ((2u << slot) != n)
+        ++slot;
+    if (s->TirTried & (1u << slot))
+        return s->apTirPS[slot];
+    s->TirTried |= 1u << slot;
+    SIZE_T cb = 0;
+    void *p = tritonDxbcFixInputCoverage(s->pBytecode, s->cbBytecode,
+                                         (1u << n) - 1u, &cb);
+    if (!p) {
+        TR_LOG("TIR: fixed-coverage copy of PS failed (ForcedSampleCount %u)", n);
+        return NULL;
+    }
+    HRESULT hr = ID3D11Device1_CreatePixelShader(pD->pDev1, p, cb, NULL,
+                                                 &s->apTirPS[slot]);
+    HeapFree(GetProcessHeap(), 0, p);
+    if (FAILED(hr)) {
+        TR_LOG("TIR: CreatePixelShader for the fixed-coverage copy failed 0x%08lx", hr);
+        s->apTirPS[slot] = NULL;
+    }
+    return s->apTirPS[slot];
+}
+
+/* The host PS the next draw needs: the tracked PS, or its fixed-coverage
+ * copy under TIR. */
+static ID3D11PixelShader *tritonWantedPixelShader(PTRITON_DEVICE pD)
+{
+    PTRITON_SHADER s = pD->pCurrentPS;
+    if (!s)
+        return NULL;
+    if (tritonTirActive(pD)) {
+        ID3D11PixelShader *tir = tritonTirPixelShader(pD, s);
+        if (tir)
+            return tir;
+    }
+    return s->u.pPS;
+}
+
+static void tritonSendPixelShader(PTRITON_DEVICE pD, ID3D11PixelShader *ps)
+{
+    pD->pSentPS = ps;
+    ID3D11DeviceContext1_PSSetShader(pD->pCtx1, ps, NULL, 0);
+}
+
+/* After the rasterizer state or render targets change: rebind only when that
+ * changes which form of the PS the draw needs. */
+void tritonUpdateTirPixelShader(PTRITON_DEVICE pD)
+{
+    ID3D11PixelShader *ps = tritonWantedPixelShader(pD);
+    if (ps != pD->pSentPS)
+        tritonSendPixelShader(pD, ps);
+}
+
 void APIENTRY
 tritonPsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
 {
     PTRITON_DEVICE pD = (PTRITON_DEVICE)(hDevice.pDrvPrivate);
     PTRITON_SHADER s  = (PTRITON_SHADER)(hShader.pDrvPrivate);
     if (!pD) return;
-    ID3D11PixelShader *ps = (s && s->u.pPS) ? s->u.pPS : NULL;
-    ID3D11DeviceContext1_PSSetShader(pD->pCtx1, ps, NULL, 0);
+    pD->pCurrentPS = s;
+    /* Always sent: the DXGI blit binds its own PS on the context and has the
+     * runtime replay this DDI to restore the app's. */
+    tritonSendPixelShader(pD, tritonWantedPixelShader(pD));
 }
 
 void APIENTRY
@@ -460,6 +544,9 @@ tritonCreateGSWithSO_11(D3D10DDI_HDEVICE hDevice,
     s->pSoDecl        = NULL;
     s->cSoDecl        = 0;
     s->pSoOnlyGS      = NULL;
+    s->fReadsCoverage = FALSE;
+    memset(s->apTirPS, 0, sizeof(s->apTirPS));
+    s->TirTried       = 0;
     if (pArgs->NumEntries > D3D11_SO_STREAM_COUNT * D3D11_SO_OUTPUT_COMPONENT_COUNT) {
         TR_LOG("CreateGSWithSO: NumEntries %u exceeds SO decl cap", pArgs->NumEntries);
         tritonSetCreateError(pD, E_INVALIDARG);

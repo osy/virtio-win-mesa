@@ -30,6 +30,15 @@ void *tritonBuildInputSigDxbc(const char *const *pNames,
                               const UINT *pRegisters,
                               UINT cEntries, SIZE_T *pcbOut);
 
+/* Whether a pixel shader program (SM5 token stream) declares the vCoverage
+ * input, and a copy of its tritonBuildDxbc container with every vCoverage
+ * read replaced by `value`: NULL when there is none, or one sits inside a
+ * relative index, where no immediate can go; see tritonDxbc.c for the
+ * target-independent-rasterization use. */
+BOOL tritonDxbcReadsInputCoverage(const UINT *pTokens, SIZE_T cbTokens);
+void *tritonDxbcFixInputCoverage(const void *pDxbc, SIZE_T cbDxbc, UINT value,
+                                 SIZE_T *pcbOut);
+
 /* VS input-signature reconciler (see tritonDxbc.c for rationale). */
 void *tritonReconcileVsInputSig(const void *pDxbc, SIZE_T cbDxbc,
                                 const unsigned char compReg[32],

@@ -94,6 +94,14 @@ typedef struct TRITON_DEVICE {
      * and feed the draw mistyped vertex data. */
     ID3D11VertexShader             *pBoundReconVS;
 
+    /* Target-independent rasterization (tritonShader.c): the bound PS
+     * (weak, cleared from its destroy path), the bound rasterizer's
+     * ForcedSampleCount, and the host PS the context last received, the
+     * PS's own object or its fixed-coverage copy (weak, compared only). */
+    struct TRITON_SHADER           *pCurrentPS;
+    UINT                            rsForcedSampleCount;
+    ID3D11PixelShader              *pSentPS;
+
     /* Blend state as the runtime last set it, and whether a render target or
      * depth-stencil view is bound.  D3D11 ignores the sample mask while
      * neither is (UAV-only rendering); D3DMetal applies it to coverage, so
@@ -386,6 +394,7 @@ typedef struct TRITON_DEPTHSTENCILSTATE {
 
 typedef struct TRITON_RASTERIZERSTATE {
     ID3D11RasterizerState1       *pState;
+    UINT                          ForcedSampleCount;
 } TRITON_RASTERIZERSTATE, *PTRITON_RASTERIZERSTATE;
 
 typedef struct TRITON_SAMPLER {
@@ -456,6 +465,13 @@ typedef struct TRITON_SHADER {
     UINT                   SoRasterizedStream;
     ID3D11GeometryShader  *pSoOnlyGS;
     UINT64                 SoSourceCookie;
+    /* A PS that reads vCoverage keeps its bytecode for the copies bound under
+     * target-independent rasterization, one per ForcedSampleCount N in slot
+     * log2(N) - 1 (N = 2, 4, 8, 16).  TirTried marks the slots attempted; a
+     * tried slot left NULL keeps the original PS. */
+    BOOL                   fReadsCoverage;
+    ID3D11PixelShader     *apTirPS[4];
+    UINT                   TirTried;
 } TRITON_SHADER, *PTRITON_SHADER;
 
 /* View-list plumbing + rotation support (tritonView.c). */
@@ -466,6 +482,10 @@ HRESULT tritonResourceRecreateViews(PTRITON_DEVICE pD, PTRITON_RESOURCE r);
 
 /* Send the tracked blend state to the host (tritonState.c). */
 void tritonApplyBlendState(PTRITON_DEVICE pD);
+
+/* Rebind the PS if a rasterizer-state or render-target change toggled
+ * target-independent rasterization for it (tritonShader.c). */
+void tritonUpdateTirPixelShader(PTRITON_DEVICE pD);
 
 /* Fill r's present companion, if any (tritonResource.c). */
 void tritonResourceSyncPresentCompanion(PTRITON_DEVICE pD, PTRITON_RESOURCE r);

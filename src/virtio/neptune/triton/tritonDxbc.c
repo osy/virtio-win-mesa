@@ -432,6 +432,37 @@ static int tritonTokIterNext(TritonTokIter *it, UINT *pOpcode,
     return 1;
 }
 
+/* Token fields (d3d10tokenizedprogramformat.hpp). */
+#define SM4_TOKEN_EXTENDED             0x80000000u  /* another token follows */
+#define SM4_PROGRAM_MAJOR(v)           (((v) >> 4) & 0xfu)
+#define SM4_INSTR_LEN_SHIFT            24
+#define SM4_INSTR_LEN_MASK             (0x7fu << SM4_INSTR_LEN_SHIFT)
+#define SM4_OPERAND_NCOMP(ot)          ((ot) & 0x3u)
+#define SM4_OPERAND_TYPE_SHIFT         12
+#define SM4_OPERAND_TYPE(ot)           (((ot) >> SM4_OPERAND_TYPE_SHIFT) & 0xffu)
+#define SM4_OPERAND_INDEX_DIM(ot)      (((ot) >> 20) & 0x3u)
+#define SM4_OPERAND_INDEX_REP(ot, d)   (((ot) >> (22u + 3u * (d))) & 0x7u)
+#define SM4_NCOMP_1                    1u
+#define SM4_NCOMP_4                    2u
+#define SM4_INDEX_IMM32                0u
+#define SM4_INDEX_IMM64                1u
+#define SM4_INDEX_RELATIVE             2u
+#define SM4_INDEX_IMM32_PLUS_RELATIVE  3u
+#define SM4_INDEX_IMM64_PLUS_RELATIVE  4u
+
+/* Number of DWORDs in the token chain at p[0]: a token with bit 31 set is
+ * followed by another; 0 if the chain overruns `end`. */
+static UINT dxbcTokenChainLen(const UINT *p, const UINT *end)
+{
+    UINT len = 0;
+    do {
+        if (p + len >= end)
+            return 0;
+        ++len;
+    } while (p[len - 1] & SM4_TOKEN_EXTENDED);
+    return len;
+}
+
 /* D3D10_SB_OPCODE_TYPE values consumed here. */
 #define SM4_OP_DCL_INPUT              0x5fu
 #define SM4_OP_DCL_INPUT_SGV          0x60u
@@ -549,16 +580,10 @@ static UINT
 tritonDecodeDeclOperand(const UINT *op, const UINT *end,
                         UINT *outReg, UINT *outMask, UINT *outType)
 {
-    if (op + 1 > end)
+    UINT len = dxbcTokenChainLen(op, end);
+    if (!len)
         return 0;
     const UINT ot = op[0];
-    UINT len = 1;
-
-    /* Extended operand token chain (bit 31 -> another token follows). */
-    if (ot & 0x80000000u) {
-        while (op + len <= end && (op[len - 1] & 0x80000000u))
-            ++len;
-    }
 
     /* Write mask: 4-component operands in mask-selection mode (bits [3:2]==0)
      * carry a 4-bit mask in bits [7:4]; otherwise treat as all components. */
@@ -1608,6 +1633,230 @@ void *tritonReconcileVsInputSig(const void *pDxbc, SIZE_T cbDxbc,
     dxbcHash(&pHdr->u32Version, pHdr->cbTotal - 0x14u, pHdr->au8Hash);
     if (pcbOut) *pcbOut = (SIZE_T)pHdr->cbTotal;
     return pCopy;
+}
+
+/* ---------- Input coverage under target-independent rasterization ----------
+ *
+ * With a rasterizer ForcedSampleCount of N > 1 and single-sample render
+ * targets bound (D3D11.1 target-independent rasterization), a pixel shader's
+ * vCoverage is the N-bit coverage of the pixel.  DWM builds the window-shape
+ * mask it cuts out of every drop shadow this way: it XORs vCoverage into an
+ * R16_UINT target so overlapping fan triangles cancel.  The host backends
+ * rasterize such a draw at one sample, so vCoverage arrives as 0x1, the mask
+ * comes out set wherever the fan reached, and the cut-out erases the shadow.
+ *
+ * A pixel shader runs only where that one sample is covered, so the constant
+ * (1 << N) - 1 in place of every vCoverage read is the N-sample coverage
+ * resolved at the pixel centre: exact inside the shape, empty outside it. */
+
+#define SM4_OPTYPE_IMMEDIATE32         4u
+#define SM4_OPTYPE_IMMEDIATE64         5u
+#define SM5_OPTYPE_INPUT_COVERAGE_MASK 35u
+
+/* D3D10_SB_OPCODE_TYPE ranges and values whose tokens after the opcode are
+ * not all operands. */
+#define SM4_OP_CUSTOMDATA              0x35u
+#define SM4_OP_DCL_RESOURCE            0x58u  /* first SM4 dcl_* */
+#define SM4_OP_DCL_GLOBAL_FLAGS        0x6au  /* last SM4 dcl_* */
+#define SM5_OP_HS_DECLS                0x71u  /* through SM5_OP_HS_JOIN_PHASE */
+#define SM5_OP_INTERFACE_CALL          0x78u  /* fcall */
+#define SM5_OP_DCL_RESOURCE_STRUCTURED 0xa2u  /* last of the SM5 dcl_* run
+                                               * from SM5_OP_DCL_STREAM */
+#define SM5_OP_DCL_GS_INSTANCE_COUNT   0xceu
+
+/* Locates the SHDR/SHEX chunk of a container the caller has bounds-checked
+ * against cbDxbc: its payload offset and payload size. */
+static BOOL dxbcFindCodeBlob(const DXBCHeader *pHdr, uint32_t *pOff, uint32_t *pcb)
+{
+    for (uint32_t i = 0; i < pHdr->cBlob; ++i) {
+        const uint32_t off = pHdr->aBlobOffset[i];
+        if ((size_t)off + sizeof(DXBCBlobHeader) > pHdr->cbTotal)
+            continue;
+        const DXBCBlobHeader *bh =
+            (const DXBCBlobHeader *)((const uint8_t *)pHdr + off);
+        if (bh->u32BlobType != DXBC_BLOB_TYPE_SHDR &&
+            bh->u32BlobType != DXBC_BLOB_TYPE_SHEX)
+            continue;
+        if ((size_t)off + sizeof(DXBCBlobHeader) + bh->cbBlob > pHdr->cbTotal)
+            return FALSE;
+        *pOff = off + (uint32_t)sizeof(DXBCBlobHeader);
+        *pcb  = bh->cbBlob;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static const DXBCHeader *dxbcCheckContainer(const void *pDxbc, SIZE_T cbDxbc)
+{
+    if (!pDxbc || cbDxbc < sizeof(DXBCHeader))
+        return NULL;
+    const DXBCHeader *pHdr = (const DXBCHeader *)pDxbc;
+    if (pHdr->u32DXBC != DXBC_MAGIC || pHdr->cbTotal > cbDxbc ||
+        (size_t)offsetof(DXBCHeader, aBlobOffset)
+            + (size_t)pHdr->cBlob * sizeof(uint32_t) > pHdr->cbTotal)
+        return NULL;
+    return pHdr;
+}
+
+/* Declarations carry raw DWORDs after their operand, so only the operands of
+ * the other instructions can be walked generically.  fcall is grouped here for
+ * the same reason (a raw function-table index); it never reads vCoverage. */
+static BOOL dxbcOpcodeIsDecl(UINT opcode)
+{
+    return (opcode >= SM4_OP_DCL_RESOURCE && opcode <= SM4_OP_DCL_GLOBAL_FLAGS) ||
+           (opcode >= SM5_OP_HS_DECLS     && opcode <= SM5_OP_HS_JOIN_PHASE)    ||
+           (opcode >= SM5_OP_DCL_STREAM   && opcode <= SM5_OP_DCL_RESOURCE_STRUCTURED) ||
+           opcode == SM5_OP_DCL_GS_INSTANCE_COUNT ||
+           opcode == SM4_OP_CUSTOMDATA ||
+           opcode == SM5_OP_INTERFACE_CALL;
+}
+
+/* DWORD length of the operand at op[0], including extended operand tokens,
+ * immediate values and relative-index operands (`depth` levels down); 0 if
+ * it overruns `end`, uses an encoding this walker does not know, nests
+ * relative indices more than two deep, or reads vCoverage inside a relative
+ * index, where the substitution below cannot put an immediate. */
+static UINT dxbcOperandLen(const UINT *op, const UINT *end, UINT depth)
+{
+    UINT len = dxbcTokenChainLen(op, end);
+    if (!len)
+        return 0;
+    const UINT ot   = op[0];
+    const UINT type = SM4_OPERAND_TYPE(ot);
+    if (depth && type == SM5_OPTYPE_INPUT_COVERAGE_MASK)
+        return 0;
+    if (type == SM4_OPTYPE_IMMEDIATE32 || type == SM4_OPTYPE_IMMEDIATE64) {
+        /* One 32- or 64-bit value, or four 32-bit values; a four-component
+         * 64-bit immediate is two doubles in four DWORDs. */
+        const UINT ncomp = SM4_OPERAND_NCOMP(ot);
+        if (ncomp == SM4_NCOMP_1)
+            len += type == SM4_OPTYPE_IMMEDIATE64 ? 2u : 1u;
+        else if (ncomp == SM4_NCOMP_4)
+            len += 4u;
+        else
+            return 0;
+    }
+    const UINT dim = SM4_OPERAND_INDEX_DIM(ot);
+    for (UINT d = 0; d < dim; ++d) {
+        const UINT rep = SM4_OPERAND_INDEX_REP(ot, d);
+        if (rep == SM4_INDEX_IMM32 || rep == SM4_INDEX_IMM32_PLUS_RELATIVE)
+            len += 1;
+        else if (rep == SM4_INDEX_IMM64 || rep == SM4_INDEX_IMM64_PLUS_RELATIVE)
+            len += 2;
+        else if (rep != SM4_INDEX_RELATIVE)
+            return 0;
+        if (rep >= SM4_INDEX_RELATIVE) {
+            if (depth >= 2u)
+                return 0;
+            const UINT rel = dxbcOperandLen(op + len, end, depth + 1);
+            if (!rel)
+                return 0;
+            len += rel;
+        }
+    }
+    return (op + len <= end) ? len : 0;
+}
+
+BOOL tritonDxbcReadsInputCoverage(const UINT *pTokens, SIZE_T cbTokens)
+{
+    TritonTokIter it;
+    if (!tritonTokIterInit(&it, pTokens, cbTokens) ||
+        programType(pTokens) != PROG_PS || SM4_PROGRAM_MAJOR(pTokens[0]) < 5u)
+        return FALSE;
+    /* The declarations precede the instructions. */
+    UINT opcode, cTok;
+    const UINT *ins;
+    while (tritonTokIterNext(&it, &opcode, &ins, &cTok) && dxbcOpcodeIsDecl(opcode)) {
+        if (opcode == SM4_OP_DCL_INPUT && cTok >= 2 &&
+            SM4_OPERAND_TYPE(ins[1]) == SM5_OPTYPE_INPUT_COVERAGE_MASK)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+void *tritonDxbcFixInputCoverage(const void *pDxbc, SIZE_T cbDxbc, UINT value,
+                                 SIZE_T *pcbOut)
+{
+    if (pcbOut) *pcbOut = 0;
+    const DXBCHeader *pSrc = dxbcCheckContainer(pDxbc, cbDxbc);
+    uint32_t offCode, cbCode;
+    if (!pSrc || !dxbcFindCodeBlob(pSrc, &offCode, &cbCode) ||
+        (size_t)offCode + cbCode != pSrc->cbTotal)
+        return NULL;
+    const UINT *pTok = (const UINT *)((const uint8_t *)pDxbc + offCode);
+    TritonTokIter it;
+    if (!tritonTokIterInit(&it, pTok, cbCode))
+        return NULL;
+
+    /* The container ahead of the code chunk is copied as is and the chunk
+     * rewritten behind it; each substitution grows its operand by the one
+     * immediate DWORD. */
+    const size_t cTokIn = (size_t)(it.end - pTok);
+    uint8_t *pDst = (uint8_t *)HeapAlloc(GetProcessHeap(), 0,
+                                         offCode + cTokIn * 2 * sizeof(UINT));
+    if (!pDst)
+        return NULL;
+    memcpy(pDst, pDxbc, offCode);
+    UINT *pOut = (UINT *)(pDst + offCode);
+    pOut[0] = pTok[0];
+    size_t n = 2;
+    UINT replaced = 0;
+
+    UINT opcode, cTok;
+    const UINT *ins;
+    while (tritonTokIterNext(&it, &opcode, &ins, &cTok)) {
+        if (dxbcOpcodeIsDecl(opcode)) {
+            memcpy(pOut + n, ins, cTok * sizeof(UINT));
+            n += cTok;
+            continue;
+        }
+        const UINT *end = ins + cTok;
+        UINT k = dxbcTokenChainLen(ins, end);     /* opcode + extended tokens */
+        if (!k)
+            goto fail;
+        const size_t nIns = n;
+        memcpy(pOut + n, ins, k * sizeof(UINT));
+        n += k;
+        while (k < cTok) {
+            const UINT len = dxbcOperandLen(ins + k, end, 0);
+            if (!len)
+                goto fail;
+            if (SM4_OPERAND_TYPE(ins[k]) == SM5_OPTYPE_INPUT_COVERAGE_MASK) {
+                /* A one-component immediate replicates like the scalar
+                 * vCoverage it replaces; operand modifiers stay attached. */
+                pOut[n++] = (ins[k] & SM4_TOKEN_EXTENDED) | SM4_NCOMP_1 |
+                            (SM4_OPTYPE_IMMEDIATE32 << SM4_OPERAND_TYPE_SHIFT);
+                for (UINT e = 1; e < len; ++e)
+                    pOut[n++] = ins[k + e];
+                pOut[n++] = value;
+                ++replaced;
+            } else {
+                memcpy(pOut + n, ins + k, len * sizeof(UINT));
+                n += len;
+            }
+            k += len;
+        }
+        const size_t cNew = n - nIns;
+        if (cNew > (SM4_INSTR_LEN_MASK >> SM4_INSTR_LEN_SHIFT))
+            goto fail;
+        pOut[nIns] = (pOut[nIns] & ~SM4_INSTR_LEN_MASK) |
+                     ((UINT)cNew << SM4_INSTR_LEN_SHIFT);
+    }
+    if (!replaced || it.p != it.end)
+        goto fail;
+    pOut[1] = (UINT)n;
+
+    DXBCHeader *pHdr = (DXBCHeader *)pDst;
+    DXBCBlobHeader *pCode = (DXBCBlobHeader *)(pDst + offCode - sizeof(DXBCBlobHeader));
+    pCode->cbBlob = (uint32_t)(n * sizeof(UINT));
+    pHdr->cbTotal = offCode + pCode->cbBlob;
+    dxbcHash(&pHdr->u32Version, pHdr->cbTotal - 0x14u, pHdr->au8Hash);
+    if (pcbOut) *pcbOut = (SIZE_T)pHdr->cbTotal;
+    return pDst;
+
+fail:
+    HeapFree(GetProcessHeap(), 0, pDst);
+    return NULL;
 }
 
 /* If any of these fire, the container format is misaligned and the
