@@ -1313,7 +1313,45 @@ virtgpu_find_adapter(struct virtgpu *gpu)
          return VK_SUCCESS;
       }
    }
-   return VK_ERROR_INCOMPATIBLE_DRIVER;
+
+   /* Session 0 (services) has no GDI display devices, so the HDC route
+    * finds nothing there; enumerate the WDDM adapters instead. */
+   typedef NTSTATUS (APIENTRY *PFN_ENUMADAPTERS2)(D3DKMT_ENUMADAPTERS2 *);
+   PFN_ENUMADAPTERS2 enum2 = (PFN_ENUMADAPTERS2)(void *)GetProcAddress(
+      (HMODULE)gpu->d3dkmt.lib, "D3DKMTEnumAdapters2");
+   D3DKMT_ENUMADAPTERS2 e = { 0 };
+   if (!enum2 || !NT_SUCCESS(enum2(&e)) || !e.NumAdapters)
+      return VK_ERROR_INCOMPATIBLE_DRIVER;
+   D3DKMT_ADAPTERINFO *info = calloc(e.NumAdapters, sizeof(*info));
+   if (!info)
+      return VK_ERROR_OUT_OF_HOST_MEMORY;
+   e.pAdapters = info;
+   VkResult result = VK_ERROR_INCOMPATIBLE_DRIVER;
+   if (NT_SUCCESS(enum2(&e))) {
+      for (ULONG i = 0; i < e.NumAdapters; i++) {
+         D3DKMT_QUERY_DEVICE_IDS ids = { 0 };
+         D3DKMT_QUERYADAPTERINFO q = {
+            .hAdapter = info[i].hAdapter,
+            .Type = KMTQAITYPE_PHYSICALADAPTERDEVICEIDS,
+            .pPrivateDriverData = &ids,
+            .PrivateDriverDataSize = sizeof(ids),
+         };
+         if (result != VK_SUCCESS && NT_SUCCESS(gpu->d3dkmt.cb.queryAdapterInfo(&q)) &&
+             ids.DeviceIds.VendorID == 0x1AF4 && ids.DeviceIds.DeviceID == 0x1050) {
+            gpu->d3dkmt.adapter = info[i].hAdapter;
+            gpu->d3dkmt.luid = info[i].AdapterLuid;
+            result = VK_SUCCESS;
+            if (VN_DEBUG(INIT))
+               vn_log(gpu->instance, "using adapter by enumeration (LUID %lx-%lx)",
+                      info[i].AdapterLuid.HighPart, info[i].AdapterLuid.LowPart);
+            continue;
+         }
+         D3DKMT_CLOSEADAPTER close = { .hAdapter = info[i].hAdapter };
+         gpu->d3dkmt.cb.closeAdapter(&close);
+      }
+   }
+   free(info);
+   return result;
 }
 
 static NTSTATUS
