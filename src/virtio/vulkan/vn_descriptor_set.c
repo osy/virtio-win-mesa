@@ -641,8 +641,18 @@ vn_AllocateDescriptorSets(VkDevice device,
       if (pool->current_state != VN_ASYNC_SET_ALLOC_NONE &&
           !vn_descriptor_pool_alloc_descriptors(
              pool, layout, last_binding_descriptor_count)) {
-         result = VK_ERROR_OUT_OF_POOL_MEMORY;
-         goto fail;
+         /* The guest-side accounting fails an allocation the pool sizes do
+          * not cover.  That is what the spec allows, but applications written
+          * against drivers that do not enforce the sizes (Quake II RTX
+          * allocates a set with a uniform buffer binding from a pool that
+          * only lists storage buffers) then use a null set.  Stop tracking
+          * this pool and let the renderer decide, synchronously.
+          */
+         if (pool->last_layout != VK_NULL_HANDLE) {
+            vn_descriptor_set_layout_unref(dev, pool->last_layout);
+            pool->last_layout = VK_NULL_HANDLE;
+         }
+         pool->current_state = VN_ASYNC_SET_ALLOC_NONE;
       }
 
       struct vn_descriptor_set *set =
