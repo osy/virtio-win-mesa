@@ -172,6 +172,7 @@ tritonRegisterSharedBlob(PTRITON_DEVICE pD, PTRITON_RESOURCE r,
         return FALSE;
     }
     r->hKMAllocation = ai.hAllocation;
+    r->hKMAllocResource = cb.hResource;
     r->IsShared      = pTex == r->pResource;
     tritonKmRequestResidency(&pD->Km, ai.hAllocation);
     TR_LOG_HOT("shared: exporter blob_id=0x%llx alloc=0x%x %ux%u primary=%d",
@@ -214,6 +215,7 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
     r->IsPresentable    = !!(pArgs->BindFlags & D3D10_DDI_BIND_PRESENT) &&
                           pArgs->pPrimaryDesc != NULL;
     r->hKMAllocation    = 0;
+    r->hKMAllocResource = NULL;
     r->IsShared         = FALSE;
     r->hImportAlloc     = 0;
     r->hImportResKmt    = 0;
@@ -528,12 +530,25 @@ tritonDestroyResource(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hResource)
     /* Exporter: the KM allocation owns the virtio blob; deallocating it
      * unrefs the host resource once every opener has closed. */
     if (r->hKMAllocation && pD && pD->KTCallbacks.pfnDeallocateCb) {
+        /* The allocation was minted against the runtime resource
+         * (ALLOCATE.hResource, tritonRegisterSharedBlob), and the runtime
+         * refuses to free those by HandleList (E_INVALIDARG; they stayed
+         * committed until the process exited).  D3DDDICB_DEALLOCATE: a
+         * non-NULL hResource releases the resource's associated
+         * allocations; NumAllocations and HandleList are ignored. */
         D3DDDICB_DEALLOCATE da;
         memset(&da, 0, sizeof(da));
-        da.NumAllocations = 1;
-        da.HandleList     = &r->hKMAllocation;
-        pD->KTCallbacks.pfnDeallocateCb(pD->hRTDevice.handle, &da);
+        da.hResource = r->hKMAllocResource;
+        if (!da.hResource) {
+            da.NumAllocations = 1;
+            da.HandleList     = &r->hKMAllocation;
+        }
+        HRESULT hr = pD->KTCallbacks.pfnDeallocateCb(pD->hRTDevice.handle, &da);
+        if (FAILED(hr))
+            TR_LOG("dealloc: pfnDeallocateCb(alloc=0x%x) failed 0x%08lx",
+                   r->hKMAllocation, (unsigned long)hr);
         r->hKMAllocation = 0;
+        r->hKMAllocResource = NULL;
     }
 }
 

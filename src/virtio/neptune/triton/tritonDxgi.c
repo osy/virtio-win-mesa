@@ -744,6 +744,7 @@ tritonDxgiRotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *pArg
       ID3D11Resource *tmpRes    = r0->pResource;
       ID3D11Resource *tmpComp   = r0->pPresentCompanion;
       D3DKMT_HANDLE   tmpAlloc  = r0->hKMAllocation;
+      HANDLE          tmpAllocR = r0->hKMAllocResource;
       BOOL            tmpShared = r0->IsShared;
       D3DKMT_HANDLE   tmpImpA   = r0->hImportAlloc;
       D3DKMT_HANDLE   tmpImpR   = r0->hImportResKmt;
@@ -753,6 +754,7 @@ tritonDxgiRotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *pArg
          a->pResource     = b->pResource;
          a->pPresentCompanion = b->pPresentCompanion;
          a->hKMAllocation = b->hKMAllocation;
+         a->hKMAllocResource = b->hKMAllocResource;
          a->IsShared      = b->IsShared;
          a->hImportAlloc  = b->hImportAlloc;
          a->hImportResKmt = b->hImportResKmt;
@@ -763,6 +765,7 @@ tritonDxgiRotateResourceIdentities(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *pArg
          last->pResource     = tmpRes;
          last->pPresentCompanion = tmpComp;
          last->hKMAllocation = tmpAlloc;
+         last->hKMAllocResource = tmpAllocR;
          last->IsShared      = tmpShared;
          last->hImportAlloc  = tmpImpA;
          last->hImportResKmt = tmpImpR;

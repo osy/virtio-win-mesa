@@ -319,6 +319,10 @@ typedef struct TRITON_RESOURCE {
      * textures and primaries; 0 otherwise).  Owned by the creator;
      * consumers leave it 0 (the runtime owns their opened allocation). */
     D3DKMT_HANDLE          hKMAllocation;
+    /* The runtime resource hKMAllocation was minted against
+     * (ALLOCATE.hResource); travels with hKMAllocation through identity
+     * rotation, since freeing it takes that handle. */
+    HANDLE                 hKMAllocResource;
 
     /* TRUE when the resource is shared (creator) or opened (consumer). */
     BOOL                   IsShared;
