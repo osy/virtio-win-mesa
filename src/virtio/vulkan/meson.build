@@ -142,6 +142,11 @@ if with_platform_windows
   libvn_files += files('vn_renderer_virtgpu_win32.c')
   vn_incs += inc_winddk
   vn_link_args += '-static'
+  if cc.get_argument_syntax() == 'msvc'
+    # Strict-CFG processes refuse to load images without Control Flow Guard.
+    vn_c_args += '/guard:cf'
+    vn_link_args += '/GUARD:CF'
+  endif
   vn_kwargs = {
     'vs_module_defs': vulkan_api_def,
     'name_prefix': '',
