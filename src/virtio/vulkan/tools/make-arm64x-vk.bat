@@ -106,9 +106,11 @@ mkdir "%WORK%" 2>nul
 if not exist "%WORK%" ( echo [error] could not create work dir: %WORK%& exit /b 1 )
 
 set "RC=0"
-cl /nologo /c /O2 /MT /W3 /Fo"%WORK%\stub_arm64.obj" "%SRC_STUB%" || set "RC=1"
-if "%RC%"=="0" cl /nologo /c /O2 /MT /W3 /arm64EC /Fo"%WORK%\stub_ec.obj" "%SRC_STUB%" || set "RC=1"
-if "%RC%"=="0" link /nologo /dll /machine:arm64x /out:"%WORK%\vulkan_virtio.dll" "%WORK%\stub_arm64.obj" "%WORK%\stub_ec.obj" || set "RC=1"
+rem /guard:cf on both compiles and the link: a process with strict Control
+rem Flow Guard refuses to load a DLL that is not a CFG image.
+cl /nologo /c /O2 /MT /W3 /guard:cf /Fo"%WORK%\stub_arm64.obj" "%SRC_STUB%" || set "RC=1"
+if "%RC%"=="0" cl /nologo /c /O2 /MT /W3 /guard:cf /arm64EC /Fo"%WORK%\stub_ec.obj" "%SRC_STUB%" || set "RC=1"
+if "%RC%"=="0" link /nologo /dll /machine:arm64x /guard:cf /out:"%WORK%\vulkan_virtio.dll" "%WORK%\stub_arm64.obj" "%WORK%\stub_ec.obj" || set "RC=1"
 if not "%RC%"=="0" (
   echo [error] building the ARM64X stub failed.
   rmdir /s /q "%WORK%" 2>nul
@@ -124,6 +126,11 @@ if not "%RC%"=="0" ( echo [error] copying the outputs failed.& exit /b 1 )
 
 dumpbin /nologo /headers "%OUT_DIR%\vulkan_virtio.dll" | findstr /i "machine"
 dumpbin /nologo /exports "%OUT_DIR%\vulkan_virtio.dll" | findstr /i "vk_icd"
+rem Strict-CFG processes need all three files to be CFG images.
+for %%F in (vulkan_virtio vulkan_virtio_arm64 vulkan_virtio_ec) do (
+  dumpbin /nologo /headers "%OUT_DIR%\%%F.dll" | findstr /i /c:"Control Flow Guard" >nul
+  if errorlevel 1 ( echo [warn] %%F.dll is not a CFG image; strict-CFG processes will not load it ) else ( echo [info] %%F.dll: Control Flow Guard )
+)
 echo [ok] wrote vulkan_virtio.dll, vulkan_virtio_arm64.dll, vulkan_virtio_ec.dll to %OUT_DIR%
 exit /b 0
 
