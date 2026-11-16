@@ -1485,8 +1485,11 @@ virtgpu_ioctl_open_resource(struct virtgpu *gpu,
                             D3DKMT_HANDLE *alloc,
                             D3DKMT_HANDLE *res_kmt_local,
                             VIOGPU_RES_INFO_REQ *res_info,
+                            uint64_t *cookie,
                             const VkD3DDDIOpenResource *d3d_open)
 {
+   *cookie = 0;
+
    if (gpu->ddicb != NULL) {
       assert(d3d_open != NULL);
 
@@ -1557,8 +1560,18 @@ virtgpu_ioctl_open_resource(struct virtgpu *gpu,
 
       const VIOGPU_CREATE_ALLOCATION_EXCHANGE *alloc_priv =
          alloc_list[0].pPrivateDriverData;
-      (void)alloc_priv;
       //assert(alloc_priv->Type == VIOGPU_RESOURCE_TYPE_BLOB);
+
+      /* A creator that wrote the EX exchange (venus, Neptune) recorded a
+       * lookup cookie in the adapter-wide cookie map; resolve through it,
+       * since handle resolution is unreliable under GpuMmu. */
+      if (alloc_priv &&
+          alloc_list[0].PrivateDriverDataSize >=
+             sizeof(VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX)) {
+         *cookie =
+            ((const VIOGPU_CREATE_ALLOCATION_EXCHANGE_EX *)alloc_priv)
+               ->LookupCookie;
+      }
 
       *alloc = alloc_list[0].hAllocation;
       *res_kmt_local = open.hResource;
@@ -1568,6 +1581,7 @@ virtgpu_ioctl_open_resource(struct virtgpu *gpu,
          .DataLength = sizeof(res_esc.ResourceInfo),
          .ResourceInfo = {
              .ResHandle = *alloc,
+             .LookupCookie = *cookie,
          },
       };
 
@@ -1597,6 +1611,7 @@ virtgpu_bo_create_from_handle(struct vn_renderer *renderer,
    struct virtgpu_bo *bo = NULL;
 
    VIOGPU_RES_INFO_REQ res_info = {};
+   uint64_t cookie = 0;
 
    mtx_lock(&gpu->win32_handle_import_mutex);
 
@@ -1610,7 +1625,8 @@ virtgpu_bo_create_from_handle(struct vn_renderer *renderer,
       vk_find_struct_const(alloc_info, D3DDDI_OPEN_RESOURCE);
 
    NTSTATUS status =
-      virtgpu_ioctl_open_resource(gpu, kmt_global, &alloc, &kmt_local, &res_info, d3d_open);
+      virtgpu_ioctl_open_resource(gpu, kmt_global, &alloc, &kmt_local,
+                                  &res_info, &cookie, d3d_open);
    if (!NT_SUCCESS(status)) {
       vn_log(gpu->instance, "failed to open resource: 0x%lx", status);
       return VK_ERROR_DEVICE_LOST;
@@ -1691,6 +1707,12 @@ virtgpu_bo_create_from_handle(struct vn_renderer *renderer,
          },
          .alloc = alloc,
          .blob_flags = blob_flags,
+         .cookie = cookie,
+         /* RES_INFO mapped the KMD-owned window into this process (WDDM2);
+          * D3DKMTLock would return staging pages. */
+         .kmd_va = (blob_flags & VIOGPU_BLOB_FLAG_USE_MAPPABLE)
+                      ? (void *)(uintptr_t)res_info.UserVa
+                      : NULL,
       };
    }
    if (gpu->ddicb != NULL) {
