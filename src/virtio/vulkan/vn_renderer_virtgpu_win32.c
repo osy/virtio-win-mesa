@@ -742,6 +742,7 @@ sim_submit(struct virtgpu *gpu, const struct vn_renderer_submit *submit)
          NTSTATUS status = virtgpu_ioctl_signal(gpu, fence);
          if (!NT_SUCCESS(status)) {
             vn_log(gpu->instance, "failed to execbuffer: 0x%lx", status);
+            CloseHandle(fence);
             break;
          }
 
@@ -1005,7 +1006,10 @@ virtgpu_ioctl_resource_create_blob(struct virtgpu *gpu,
    }
 
    // TODO: is this required?
-   VIRTGPU_SYNC_OR_RETURN_NTSTATUS(gpu);
+   NTSTATUS status = virtgpu_ioctl_wait(gpu);
+   if (!NT_SUCCESS(status)) {
+      goto fail_destroy;
+   }
 
    *out_cookie = alloc_priv.LookupCookie;
 
@@ -1023,7 +1027,6 @@ virtgpu_ioctl_resource_create_blob(struct virtgpu *gpu,
       },
    };
 
-   NTSTATUS status;
    for (int attempt = 0;; attempt++) {
       status = virtgpu_ioctl_escape(gpu, &res_info);
       if (!NT_SUCCESS(status)) {
