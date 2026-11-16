@@ -215,6 +215,7 @@ tritonCreateResource(D3D10DDI_HDEVICE hDevice,
                           pArgs->pPrimaryDesc != NULL;
     r->hKMAllocation    = 0;
     r->IsShared         = FALSE;
+    r->IsOpened         = FALSE;
     r->hImportAlloc     = 0;
     r->hImportResKmt    = 0;
 
@@ -535,6 +536,24 @@ tritonDestroyResource(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hResource)
         pD->KTCallbacks.pfnDeallocateCb(pD->hRTDevice.handle, &da);
         r->hKMAllocation = 0;
     }
+
+    /* Consumer: the open put the exporter's allocation on this runtime
+     * device (DxgkDdiOpenAllocation, which attaches the blob to the
+     * device's virtio context).  Close it by the runtime resource it was
+     * opened as, so the attach and the creator's blob go when the last
+     * opener lets go instead of when this process exits (#20).
+     * D3DDDICB_DEALLOCATE: a non-NULL hResource releases the resource's
+     * associated allocations; NumAllocations and HandleList are ignored. */
+    if (r->IsOpened && pD && pD->KTCallbacks.pfnDeallocateCb) {
+        D3DDDICB_DEALLOCATE da;
+        memset(&da, 0, sizeof(da));
+        da.hResource = r->hRTResource.handle;
+        HRESULT hr = pD->KTCallbacks.pfnDeallocateCb(pD->hRTDevice.handle, &da);
+        if (FAILED(hr))
+            TR_LOG("dealloc: opened resource %p: pfnDeallocateCb failed 0x%08lx",
+                   (void *)r->hRTResource.handle, (unsigned long)hr);
+        r->IsOpened = FALSE;
+    }
 }
 
 /* OpenResource imports a cross-process shared resource.  The opening
@@ -557,6 +576,10 @@ tritonOpenResource(D3D10DDI_HDEVICE hDevice, const D3D10DDIARG_OPENRESOURCE *pAr
         tritonSetCreateError(pD, E_INVALIDARG);
         return;
     }
+    /* Set before any failure return: DestroyResource keys the close of the
+     * opened allocation on it, and the fields below are only cleared once
+     * the open has got further. */
+    r->IsOpened = FALSE;
 
     if (pArgs->NumAllocations < 1 || !pArgs->pOpenAllocationInfo) {
         TR_STUB("OpenResource: no allocation info");
@@ -631,8 +654,9 @@ tritonOpenResource(D3D10DDI_HDEVICE hDevice, const D3D10DDIARG_OPENRESOURCE *pAr
     r->SampleDesc.Count   = so->sample_count ? so->sample_count : 1;
     r->SampleDesc.Quality = 0;
     r->IsShared           = TRUE;
-    /* Consumer: the runtime owns the opened KM allocation, so leave
-     * hKMAllocation 0 and DestroyResource won't try to free it. */
+    /* Consumer: hKMAllocation stays 0 (the exporter frees the blob's
+     * allocation); this device's open of it is closed by resource at
+     * DestroyResource once the open has succeeded (IsOpened, set below). */
 
     /* The KMD attaches opened allocations to this device's virtio
      * context; make sure it exists first. */
@@ -698,6 +722,7 @@ tritonOpenResource(D3D10DDI_HDEVICE hDevice, const D3D10DDIARG_OPENRESOURCE *pAr
         return;
     }
     r->pResource = (ID3D11Resource *)imported;
+    r->IsOpened  = TRUE;
     TR_LOG_HOT("shared: consumer opened res_id=%u %ux%u", res_id,
                r->Width, r->Height);
 }

@@ -317,11 +317,16 @@ typedef struct TRITON_RESOURCE {
 
     /* KM allocation backing this resource's virtio-gpu blob (shared
      * textures and primaries; 0 otherwise).  Owned by the creator;
-     * consumers leave it 0 (the runtime owns their opened allocation). */
+     * consumers leave it 0 and release their opened allocation by
+     * resource (IsOpened). */
     D3DKMT_HANDLE          hKMAllocation;
 
     /* TRUE when the resource is shared (creator) or opened (consumer). */
     BOOL                   IsShared;
+
+    /* TRUE for a resource made by OpenResource: DestroyResource releases
+     * the runtime resource's opened allocations by hRTResource. */
+    BOOL                   IsOpened;
 
     /* Consumer-side import rig: WDDM handles of the transport-device
      * TYPE_IMPORT allocation that keeps the blob attached to this
