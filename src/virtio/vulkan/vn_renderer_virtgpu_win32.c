@@ -1891,7 +1891,14 @@ virtgpu_bo_destroy(struct vn_renderer *renderer, struct vn_renderer_bo *_bo)
       return false;
    }
 
-   if (bo->kmd_va || bo->base.mmap_ptr) {
+   /* A shareable blob's KMD window is left to the allocation destroy: the
+    * KMD keeps one window per process and blob, and refuses the release
+    * while another process still maps it, where the unmap packet would
+    * drop the host mapping under that process.  The KMD unmaps the window
+    * and the host mapping once the last reference to the allocation goes.
+    */
+   const bool shareable = bo->blob_flags & VIOGPU_BLOB_FLAG_USE_SHAREABLE;
+   if (bo->kmd_va ? !shareable : bo->base.mmap_ptr != NULL) {
       virtgpu_blob_unmap(gpu, bo->alloc, bo->base.res_id, bo->cookie,
                          bo->kmd_va != NULL);
    }
