@@ -167,9 +167,9 @@ rem --- Minimal object content for each view (forwarders carry no real code). --
 > "%WORK%\empty.cpp" echo void __triton_arm64x_stub(void){}
 pushd "%WORK%"
 
-cl /nologo /c /Foempty_arm64.obj empty.cpp
+cl /nologo /c /guard:cf /Foempty_arm64.obj empty.cpp
 if errorlevel 1 ( echo [error] cl failed building the arm64 stub object.& popd & goto :fail )
-cl /nologo /c /arm64EC /Foempty_ec.obj empty.cpp
+cl /nologo /c /guard:cf /arm64EC /Foempty_ec.obj empty.cpp
 if errorlevel 1 ( echo [error] cl failed building the arm64ec stub object.& popd & goto :fail )
 
 rem --- Version resource: the forwarder is the file Windows registers as the UMD,
@@ -189,7 +189,9 @@ lib /nologo /machine:x64 /def:"%EC_DEF%" /out:forward_ec.lib
 if errorlevel 1 ( echo [error] lib failed for the EC view.& popd & goto :fail )
 
 rem --- Link the ARM64X forwarder DLL. -----------------------------------------
-link /nologo /dll /noentry /machine:arm64x ^
+rem /guard:cf: a strict-CFG process refuses any DLL without it, and this
+rem forwarder is the file the D3D runtime loads first.
+link /nologo /dll /noentry /guard:cf /machine:arm64x ^
   /defArm64Native:"%NAT_DEF%" /def:"%EC_DEF%" ^
   empty_arm64.obj empty_ec.obj version.res ^
   /out:%BASENAME%.dll forward_native.lib forward_ec.lib

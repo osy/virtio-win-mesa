@@ -48,14 +48,15 @@ libneptune_umd = shared_library(
          '../npt_entry_d3d12.c')],
   include_directories : triton_incs,
   dependencies : npt_deps,
-  c_args : npt_c_args,
+  c_args : npt_c_args + ['/guard:cf'],
   # d3d10umddi.h redeclares many D3D10_* numeric constants as file-scope
   # `const UINT` variables on top of the #define forms in d3d10.h.  In C
   # those have external linkage, so every TU that includes the umddi
   # header emits an identical symbol and the linker raises LNK2005.
   # Both definitions agree, so picking the first instance is safe.
   # dxguid.lib provides the IID_ID3D11Device*/IID_ID3D11DeviceContext* GUIDs.
-  link_args : ['/FORCE:MULTIPLE', '/IGNORE:4006', 'dxguid.lib'],
+  link_args : ['/FORCE:MULTIPLE', '/IGNORE:4006', 'dxguid.lib',
+               '/GUARD:CF'],
   vs_module_defs : 'neptune_umd.def',
   name_prefix : '',
   gnu_symbol_visibility : 'hidden',
@@ -63,6 +64,18 @@ libneptune_umd = shared_library(
 )
 
 if with_tests
+  test(
+    'triton-cfg',
+    executable(
+      'triton_cfg_test',
+      files('tests/tritonCfgTest.c'),
+      c_args : ['/guard:cf'],
+      link_args : ['/GUARD:CF'],
+    ),
+    args : [libneptune_umd.full_path()],
+    depends : libneptune_umd,
+    suite : ['neptune'],
+  )
   # Self-contained: #includes tritonDxbc.c and loads d3dcompiler_47.dll at
   # runtime as the reference compiler.
   test(
