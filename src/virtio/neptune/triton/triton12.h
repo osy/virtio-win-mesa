@@ -85,6 +85,12 @@ typedef struct TRITON12_DEVICE
      * a list create. */
     ID3D12CommandAllocator      *pScratchAlloc[TRITON12_POOL_TYPES];
     CRITICAL_SECTION             ScratchLock;
+    /* Serialises triton12RegisterSharedBlob: the present thread and the
+     * runtime's CheckResourceAllocationHandle can both replace the same
+     * resource's placeholder, and the replacement frees by resource, so
+     * an unserialised second caller would free the export the first one
+     * just minted. */
+    SRWLOCK                      KmAllocLock;
     /* Escapes, runtime virtio context and residency requests on the
      * runtime's kernel device (tritonKm.h); its lock is QueueLock. */
     TRITON_KM                    Km;
@@ -145,6 +151,9 @@ typedef struct TRITON12_HEAP
      * buffer; 0 when the heap+buffer shape carried the allocation on the
      * buffer resource instead. */
     D3DKMT_HANDLE                hKMAllocation;
+    /* The runtime resource hKMAllocation was minted against: the handle
+     * pfnDeallocateCb must be given to release it. */
+    HANDLE                       hRTAllocResource;
 } TRITON12_HEAP, *PTRITON12_HEAP;
 
 typedef struct TRITON12_RESOURCE
@@ -403,8 +412,14 @@ BOOL triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
 BOOL triton12RegisterResidencyAlloc(PTRITON12_DEVICE p, PTRITON12_RESOURCE r);
 /* Free a KM allocation this driver minted with pfnAllocateCb (shared blob
  * or residency-only placeholder) and clear *phAllocation.  The runtime does
- * not free driver-minted allocations with the resource. */
-void triton12DeallocateKM(PTRITON12_DEVICE p, D3DKMT_HANDLE *phAllocation);
+ * not free driver-minted allocations with the resource.  Every such
+ * allocation is minted against a runtime resource (ALLOCATE.hResource), and
+ * the runtime refuses to free those by HandleList (E_INVALIDARG; they then
+ * stay committed until the process exits): hRTResource must be the handle
+ * the allocation was minted against, and the free releases every allocation
+ * associated with it. */
+void triton12DeallocateKM(PTRITON12_DEVICE p, HANDLE hRTResource,
+                          D3DKMT_HANDLE *phAllocation);
 
 /* Give r a shared linear companion surface whose blob backs its KM
  * allocation (the present copies the frame into it); desc/props are

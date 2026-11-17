@@ -102,6 +102,7 @@ triton12CreateDevice(D3D12DDI_HADAPTER hAdapter,
      * free-threaded, so a lazy init would race two queues into two locks. */
     InitializeCriticalSection(&p->QueueLock);
     InitializeCriticalSection(&p->ScratchLock);
+    InitializeSRWLock(&p->KmAllocLock);
     p->QueueLockInit = TRUE;
     p->Km.pLock = &p->QueueLock;
 

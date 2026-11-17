@@ -320,6 +320,10 @@ typedef struct TRITON_RESOURCE {
      * consumers leave it 0 and release their opened allocation by
      * resource (IsOpened). */
     D3DKMT_HANDLE          hKMAllocation;
+    /* The runtime resource hKMAllocation was minted against
+     * (ALLOCATE.hResource); travels with hKMAllocation through identity
+     * rotation, since freeing it takes that handle. */
+    HANDLE                 hKMAllocResource;
 
     /* TRUE when the resource is shared (creator) or opened (consumer). */
     BOOL                   IsShared;

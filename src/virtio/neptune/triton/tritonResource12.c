@@ -648,6 +648,7 @@ t12CreateHeapAndResource(D3D12DDI_HDEVICE hDevice,
              * heap carries the placeholder itself. */
             h->hKMAllocation =
                 triton12AllocResidencyOnly(p, hRTResource.handle);
+            h->hRTAllocResource = hRTResource.handle;
         }
     }
     return hr;
@@ -671,7 +672,7 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
     /* The KM allocation owns the virtio blob; deallocating it unrefs the
      * host resource once every opener has closed. */
     if (r)
-        triton12DeallocateKM(p, &r->hKMAllocation);
+        triton12DeallocateKM(p, r->hRTResource.handle, &r->hKMAllocation);
     if (h) {
         /* h->pResource is a borrow of r->pResource (committed) -- the
          * release above covers it. */
@@ -680,7 +681,7 @@ t12DestroyHeapAndResource(D3D12DDI_HDEVICE hDevice, D3D12DDI_HHEAP hHeap,
             h->pHeap = NULL;
         }
         h->pResource = NULL;
-        triton12DeallocateKM(p, &h->hKMAllocation);
+        triton12DeallocateKM(p, h->hRTAllocResource, &h->hKMAllocation);
     }
 }
 
