@@ -97,24 +97,35 @@ triton12RegisterSharedBlob(PTRITON12_DEVICE p, PTRITON12_RESOURCE r,
     cb.NumAllocations   = 1;
     cb.pAllocationInfo  = &ai;
 
-    /* A residency-only placeholder (or an earlier export) being replaced
-     * by the real export.  Release it before minting the export: the free
-     * is by resource, so after the allocation it would take the export
-     * too. */
-    const BOOL hadPlaceholder = r->hKMAllocation && r->ResidencyOnlyAlloc;
+    AcquireSRWLockExclusive(&p->KmAllocLock);
+    /* Another thread exported it first: an export is never replaced (the
+     * free below would take it, and the kernel may already be presenting
+     * it), so the existing one is the answer. */
+    if (r->hKMAllocation && !r->ResidencyOnlyAlloc) {
+        ReleaseSRWLockExclusive(&p->KmAllocLock);
+        return TRUE;
+    }
+    /* The residency-only placeholder being replaced by the real export.
+     * Release it before minting the export: the free is by resource (the
+     * only form the runtime accepts for an allocation minted on one), so
+     * after the allocation it would take the export too.  The placeholder
+     * itself has to be on the resource for the runtime's residency calls,
+     * so the two cannot be swapped round; on failure the placeholder is
+     * minted again. */
+    const BOOL hadPlaceholder = r->hKMAllocation != 0;
     triton12DeallocateKM(p, r->hRTResource.handle, &r->hKMAllocation);
     r->ResidencyOnlyAlloc = FALSE;
     HRESULT hr = p->pUMCallbacks->pfnAllocateCb(p->hRTDevice, &cb);
     if (FAILED(hr) || !ai.hAllocation) {
         TR_LOG("12.shared: pfnAllocateCb failed hr=0x%08lx",
                (unsigned long)hr);
-        /* Residency still needs an allocation on the resource; a later
-         * attempt replaces this one again. */
         if (hadPlaceholder)
             triton12RegisterResidencyAlloc(p, r);
+        ReleaseSRWLockExclusive(&p->KmAllocLock);
         return FALSE;
     }
     r->hKMAllocation = ai.hAllocation;
+    ReleaseSRWLockExclusive(&p->KmAllocLock);
     tritonKmRequestResidency(&p->Km, ai.hAllocation);
     TR_LOG_HOT("12.shared: exporter blob_id=0x%llx alloc=0x%x %llux%u primary=%d",
            (unsigned long long)ax.OptionsShared.blob_id, ai.hAllocation,

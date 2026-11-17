@@ -85,6 +85,12 @@ typedef struct TRITON12_DEVICE
      * a list create. */
     ID3D12CommandAllocator      *pScratchAlloc[TRITON12_POOL_TYPES];
     CRITICAL_SECTION             ScratchLock;
+    /* Serialises triton12RegisterSharedBlob: the present thread and the
+     * runtime's CheckResourceAllocationHandle can both replace the same
+     * resource's placeholder, and the replacement frees by resource, so
+     * an unserialised second caller would free the export the first one
+     * just minted. */
+    SRWLOCK                      KmAllocLock;
     /* Escapes, runtime virtio context and residency requests on the
      * runtime's kernel device (tritonKm.h); its lock is QueueLock. */
     TRITON_KM                    Km;
