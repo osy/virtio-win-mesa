@@ -35,10 +35,14 @@ umd_version = get_option('npt_umd_version')
 if umd_version.split('.').length() != 4
   error('npt_umd_version must be four dot-separated numbers, got "@0@"'.format(umd_version))
 endif
+# git_sha1.h supplies the source revision for the product version string.
 umd_version_rc = import('windows').compile_resources(
   files('neptune_umd.rc'),
   args : ['/dVER=' + umd_version,
-          '/dVER_COMMA=' + ','.join(umd_version.split('.'))],
+          '/dVER_COMMA=' + ','.join(umd_version.split('.')),
+          '/dVER_GIT_SHA1_H'],
+  include_directories : inc_src,
+  depends : sha1_h,
 )
 
 libneptune_umd = shared_library(

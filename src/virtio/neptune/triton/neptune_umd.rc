@@ -7,12 +7,28 @@
  * meson build and the ARM64X forwarder link share this one file; the package
  * builder passes the INF DriverVer, which Windows requires the UMD's file
  * version to match.
+ *
+ * The product version string also names the source revision, for example
+ * "100.6.101.58000 (git-0123456789)", so a binary can be traced back to the
+ * commit it was built from.  The meson build takes it from git_sha1.h
+ * (VER_GIT_SHA1_H); the ARM64X forwarder link passes the revision of its
+ * payload as a bare token (VER_GIT=git-0123456789).  With neither, the product
+ * version is the plain file version.
  */
 
 #include <windows.h>
 
 #define NPT_RC_STR2(x) #x
 #define NPT_RC_STR(x) NPT_RC_STR2(x)
+
+#if defined(VER_GIT)
+#define NPT_RC_REVISION " (" NPT_RC_STR(VER_GIT) ")"
+#elif defined(VER_GIT_SHA1_H)
+#include "git_sha1.h"
+#define NPT_RC_REVISION MESA_GIT_SHA1
+#else
+#define NPT_RC_REVISION ""
+#endif
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION VER_COMMA
@@ -33,7 +49,7 @@ VS_VERSION_INFO VERSIONINFO
             VALUE "InternalName", "neptune_umd"
             VALUE "OriginalFilename", "neptune_umd.dll"
             VALUE "ProductName", "Neptune"
-            VALUE "ProductVersion", NPT_RC_STR(VER)
+            VALUE "ProductVersion", NPT_RC_STR(VER) NPT_RC_REVISION
         }
     }
     BLOCK "VarFileInfo"

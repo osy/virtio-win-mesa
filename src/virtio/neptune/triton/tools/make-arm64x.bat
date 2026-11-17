@@ -179,7 +179,14 @@ for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "(Get-Item -Li
 if not defined UMD_VERSION ( echo [error] %NATIVE_INPUT% carries no file version.& popd & goto :fail )
 set "UMD_VERSION_COMMA=%UMD_VERSION:.=,%"
 echo [info] version        : %UMD_VERSION%
-rc /nologo /dVER=%UMD_VERSION% /dVER_COMMA=%UMD_VERSION_COMMA% /fo version.res "%SRC_RC%"
+rem     The payload's product version names its source revision, as in
+rem     "1.2.3.4 (git-0123456789)"; hand the same revision to the forwarder.
+set "UMD_REVISION="
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "if ((Get-Item -LiteralPath '%NATIVE_INPUT%').VersionInfo.ProductVersion -match '\((git-[^)]+)\)') { $Matches[1] }"`) do set "UMD_REVISION=%%V"
+set "RC_REVISION="
+if defined UMD_REVISION set "RC_REVISION=/dVER_GIT=%UMD_REVISION%"
+if defined UMD_REVISION echo [info] revision       : %UMD_REVISION%
+rc /nologo /dVER=%UMD_VERSION% /dVER_COMMA=%UMD_VERSION_COMMA% %RC_REVISION% /fo version.res "%SRC_RC%"
 if errorlevel 1 ( echo [error] rc failed building the version resource.& popd & goto :fail )
 
 rem --- Import libs materializing each view's forwarder exports. ----------------
