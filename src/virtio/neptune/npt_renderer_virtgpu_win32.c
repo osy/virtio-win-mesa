@@ -1065,6 +1065,53 @@ virtgpu_load_d3dkmt(struct npt_virtgpu *gpu)
    return true;
 }
 
+/* Session 0 (services) has no GDI display devices, so the HDC route
+ * finds nothing there; enumerate the WDDM adapters instead. */
+static bool
+virtgpu_find_adapter_by_enum(struct npt_virtgpu *gpu)
+{
+   typedef NTSTATUS (APIENTRY *PFN_ENUMADAPTERS2)(D3DKMT_ENUMADAPTERS2 *);
+   PFN_ENUMADAPTERS2 enum2 =
+      (PFN_ENUMADAPTERS2)(void *)GetProcAddress(gpu->gdi32, "D3DKMTEnumAdapters2");
+   if (!enum2)
+      return false;
+   D3DKMT_ENUMADAPTERS2 e = { 0 };
+   if (!NT_SUCCESS(enum2(&e)) || !e.NumAdapters)
+      return false;
+   D3DKMT_ADAPTERINFO *info = calloc(e.NumAdapters, sizeof(*info));
+   if (!info)
+      return false;
+   e.pAdapters = info;
+   if (!NT_SUCCESS(enum2(&e))) {
+      free(info);
+      return false;
+   }
+   bool found = false;
+   for (ULONG i = 0; i < e.NumAdapters; i++) {
+      D3DKMT_QUERY_DEVICE_IDS ids = { 0 };
+      D3DKMT_QUERYADAPTERINFO q = {
+         .hAdapter = info[i].hAdapter,
+         .Type = KMTQAITYPE_PHYSICALADAPTERDEVICEIDS,
+         .pPrivateDriverData = &ids,
+         .PrivateDriverDataSize = sizeof(ids),
+      };
+      if (!found && NT_SUCCESS(gpu->cb.queryAdapterInfo(&q)) &&
+          ids.DeviceIds.VendorID == 0x1AF4 && ids.DeviceIds.DeviceID == 0x1050) {
+         gpu->adapter = info[i].hAdapter;
+         gpu->luid = info[i].AdapterLuid;
+         found = true;
+         continue;
+      }
+      D3DKMT_CLOSEADAPTER close = { .hAdapter = info[i].hAdapter };
+      gpu->cb.closeAdapter(&close);
+   }
+   free(info);
+   if (found)
+      npt_debug("virtgpu: opened adapter by enumeration (LUID %lx-%lx)",
+                gpu->luid.HighPart, gpu->luid.LowPart);
+   return found;
+}
+
 static bool
 virtgpu_find_adapter(struct npt_virtgpu *gpu)
 {
@@ -1096,6 +1143,8 @@ virtgpu_find_adapter(struct npt_virtgpu *gpu)
                 open.AdapterLuid.LowPart);
       return true;
    }
+   if (virtgpu_find_adapter_by_enum(gpu))
+      return true;
    npt_log("virtgpu: no PCI device matching %s", VIRTGPU_WIN_DEVICE_ID);
    return false;
 }
