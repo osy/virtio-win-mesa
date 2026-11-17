@@ -73,10 +73,10 @@ bool npt_shared_texture_export_blob(void *texture_wrapper,
  * with no fixup.  Takes/returns DXGI_FORMAT values. */
 uint32_t npt_shared_texture_host_format(uint32_t dxgi_format);
 
-/* DXGI B8G8R8A8/R8G8B8A8-family formats -> enum virgl_formats (the
- * wire namespace SET_SCANOUT_BLOB and the WSI backend consume).  Only
- * the scanout-capable subset is mapped; anything else falls back to
- * B8G8R8A8 with a log. */
+/* DXGI B8G8R8A8/R8G8B8A8-family and R10G10B10A2_UNORM formats -> enum
+ * virgl_formats (the wire namespace SET_SCANOUT_BLOB and the WSI backend
+ * consume).  Only the scanout-capable subset is mapped; anything else
+ * falls back to B8G8R8A8 with a log. */
 uint32_t npt_shared_texture_virgl_format(uint32_t dxgi_format);
 
 /* Exact DXGI -> enum virgl_formats for a blob the host copies from (a blt
