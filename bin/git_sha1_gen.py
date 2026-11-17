@@ -44,7 +44,9 @@ parser.add_argument('--output', help='File to write the #define in',
 args = parser.parse_args()
 
 git_sha1 = os.environ.get('MESA_GIT_SHA1_OVERRIDE', get_git_sha1())[:10]
+# The trailing newline matters: rc.exe rejects an include without one, and
+# neptune_umd.rc includes this header.
 if git_sha1:
-    write_if_different('#define MESA_GIT_SHA1 " (git-' + git_sha1 + ')"')
+    write_if_different('#define MESA_GIT_SHA1 " (git-' + git_sha1 + ')"\n')
 else:
-    write_if_different('#define MESA_GIT_SHA1 ""')
+    write_if_different('#define MESA_GIT_SHA1 ""\n')
