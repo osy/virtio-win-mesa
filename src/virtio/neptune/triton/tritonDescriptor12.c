@@ -286,6 +286,14 @@ t12CreateShaderResourceView(D3D12DDI_HDEVICE hDevice,
             vd.TextureCube.ResourceMinLODClamp = pArgs->TexCube.ResourceMinLODClamp;
         }
         break;
+    case D3D12DDI_RD_RAYTRACING_ACCELERATION_STRUCTURE_0042:
+        /* No resource: the view is just the (host) GPU VA of the TLAS. */
+        vd.Format = DXGI_FORMAT_UNKNOWN;
+        vd.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+        vd.RaytracingAccelerationStructure.Location =
+            pArgs->RaytracingAccelerationStructure.Location;
+        ID3D12Device_CreateShaderResourceView(p->pDev, NULL, &vd, dst);
+        return;
     case D3D12DDI_RD_TEXTURE2D:
     default:
         if (msaa) {

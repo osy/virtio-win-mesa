@@ -19,6 +19,7 @@
 #include <stdio.h>
 
 /* Statically linked from npt_entry_d3d12.c / npt_entry_d3d11.c. */
+UINT npt_d3d12_host_raytracing_tier(void *device);
 HRESULT
 npt_d3d12_create_device_internal(IUnknown *pAdapter,
                                  D3D_FEATURE_LEVEL MinimumFeatureLevel,
@@ -88,6 +89,9 @@ tritonHostCaps12Snapshot(struct triton_host_caps12 *s, ID3D12Device **ppDev)
     HC12_QUERY(TRITON_HC12_OPTIONS9, TRITON_HC12_FEATURE_OPTIONS9, options9);
     HC12_QUERY(TRITON_HC12_OPTIONS11, TRITON_HC12_FEATURE_OPTIONS11, options11);
 #undef HC12_QUERY
+    if (s->have & TRITON_HC12_OPTIONS5)
+        s->options5.RaytracingTier =
+            (D3D12_RAYTRACING_TIER)npt_d3d12_host_raytracing_tier(dev);
 
     /* GLOBAL_REALTIME queue priority is answered per queue type; fold the
      * three answers into one DDI queue-flag mask.  A query the host

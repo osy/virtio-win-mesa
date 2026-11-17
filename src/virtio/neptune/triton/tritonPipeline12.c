@@ -555,8 +555,9 @@ t12CreateRootSignature(D3D12DDI_HDEVICE hDevice,
     vdesc.Desc_1_1.pParameters = params;
     vdesc.Desc_1_1.NumStaticSamplers = src->NumStaticSamplers;
     vdesc.Desc_1_1.pStaticSamplers = samplers;
-    /* The classic 1.0 set plus the two *_HEAP_DIRECTLY_INDEXED bits. */
-    vdesc.Desc_1_1.Flags = (D3D12_ROOT_SIGNATURE_FLAGS)(src->Flags & 0xC7F);
+    /* The classic 1.0 set, LOCAL_ROOT_SIGNATURE (DXR shader-table
+     * arguments) and the two *_HEAP_DIRECTLY_INDEXED bits. */
+    vdesc.Desc_1_1.Flags = (D3D12_ROOT_SIGNATURE_FLAGS)(src->Flags & 0xCFF);
     hr = t12SerializeAndCreateRootSignature(p, pArgs->NodeMask, &vdesc, rs);
 
 out:

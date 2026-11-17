@@ -11,7 +11,10 @@
 
 #include "neptune-protocol/npt_protocol_defs.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+#include "npt_com.h"
 
 /* ==========================================================================
  * COM
@@ -60,6 +63,66 @@ npt_dispatch_com_query_interface(struct npt_ring *ring, uint64_t src_id,
    if (dec)
       npt_ring_free_command_reply(ring, &submit);
 
+   return hr;
+}
+
+/* DXR shader identifier of export `name` (NUL-terminated UTF-16) of the state
+ * object behind `self`, an ID3D12StateObjectProperties wrapper.  Synchronous.
+ * Called by Triton, which cannot include the npt headers, hence the plain
+ * signature. */
+HRESULT
+npt_com_get_shader_identifier(void *self, const uint16_t *name,
+                              void *out_identifier)
+{
+   if (!self || !name || !out_identifier)
+      return NPT_E_INVALIDARG;
+   struct npt_ring *ring = npt_com_self_ring(self);
+   const uint64_t id = npt_com_self_id(self);
+   if (!ring || !id)
+      return NPT_E_FAIL;
+   uint32_t units = 0;
+   while (name[units] && units < 4095)
+      units++;
+   units++; /* terminator */
+   const size_t padded = ((size_t)units * 2 + 7) & ~(size_t)7;
+   const size_t total = sizeof(struct npt_cmd_com_get_shader_identifier) + padded;
+   uint8_t *buf = calloc(1, total);
+   if (!buf)
+      return NPT_E_OUTOFMEMORY;
+   struct npt_cmd_com_get_shader_identifier *cmd =
+      (struct npt_cmd_com_get_shader_identifier *)buf;
+   cmd->header.cmd_type =
+      NPT_TRANSPORT_CMD_TYPE(NPT_TRANSPORT_SUBGROUP_COM,
+                             NPT_TRANSPORT_COM_GET_SHADER_IDENTIFIER);
+   cmd->header.cmd_flags = NPT_CMD_FLAG_REPLY;
+   cmd->header.cmd_size = (uint32_t)total;
+   cmd->header.object_id = id;
+   cmd->name_units = units;
+   memcpy(buf + sizeof(*cmd), name, (size_t)(units - 1) * 2);
+
+   struct npt_ring_submit_command submit;
+   memset(&submit, 0, sizeof(submit));
+   struct npt_cs_encoder *enc = npt_ring_submit_command_init(
+      ring, &submit, buf, total,
+      sizeof(struct npt_cmd_com_get_shader_identifier_reply));
+   if (enc)
+      enc->cur = buf + total;
+   npt_ring_submit_command(ring, &submit);
+
+   struct npt_cs_decoder *dec = npt_ring_get_command_reply(ring, &submit);
+   HRESULT hr = NPT_E_FAIL;
+   if (dec && dec->cur && dec->end &&
+       (size_t)(dec->end - dec->cur) >=
+          sizeof(struct npt_cmd_com_get_shader_identifier_reply)) {
+      const struct npt_cmd_com_get_shader_identifier_reply *reply =
+         (const struct npt_cmd_com_get_shader_identifier_reply *)dec->cur;
+      hr = (HRESULT)reply->header.cmd_return;
+      if (hr == NPT_S_OK)
+         memcpy(out_identifier, reply->identifier, NPT_SHADER_IDENTIFIER_SIZE);
+   }
+   if (dec)
+      npt_ring_free_command_reply(ring, &submit);
+   free(buf);
    return hr;
 }
 
